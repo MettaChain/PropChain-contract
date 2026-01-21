@@ -1,0 +1,32 @@
+[workspace]
+members = [
+    "contracts/lib",
+    "contracts/traits",
+]
+resolver = "2"
+
+[workspace.package]
+authors = ["PropChain Team <dev@propchain.io>"]
+edition = "2021"
+homepage = "https://propchain.io"
+license = "MIT"
+repository = "https://github.com/MettaChain/PropChain-contract"
+version = "1.0.0"
+
+[workspace.dependencies]
+ink = { version = "4.0.0", default-features = false }
+scale = { package = "parity-scale-codec", version = "3.6.9", default-features = false, features = ["derive"] }
+scale-info = { version = "2.10.0", default-features = false, features = ["derive"] }
+
+[profile.release]
+overflow-checks = false
+lto = "fat"
+codegen-units = 1
+opt-level = "z"
+strip = true
+panic = "abort"
+
+[profile.dev]
+overflow-checks = true
+lto = "thin"
+opt-level = 1

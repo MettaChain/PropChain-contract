@@ -48,18 +48,20 @@ Ensure you have the following installed:
 git clone https://github.com/MettaChain/PropChain-contract.git
 cd PropChain-contract
 
-# 2. Install Rust and ink!
-curl https://sh.rustup.rs -sSf | sh
-cargo install cargo-contract --locked
+# 2. Run automated setup
+./scripts/setup.sh
 
-# 3. Build the contracts
-cargo contract build
+# 3. Start local development environment
+docker-compose up -d
 
-# 4. Run tests
-cargo test
+# 4. Build the contracts
+./scripts/build.sh --release
 
-# 5. Deploy locally (optional)
-cargo contract instantiate --constructor new --args default
+# 5. Run tests
+./scripts/test.sh
+
+# 6. Deploy locally (optional)
+./scripts/deploy.sh --network local
 ```
 
 The contracts will be compiled and ready for deployment to Substrate-based networks.
@@ -68,31 +70,23 @@ The contracts will be compiled and ready for deployment to Substrate-based netwo
 
 ### Development Environment
 ```bash
-cargo contract build        # Build contracts in debug mode
-cargo contract test         # Run unit tests
+./scripts/build.sh        # Build contracts in debug mode
+./scripts/test.sh         # Run unit tests
 cargo test                 # Run all tests including integration
 ```
 
 ### Production Deployment
 ```bash
-cargo contract build --release  # Build optimized contracts
-cargo contract instantiate       # Deploy to network
-cargo contract call             # Execute contract methods
+./scripts/build.sh --release  # Build optimized contracts
+./scripts/deploy.sh --network westend  # Deploy to testnet
+./scripts/deploy.sh --network polkadot  # Deploy to mainnet
 ```
 
 ### Testing Suite
 ```bash
-cargo test                      # Run all tests
-cargo contract test             # Contract-specific tests
-cargo test --release            # Run tests in release mode
-```
-
-### Contract Management
-```bash
-cargo contract build            # Compile contracts
-cargo contract instantiate      # Deploy to testnet
-cargo contract upload          # Deploy to mainnet
-cargo contract info            # Get contract information
+./scripts/test.sh                      # Run all tests
+./scripts/test.sh --coverage           # Run with coverage
+./scripts/e2e-test.sh                  # Run E2E tests
 ```
 
 ## 🌐 Network Configuration
@@ -126,6 +120,11 @@ TARGET=wasm32-unknown-unknown
 - **[🚀 Deployment Guide](./docs/deployment.md)** - Contract deployment best practices
 - **[🏗️ Architecture](./docs/architecture.md)** - Contract design and technical architecture
 
+### Development Documentation
+- **[🛠️ Development Setup](./DEVELOPMENT.md)** - Complete development environment setup
+- **[📋 Contributing Guide](./CONTRIBUTING.md)** - How to contribute effectively
+- **[🎓 Tutorials](./docs/tutorials/)** - Step-by-step integration tutorials
+
 ### Repository Structure
 ```
 PropChain-contract/
@@ -137,21 +136,9 @@ PropChain-contract/
 ├── 📁 tests/              # Integration and E2E tests
 ├── 📁 docs/               # Comprehensive documentation
 ├── 📁 .github/            # CI/CD workflows and issue templates
-├── � Cargo.toml          # Rust project configuration
-└── � .ink/               # ink! configuration files
+├── 🐳 docker-compose.yml  # Local development stack
+└── 📦 Cargo.toml          # Rust project configuration
 ```
-
-### Contributing
-- **[🤝 Contributing Guide](./CONTRIBUTING.md)** - How to contribute effectively
-- **[📋 Code of Conduct](./CODE_OF_CONDUCT.md)** - Community guidelines and standards
-- **[🐛 Issue Templates](./.github/ISSUE_TEMPLATE/)** - Standardized issue reporting
-- **[💡 Feature Requests](./.github/ISSUE_TEMPLATE/feature_request.md)** - Feature proposal template
-
-### Additional Resources
-- **[🌐 Frontend Application](https://github.com/MettaChain/PropChain-FrontEnd)** - Client-side React/Next.js application
-- **[🔒 Security Audits](./audits/)** - Third-party security audit reports
-- **[📊 Performance Metrics](./docs/performance.md)** - Benchmarks and optimization guides
-- **[🎓 Tutorials](./docs/tutorials/)** - Step-by-step integration tutorials
 
 ## 🛠️ Technology Stack
 
@@ -164,22 +151,56 @@ PropChain-contract/
 ### Development Tools
 - **🛠️ Build**: Cargo - Rust package manager and build system
 - **🧪 Testing**: Built-in Rust testing framework + ink! testing
-- **� Documentation**: rustdoc - Auto-generated documentation
+- **📖 Documentation**: rustdoc - Auto-generated documentation
 - **🔄 CI/CD**: GitHub Actions - Automated testing and deployment
 
 ### Blockchain Infrastructure
 - **⛓️ Networks**: Polkadot, Kusama, Substrate parachains
 - **🔐 Wallets**: Polkadot.js, Substrate-native wallets
 - **📊 Oracles**: Chainlink, Substrate price feeds
-- **� Explorers**: Subscan, Polkadot.js explorer
+- **🔍 Explorers**: Subscan, Polkadot.js explorer
 
 ### Security & Verification
-- **� Security**: Formal verification with cargo-contract
-- **🛡️ Auditing**: Comprehensive security audit process
+- **🛡️ Security**: Formal verification with cargo-contract
+- **🔍 Auditing**: Comprehensive security audit process
 - **📋 Standards**: ERC-721/1155 compatibility layers
-- **🔍 Testing**: Property-based testing with proptest
+- **🧪 Testing**: Property-based testing with proptest
 
----
+## 🏆 Project Status
+
+### ✅ Completed Features
+- [x] Property Registry Contract
+- [x] Escrow System
+- [x] Token Contract (ERC-721 compatible)
+- [x] Access Control System
+- [x] Development Environment
+- [x] CI/CD Pipeline
+- [x] Comprehensive Testing
+- [x] Documentation
+
+### 🚧 In Progress
+- [ ] Oracle Integration
+- [ ] Cross-chain Bridge
+- [ ] Mobile SDK
+- [ ] Advanced Analytics
+
+### 📋 Planned Features
+- [ ] Governance System
+- [ ] Insurance Integration
+- [ ] Mortgage Lending Protocol
+- [ ] Property Marketplace
+
+## 🤝 Contributing
+
+We welcome contributions! Please read our [Contributing Guide](./CONTRIBUTING.md) to get started. 
+
+**Quick contribution steps:**
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Run tests (`./scripts/test.sh`)
+4. Commit your changes (`git commit -m 'Add amazing feature'`)
+5. Push to the branch (`git push origin feature/amazing-feature`)
+6. Open a Pull Request
 
 ## 📄 License
 
@@ -193,16 +214,10 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 - **📖 Documentation**: [docs.propchain.io](https://docs.propchain.io)
 - **💬 Discord**: [PropChain Community](https://discord.gg/propchain)
 
-### Contributing
-We welcome contributions! Please read our [Contributing Guide](./CONTRIBUTING.md) to get started. 
-
-**Quick contribution steps:**
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Run tests (`cargo test`)
-4. Commit your changes (`git commit -m 'Add amazing feature'`)
-5. Push to the branch (`git push origin feature/amazing-feature`)
-6. Open a Pull Request
+### Additional Resources
+- **[🌐 Frontend Application](https://github.com/MettaChain/PropChain-FrontEnd)** - Client-side React/Next.js application
+- **[🔒 Security Audits](./audits/)** - Third-party security audit reports
+- **[📊 Performance Metrics](./docs/performance.md)** - Benchmarks and optimization guides
 
 ---
 

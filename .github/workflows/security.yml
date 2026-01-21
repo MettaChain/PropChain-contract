@@ -1,0 +1,125 @@
+name: Security Scan
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Run daily at 2 AM UTC
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+    
+    - name: Run security audit
+      run: cargo audit
+    
+    - name: Run cargo-deny
+      uses: EmbarkStudios/cargo-deny-action@v1
+
+  smart-contract-analysis:
+    name: Smart Contract Analysis
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    
+    - name: Add WASM target
+      run: rustup target add wasm32-unknown-unknown
+    
+    - name: Install cargo-contract
+      run: cargo install cargo-contract --locked
+    
+    - name: Build contracts
+      run: |
+        cd contracts
+        for dir in */; do
+          if [ -f "$dir/Cargo.toml" ]; then
+            cd "$dir"
+            cargo contract build --release
+            cd ..
+          fi
+        done
+    
+    - name: Run Slither analysis
+      uses: crytic/slither-action@v0.3.0
+      id: slither
+      with:
+        target: 'contracts/'
+        slither-args: '--filter-paths "contracts/lib/" --exclude naming-convention,external-function'
+        fail-on: none
+    
+    - name: Upload Slither results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: slither-results.sarif
+
+  dependency-check:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  code-quality:
+    name: Code Quality Analysis
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+        components: clippy
+    
+    - name: Run clippy with security lints
+      run: |
+        cargo clippy --all-targets --all-features -- \
+          -W clippy::integer_arithmetic \
+          -W clippy::float_arithmetic \
+          -W clippy::indexing_slicing \
+          -W clippy::panic \
+          -W clippy::unimplemented \
+          -W clippy::todo
+    
+    - name: Run cargo-deny
+      uses: EmbarkStudios/cargo-deny-action@v1
+      with:
+        command: check

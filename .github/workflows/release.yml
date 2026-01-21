@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+
+  build-and-upload:
+    name: Build and Upload
+    runs-on: ubuntu-latest
+    needs: create-release
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    
+    - name: Add WASM target
+      run: rustup target add wasm32-unknown-unknown
+    
+    - name: Install cargo-contract
+      run: cargo install cargo-contract --locked
+    
+    - name: Build contracts
+      run: |
+        mkdir -p release
+        cd contracts
+        for dir in */; do
+          if [ -f "$dir/Cargo.toml" ]; then
+            cd "$dir"
+            cargo contract build --release
+            cp target/ink/*.contract ../../release/
+            cp target/ink/*.wasm ../../release/
+            cd ..
+          fi
+        done
+    
+    - name: Upload Release Assets
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./release/
+        asset_name: propchain-contracts
+        asset_content_type: application/zip
+
+  deploy-mainnet:
+    name: Deploy to Mainnet
+    runs-on: ubuntu-latest
+    needs: [create-release, build-and-upload]
+    environment: mainnet
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    
+    - name: Add WASM target
+      run: rustup target add wasm32-unknown-unknown
+    
+    - name: Install cargo-contract
+      run: cargo install cargo-contract --locked
+    
+    - name: Deploy to Polkadot mainnet
+      env:
+        SURI: ${{ secrets.POLKADOT_SURI }}
+      run: |
+        ./scripts/deploy.sh --network polkadot

@@ -1,0 +1,23 @@
+[package]
+name = "propchain-traits"
+version = "1.0.0"
+authors = ["PropChain Team <dev@propchain.io>"]
+edition = "2021"
+publish = false
+
+[dependencies]
+ink = { workspace = true, features = ["std"] }
+scale = { workspace = true, features = ["std"] }
+scale-info = { workspace = true, features = ["std"] }
+
+[lib]
+name = "propchain_traits"
+path = "src/lib.rs"
+
+[features]
+default = ["std"]
+std = [
+    "ink/std",
+    "scale/std",
+    "scale-info/std",
+]
