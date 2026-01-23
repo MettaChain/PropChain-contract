@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub mod pausable;
+pub use pausable::*;
 
 #[cfg(not(feature = "std"))]
 use scale_info::prelude::string::String;
