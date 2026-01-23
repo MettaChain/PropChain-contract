@@ -124,15 +124,47 @@ mod propchain_contracts {
         pub max_gas_used: u64,
     }
 
+    // ============================================================================
+    // STRUCTURED EVENT SYSTEM - Version 1.0
+    // ============================================================================
+    // All events follow a standardized format with:
+    // - Indexed fields (topics) for efficient querying
+    // - Timestamps and block numbers for historical tracking
+    // - Event versioning for future compatibility
+    // - Detailed metadata for off-chain indexing
+    // ============================================================================
+
+    /// Event emitted when the contract is initialized
+    #[ink(event)]
+    pub struct ContractInitialized {
+        #[ink(topic)]
+        admin: AccountId,
+        #[ink(topic)]
+        contract_version: u32,
+        timestamp: u64,
+        block_number: u32,
+    }
+
+    /// Event emitted when a property is registered
+    /// Indexed fields: property_id, owner for efficient filtering
     #[ink(event)]
     pub struct PropertyRegistered {
         #[ink(topic)]
         property_id: u64,
         #[ink(topic)]
         owner: AccountId,
-        version: u8,
+        #[ink(topic)]
+        event_version: u8,
+        location: String,
+        size: u64,
+        valuation: u128,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
     }
 
+    /// Event emitted when property ownership is transferred
+    /// Indexed fields: property_id, from, to for efficient querying
     #[ink(event)]
     pub struct PropertyTransferred {
         #[ink(topic)]
@@ -141,83 +173,218 @@ mod propchain_contracts {
         from: AccountId,
         #[ink(topic)]
         to: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+        transferred_by: AccountId, // The account that initiated the transfer
     }
 
+    /// Event emitted when property metadata is updated
+    /// Indexed fields: property_id, owner for efficient filtering
     #[ink(event)]
     pub struct PropertyMetadataUpdated {
         #[ink(topic)]
         property_id: u64,
-        metadata: PropertyMetadata,
+        #[ink(topic)]
+        owner: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        old_location: String,
+        new_location: String,
+        old_valuation: u128,
+        new_valuation: u128,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
     }
 
+    /// Event emitted when an account is approved to transfer a property
+    /// Indexed fields: property_id, owner, approved for efficient querying
     #[ink(event)]
-    pub struct Approval {
+    pub struct ApprovalGranted {
         #[ink(topic)]
         property_id: u64,
         #[ink(topic)]
         owner: AccountId,
         #[ink(topic)]
         approved: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
     }
 
+    /// Event emitted when an approval is cleared/revoked
+    /// Indexed fields: property_id, owner for efficient querying
+    #[ink(event)]
+    pub struct ApprovalCleared {
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        owner: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+    }
+
+    /// Event emitted when an escrow is created
+    /// Indexed fields: escrow_id, property_id, buyer, seller for efficient querying
     #[ink(event)]
     pub struct EscrowCreated {
         #[ink(topic)]
         escrow_id: u64,
+        #[ink(topic)]
         property_id: u64,
+        #[ink(topic)]
         buyer: AccountId,
+        #[ink(topic)]
         seller: AccountId,
+        #[ink(topic)]
+        event_version: u8,
         amount: u128,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
     }
 
+    /// Event emitted when escrow is released and property transferred
+    /// Indexed fields: escrow_id, property_id, buyer for efficient querying
     #[ink(event)]
     pub struct EscrowReleased {
         #[ink(topic)]
         escrow_id: u64,
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        buyer: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        amount: u128,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+        released_by: AccountId,
     }
 
+    /// Event emitted when escrow is refunded
+    /// Indexed fields: escrow_id, property_id, seller for efficient querying
     #[ink(event)]
     pub struct EscrowRefunded {
         #[ink(topic)]
         escrow_id: u64,
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        seller: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        amount: u128,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+        refunded_by: AccountId,
+    }
+
+    /// Event emitted when admin is changed
+    /// Indexed fields: old_admin, new_admin for efficient querying
+    #[ink(event)]
+    pub struct AdminChanged {
+        #[ink(topic)]
+        old_admin: AccountId,
+        #[ink(topic)]
+        new_admin: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+        changed_by: AccountId,
     }
 
     /// Batch event for multiple property registrations
+    /// Indexed fields: owner for efficient filtering
     #[ink(event)]
     pub struct BatchPropertyRegistered {
-        property_ids: Vec<u64>,
+        #[ink(topic)]
         owner: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        property_ids: Vec<u64>,
         count: u64,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
     }
 
-    /// Batch event for multiple property transfers
+    /// Batch event for multiple property transfers to the same recipient
+    /// Indexed fields: from, to for efficient querying
     #[ink(event)]
     pub struct BatchPropertyTransferred {
-        property_ids: Vec<u64>,
+        #[ink(topic)]
         from: AccountId,
+        #[ink(topic)]
         to: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        property_ids: Vec<u64>,
         count: u64,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+        transferred_by: AccountId,
     }
 
     /// Batch event for multiple metadata updates
+    /// Indexed fields: owner for efficient filtering
     #[ink(event)]
     pub struct BatchMetadataUpdated {
+        #[ink(topic)]
+        owner: AccountId,
+        #[ink(topic)]
+        event_version: u8,
         property_ids: Vec<u64>,
         count: u64,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+    }
+
+    /// Batch event for multiple property transfers to different recipients
+    /// Indexed fields: from for efficient querying
+    #[ink(event)]
+    pub struct BatchPropertyTransferredToMultiple {
+        #[ink(topic)]
+        from: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        transfers: Vec<(u64, AccountId)>, // (property_id, to)
+        count: u64,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+        transferred_by: AccountId,
     }
 
     impl PropertyRegistry {
         /// Creates a new PropertyRegistry contract
         #[ink(constructor)]
         pub fn new() -> Self {
-            Self {
+            let caller = Self::env().caller();
+            let env = Self::env();
+            
+            let contract = Self {
                 properties: Mapping::default(),
                 owner_properties: Mapping::default(),
                 property_owners: Mapping::default(),
                 approvals: Mapping::default(),
                 property_count: 0,
                 version: 1,
-                admin: Self::env().caller(),
+                admin: caller,
                 escrows: Mapping::default(),
                 escrow_count: 0,
                 gas_tracker: GasTracker {
@@ -227,13 +394,56 @@ mod propchain_contracts {
                     min_gas_used: u64::MAX,
                     max_gas_used: 0,
                 },
-            }
+            };
+
+            // Emit contract initialization event
+            env.emit_event(ContractInitialized {
+                admin: caller,
+                contract_version: 1,
+                timestamp: env.block_timestamp(),
+                block_number: env.block_number(),
+            });
+
+            contract
         }
 
         /// Returns the contract version
         #[ink(message)]
         pub fn version(&self) -> u32 {
             self.version
+        }
+
+        /// Returns the admin account
+        #[ink(message)]
+        pub fn admin(&self) -> AccountId {
+            self.admin
+        }
+
+        /// Changes the admin account (only callable by current admin)
+        #[ink(message)]
+        pub fn change_admin(&mut self, new_admin: AccountId) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            let old_admin = self.admin;
+            self.admin = new_admin;
+
+            // Emit enhanced admin changed event
+            let env = self.env();
+            let transaction_hash = env.hash_encoded(&(&old_admin, &new_admin, env.block_timestamp()));
+            env.emit_event(AdminChanged {
+                old_admin,
+                new_admin,
+                event_version: 1,
+                timestamp: env.block_timestamp(),
+                block_number: env.block_number(),
+                transaction_hash,
+                changed_by: caller,
+            });
+
+            Ok(())
         }
 
         /// Registers a new property
@@ -261,10 +471,19 @@ mod propchain_contracts {
             // Track gas usage
             self.track_gas_usage("register_property".as_bytes());
 
-            self.env().emit_event(PropertyRegistered {
+            // Emit enhanced property registration event
+            let env = self.env();
+            let transaction_hash = env.hash_encoded(&(&caller, property_id, env.block_timestamp()));
+            env.emit_event(PropertyRegistered {
                 property_id,
                 owner: caller,
-                version: 1,
+                event_version: 1,
+                location: property_info.metadata.location.clone(),
+                size: property_info.metadata.size,
+                valuation: property_info.metadata.valuation,
+                timestamp: property_info.registered_at,
+                block_number: env.block_number(),
+                transaction_hash,
             });
 
             Ok(property_id)
@@ -305,10 +524,18 @@ mod propchain_contracts {
             // Track gas usage
             self.track_gas_usage("transfer_property".as_bytes());
 
-            self.env().emit_event(PropertyTransferred {
+            // Emit enhanced property transfer event
+            let env = self.env();
+            let transaction_hash = env.hash_encoded(&(&from, &to, property_id, env.block_timestamp()));
+            env.emit_event(PropertyTransferred {
                 property_id,
                 from,
                 to,
+                event_version: 1,
+                timestamp: env.block_timestamp(),
+                block_number: env.block_number(),
+                transaction_hash,
+                transferred_by: caller,
             });
 
             Ok(())
@@ -347,12 +574,27 @@ mod propchain_contracts {
                 return Err(Error::InvalidMetadata);
             }
 
+            // Store old metadata for event
+            let old_location = property.metadata.location.clone();
+            let old_valuation = property.metadata.valuation;
+
             property.metadata = metadata.clone();
             self.properties.insert(&property_id, &property);
 
-            self.env().emit_event(PropertyMetadataUpdated {
+            // Emit enhanced metadata update event
+            let env = self.env();
+            let transaction_hash = env.hash_encoded(&(&caller, property_id, env.block_timestamp()));
+            env.emit_event(PropertyMetadataUpdated {
                 property_id,
-                metadata,
+                owner: caller,
+                event_version: 1,
+                old_location,
+                new_location: metadata.location,
+                old_valuation,
+                new_valuation: metadata.valuation,
+                timestamp: env.block_timestamp(),
+                block_number: env.block_number(),
+                transaction_hash,
             });
 
             Ok(())
@@ -391,11 +633,17 @@ mod propchain_contracts {
             // Update owner properties once at the end
             self.owner_properties.insert(&caller, &owner_props);
 
-            // Emit single batch event instead of individual events for gas optimization
-            self.env().emit_event(BatchPropertyRegistered {
-                property_ids: results.clone(),
+            // Emit enhanced batch registration event
+            let env = self.env();
+            let transaction_hash = env.hash_encoded(&(&caller, &results, env.block_timestamp()));
+            env.emit_event(BatchPropertyRegistered {
                 owner: caller,
+                event_version: 1,
+                property_ids: results.clone(),
                 count: results.len() as u64,
+                timestamp: env.block_timestamp(),
+                block_number: env.block_number(),
+                transaction_hash,
             });
 
             // Track gas usage
@@ -444,16 +692,23 @@ mod propchain_contracts {
                 self.approvals.remove(property_id);
             }
 
-            // Emit single batch event instead of individual events for gas optimization
+            // Emit enhanced batch transfer event
             if !property_ids.is_empty() {
                 let first_property = self.properties.get(&property_ids[0]).ok_or(Error::PropertyNotFound)?;
                 let from = first_property.owner;
                 
-                self.env().emit_event(BatchPropertyTransferred {
-                    property_ids: property_ids.clone(),
+                let env = self.env();
+                let transaction_hash = env.hash_encoded(&(&from, &to, &property_ids, env.block_timestamp()));
+                env.emit_event(BatchPropertyTransferred {
                     from,
                     to,
+                    event_version: 1,
+                    property_ids: property_ids.clone(),
                     count: property_ids.len() as u64,
+                    timestamp: env.block_timestamp(),
+                    block_number: env.block_number(),
+                    transaction_hash,
+                    transferred_by: caller,
                 });
             }
 
@@ -492,11 +747,18 @@ mod propchain_contracts {
                 updated_property_ids.push(property_id);
             }
 
-            // Emit single batch event instead of individual events for gas optimization
+            // Emit enhanced batch metadata update event
             if !updated_property_ids.is_empty() {
-                self.env().emit_event(BatchMetadataUpdated {
+                let env = self.env();
+                let transaction_hash = env.hash_encoded(&(&caller, &updated_property_ids, env.block_timestamp()));
+                env.emit_event(BatchMetadataUpdated {
+                    owner: caller,
+                    event_version: 1,
                     property_ids: updated_property_ids,
                     count: updated_property_ids.len() as u64,
+                    timestamp: env.block_timestamp(),
+                    block_number: env.block_number(),
+                    transaction_hash,
                 });
             }
 
@@ -548,16 +810,22 @@ mod propchain_contracts {
                 transferred_property_ids.push(*property_id);
             }
 
-            // Emit single batch event instead of individual events for gas optimization
+            // Emit enhanced batch transfer to multiple recipients event
             if !transferred_property_ids.is_empty() {
                 let first_property = self.properties.get(&transferred_property_ids[0]).ok_or(Error::PropertyNotFound)?;
                 let from = first_property.owner;
                 
-                self.env().emit_event(BatchPropertyTransferred {
-                    property_ids: transferred_property_ids,
+                let env = self.env();
+                let transaction_hash = env.hash_encoded(&(&from, &transfers, env.block_timestamp()));
+                env.emit_event(BatchPropertyTransferredToMultiple {
                     from,
-                    to: AccountId::from([0u8; 32]), // Placeholder since multiple recipients
+                    event_version: 1,
+                    transfers: transfers.clone(),
                     count: transfers.len() as u64,
+                    timestamp: env.block_timestamp(),
+                    block_number: env.block_number(),
+                    transaction_hash,
+                    transferred_by: caller,
                 });
             }
 
@@ -577,20 +845,31 @@ mod propchain_contracts {
                 return Err(Error::Unauthorized);
             }
 
+            let env = self.env();
+            let transaction_hash = env.hash_encoded(&(&caller, property_id, env.block_timestamp()));
+
             if let Some(account) = to {
                 self.approvals.insert(&property_id, &account);
-                self.env().emit_event(Approval {
+                // Emit enhanced approval granted event
+                env.emit_event(ApprovalGranted {
                     property_id,
                     owner: caller,
                     approved: account,
+                    event_version: 1,
+                    timestamp: env.block_timestamp(),
+                    block_number: env.block_number(),
+                    transaction_hash,
                 });
             } else {
                 self.approvals.remove(&property_id);
-                let zero_account = AccountId::from([0u8; 32]);
-                self.env().emit_event(Approval {
+                // Emit enhanced approval cleared event
+                env.emit_event(ApprovalCleared {
                     property_id,
                     owner: caller,
-                    approved: zero_account,
+                    event_version: 1,
+                    timestamp: env.block_timestamp(),
+                    block_number: env.block_number(),
+                    transaction_hash,
                 });
             }
 
@@ -628,12 +907,19 @@ mod propchain_contracts {
 
             self.escrows.insert(&escrow_id, &escrow_info);
 
-            self.env().emit_event(EscrowCreated {
+            // Emit enhanced escrow created event
+            let env = self.env();
+            let transaction_hash = env.hash_encoded(&(&caller, escrow_id, property_id, amount, env.block_timestamp()));
+            env.emit_event(EscrowCreated {
                 escrow_id,
                 property_id,
                 buyer: caller,
                 seller: property.owner,
+                event_version: 1,
                 amount,
+                timestamp: env.block_timestamp(),
+                block_number: env.block_number(),
+                transaction_hash,
             });
 
             Ok(escrow_id)
@@ -660,8 +946,19 @@ mod propchain_contracts {
             escrow.released = true;
             self.escrows.insert(&escrow_id, &escrow);
 
-            self.env().emit_event(EscrowReleased {
+            // Emit enhanced escrow released event
+            let env = self.env();
+            let transaction_hash = env.hash_encoded(&(&caller, escrow_id, env.block_timestamp()));
+            env.emit_event(EscrowReleased {
                 escrow_id,
+                property_id: escrow.property_id,
+                buyer: escrow.buyer,
+                event_version: 1,
+                amount: escrow.amount,
+                timestamp: env.block_timestamp(),
+                block_number: env.block_number(),
+                transaction_hash,
+                released_by: caller,
             });
 
             Ok(())
@@ -685,8 +982,19 @@ mod propchain_contracts {
             escrow.released = true;
             self.escrows.insert(&escrow_id, &escrow);
 
-            self.env().emit_event(EscrowRefunded {
+            // Emit enhanced escrow refunded event
+            let env = self.env();
+            let transaction_hash = env.hash_encoded(&(&caller, escrow_id, env.block_timestamp()));
+            env.emit_event(EscrowRefunded {
                 escrow_id,
+                property_id: escrow.property_id,
+                seller: escrow.seller,
+                event_version: 1,
+                amount: escrow.amount,
+                timestamp: env.block_timestamp(),
+                block_number: env.block_number(),
+                transaction_hash,
+                refunded_by: caller,
             });
 
             Ok(())
