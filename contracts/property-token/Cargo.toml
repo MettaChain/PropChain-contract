@@ -1,0 +1,26 @@
+[package]
+name = "property-token"
+version = "1.0.0"
+authors = ["PropChain Team <dev@propchain.io>"]
+edition = "2021"
+license = "MIT"
+description = "Property token standard with ERC-721 and ERC-1155 compatibility"
+
+[dependencies]
+ink = { version = "5.0.0", default-features = false }
+propchain-traits = { path = "../traits" }
+
+scale = { package = "parity-scale-codec", version = "3.6.9", default-features = false, features = ["derive"] }
+scale-info = { version = "2.10.0", default-features = false, features = ["derive"] }
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = ["std"]
+std = [
+    "ink/std",
+    "scale/std",
+    "scale-info/std",
+    "propchain-traits/std",
+]
