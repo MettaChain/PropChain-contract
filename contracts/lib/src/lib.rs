@@ -27,6 +27,10 @@ mod propchain_contracts {
         owner_properties: Mapping<AccountId, Vec<u64>>,
         /// Property counter
         property_count: u64,
+        /// Contract version
+        version: u32,
+        /// Admin for upgrades (if used directly, or for logic-level auth)
+        admin: AccountId,
     }
 
     #[ink(event)]
@@ -52,7 +56,15 @@ mod propchain_contracts {
                 properties: Mapping::default(),
                 owner_properties: Mapping::default(),
                 property_count: 0,
+                version: 1,
+                admin: Self::env().caller(),
             }
+        }
+
+        /// Returns the contract version
+        #[ink(message)]
+        pub fn version(&self) -> u32 {
+            self.version
         }
 
         /// Registers a new property
