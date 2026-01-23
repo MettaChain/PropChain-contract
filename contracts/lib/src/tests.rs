@@ -779,5 +779,399 @@ mod tests {
         let empty_multiple_transfers: Vec<(u64, AccountId)> = vec![];
         assert!(contract.batch_transfer_properties_to_multiple(empty_multiple_transfers).is_ok());
     }
+
+    // ========== PAUSE/RESUME FUNCTIONALITY TESTS ==========
+
+    #[ink::test]
+    fn pause_works() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Admin should be able to pause
+        assert!(contract.pause().is_ok());
+        assert!(contract.is_paused());
+        
+        let pause_state = contract.get_pause_state();
+        assert!(pause_state.is_paused);
+        assert_eq!(pause_state.paused_by, Some(accounts.alice));
+        assert_eq!(pause_state.pause_count, 1);
+    }
+
+    #[ink::test]
+    fn pause_unauthorized_fails() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Bob is not a pauser
+        set_caller(accounts.bob);
+        assert_eq!(contract.pause(), Err(Error::NotPauser));
+    }
+
+    #[ink::test]
+    fn pause_when_already_paused_fails() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        assert!(contract.pause().is_ok());
+        assert_eq!(contract.pause(), Err(Error::ContractPaused));
+    }
+
+    #[ink::test]
+    fn resume_by_admin_works() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Pause the contract
+        assert!(contract.pause().is_ok());
+        assert!(contract.is_paused());
+        
+        // Admin can resume immediately without approvals
+        assert!(contract.resume().is_ok());
+        assert!(!contract.is_paused());
+    }
+
+    #[ink::test]
+    fn resume_when_not_paused_fails() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        assert_eq!(contract.resume(), Err(Error::ContractNotPaused));
+    }
+
+    #[ink::test]
+    fn resume_with_multisig_works() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Add Bob as resume approver
+        assert!(contract.add_resume_approver(accounts.bob).is_ok());
+        
+        // Set threshold to 2
+        assert!(contract.set_required_approvals(2).is_ok());
+        
+        // Pause the contract
+        assert!(contract.pause().is_ok());
+        
+        // Alice approves
+        set_caller(accounts.alice);
+        assert!(contract.approve_resume().is_ok());
+        assert_eq!(contract.get_resume_approvals(), 1);
+        
+        // Try to resume with insufficient approvals
+        assert_eq!(contract.resume(), Err(Error::InsufficientApprovals));
+        
+        // Bob approves
+        set_caller(accounts.bob);
+        assert!(contract.approve_resume().is_ok());
+        assert_eq!(contract.get_resume_approvals(), 2);
+        
+        // Now resume should work
+        assert!(contract.resume().is_ok());
+        assert!(!contract.is_paused());
+        
+        // Approvals should be reset
+        assert_eq!(contract.get_resume_approvals(), 0);
+    }
+
+    #[ink::test]
+    fn add_pauser_works() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Add Bob as pauser
+        assert!(contract.add_pauser(accounts.bob).is_ok());
+        assert!(contract.is_pauser(accounts.bob));
+        
+        // Bob should now be able to pause
+        set_caller(accounts.bob);
+        assert!(contract.pause().is_ok());
+    }
+
+    #[ink::test]
+    fn add_pauser_unauthorized_fails() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Bob is not admin
+        set_caller(accounts.bob);
+        assert_eq!(contract.add_pauser(accounts.charlie), Err(Error::Unauthorized));
+    }
+
+    #[ink::test]
+    fn remove_pauser_works() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Add Bob as pauser
+        assert!(contract.add_pauser(accounts.bob).is_ok());
+        assert!(contract.is_pauser(accounts.bob));
+        
+        // Remove Bob
+        assert!(contract.remove_pauser(accounts.bob).is_ok());
+        assert!(!contract.is_pauser(accounts.bob));
+        
+        // Bob should not be able to pause
+        set_caller(accounts.bob);
+        assert_eq!(contract.pause(), Err(Error::NotPauser));
+    }
+
+    #[ink::test]
+    fn add_resume_approver_works() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Add Bob as resume approver
+        assert!(contract.add_resume_approver(accounts.bob).is_ok());
+        
+        // Pause the contract
+        assert!(contract.pause().is_ok());
+        
+        // Bob should be able to approve resume
+        set_caller(accounts.bob);
+        assert!(contract.approve_resume().is_ok());
+    }
+
+    #[ink::test]
+    fn approve_resume_unauthorized_fails() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Pause the contract
+        assert!(contract.pause().is_ok());
+        
+        // Bob is not a resume approver
+        set_caller(accounts.bob);
+        assert_eq!(contract.approve_resume(), Err(Error::NotResumeApprover));
+    }
+
+    #[ink::test]
+    fn set_required_approvals_works() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        assert_eq!(contract.get_required_approvals(), 1);
+        
+        assert!(contract.set_required_approvals(3).is_ok());
+        assert_eq!(contract.get_required_approvals(), 3);
+    }
+
+    #[ink::test]
+    fn set_required_approvals_zero_fails() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        assert_eq!(contract.set_required_approvals(0), Err(Error::InvalidApprovalThreshold));
+    }
+
+    #[ink::test]
+    fn set_required_approvals_unauthorized_fails() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        set_caller(accounts.bob);
+        assert_eq!(contract.set_required_approvals(2), Err(Error::Unauthorized));
+    }
+
+    #[ink::test]
+    fn schedule_auto_resume_works() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Pause the contract
+        assert!(contract.pause().is_ok());
+        
+        // Schedule auto-resume for future timestamp
+        let future_time = 1000000;
+        assert!(contract.schedule_auto_resume(future_time).is_ok());
+        assert_eq!(contract.get_auto_resume_time(), Some(future_time));
+    }
+
+    #[ink::test]
+    fn schedule_auto_resume_when_not_paused_fails() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        assert_eq!(contract.schedule_auto_resume(1000000), Err(Error::ContractNotPaused));
+    }
+
+    #[ink::test]
+    fn schedule_auto_resume_past_time_fails() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Pause the contract
+        assert!(contract.pause().is_ok());
+        
+        // Try to schedule for past/current time
+        assert_eq!(contract.schedule_auto_resume(0), Err(Error::InvalidAutoResumeTime));
+    }
+
+    #[ink::test]
+    fn cancel_auto_resume_works() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Pause and schedule auto-resume
+        assert!(contract.pause().is_ok());
+        assert!(contract.schedule_auto_resume(1000000).is_ok());
+        
+        // Cancel auto-resume
+        assert!(contract.cancel_auto_resume().is_ok());
+        assert_eq!(contract.get_auto_resume_time(), None);
+    }
+
+    #[ink::test]
+    fn cancel_auto_resume_when_not_scheduled_fails() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Pause without scheduling auto-resume
+        assert!(contract.pause().is_ok());
+        
+        assert_eq!(contract.cancel_auto_resume(), Err(Error::AutoResumeNotScheduled));
+    }
+
+    #[ink::test]
+    fn paused_contract_blocks_register_property() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Pause the contract
+        assert!(contract.pause().is_ok());
+        
+        // Try to register property
+        let metadata = PropertyMetadata {
+            location: "Test Property".to_string(),
+            size: 1000,
+            legal_description: "Test".to_string(),
+            valuation: 100000,
+            documents_url: "https://example.com".to_string(),
+        };
+        
+        assert_eq!(contract.register_property(metadata), Err(Error::ContractPaused));
+    }
+
+    #[ink::test]
+    fn paused_contract_blocks_transfer_property() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Register property first
+        let metadata = PropertyMetadata {
+            location: "Test Property".to_string(),
+            size: 1000,
+            legal_description: "Test".to_string(),
+            valuation: 100000,
+            documents_url: "https://example.com".to_string(),
+        };
+        let property_id = contract.register_property(metadata).unwrap();
+        
+        // Pause the contract
+        assert!(contract.pause().is_ok());
+        
+        // Try to transfer property
+        assert_eq!(contract.transfer_property(property_id, accounts.bob), Err(Error::ContractPaused));
+    }
+
+    #[ink::test]
+    fn paused_contract_blocks_create_escrow() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Register property first
+        let metadata = PropertyMetadata {
+            location: "Test Property".to_string(),
+            size: 1000,
+            legal_description: "Test".to_string(),
+            valuation: 100000,
+            documents_url: "https://example.com".to_string(),
+        };
+        let property_id = contract.register_property(metadata).unwrap();
+        
+        // Pause the contract
+        assert!(contract.pause().is_ok());
+        
+        // Try to create escrow
+        assert_eq!(contract.create_escrow(property_id, 100000), Err(Error::ContractPaused));
+    }
+
+    #[ink::test]
+    fn pause_event_audit_trail_works() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Perform pause/resume operations
+        assert!(contract.pause().is_ok());
+        assert!(contract.resume().is_ok());
+        assert!(contract.pause().is_ok());
+        
+        // Check audit trail
+        let events = contract.get_pause_events(10);
+        assert_eq!(events.len(), 3);
+        assert_eq!(contract.get_pause_event_count(), 3);
+    }
+
+    #[ink::test]
+    fn multiple_pause_resume_cycles_work() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // First cycle
+        assert!(contract.pause().is_ok());
+        assert!(contract.is_paused());
+        assert!(contract.resume().is_ok());
+        assert!(!contract.is_paused());
+        
+        // Second cycle
+        assert!(contract.pause().is_ok());
+        assert!(contract.is_paused());
+        assert!(contract.resume().is_ok());
+        assert!(!contract.is_paused());
+        
+        // Verify pause count
+        let pause_state = contract.get_pause_state();
+        assert_eq!(pause_state.pause_count, 2);
+    }
+
+    #[ink::test]
+    fn double_approval_is_idempotent() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut contract = PropertyRegistry::new();
+        
+        // Pause the contract
+        assert!(contract.pause().is_ok());
+        
+        // Approve twice
+        assert!(contract.approve_resume().is_ok());
+        assert_eq!(contract.get_resume_approvals(), 1);
+        
+        assert!(contract.approve_resume().is_ok()); // Should be no-op
+        assert_eq!(contract.get_resume_approvals(), 1); // Still 1
+    }
 }
 
