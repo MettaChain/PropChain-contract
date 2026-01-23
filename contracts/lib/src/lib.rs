@@ -29,6 +29,8 @@ mod propchain_contracts {
         properties: Mapping<u64, PropertyInfo>,
         /// Mapping from owner to their properties
         owner_properties: Mapping<AccountId, Vec<u64>>,
+        /// Mapping from property ID to approved account
+        approvals: Mapping<u64, AccountId>,
         /// Property counter
         property_count: u64,
         /// Contract version
@@ -41,21 +43,6 @@ mod propchain_contracts {
         escrow_count: u64,
     }
 
-    #[ink(event)]
-    pub struct PropertyRegistered {
-        #[ink(topic)]
-        property_id: u64,
-        owner: AccountId,
-    }
-
-    #[ink(event)]
-    pub struct PropertyTransferred {
-        #[ink(topic)]
-        property_id: u64,
-        from: AccountId,
-        to: AccountId,
-    }
-
     /// Escrow information
     #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -66,6 +53,42 @@ mod propchain_contracts {
         pub seller: AccountId,
         pub amount: u128,
         pub released: bool,
+    }
+
+    #[ink(event)]
+    pub struct PropertyRegistered {
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        owner: AccountId,
+        version: u8,
+    }
+
+    #[ink(event)]
+    pub struct PropertyTransferred {
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        from: AccountId,
+        #[ink(topic)]
+        to: AccountId,
+    }
+
+    #[ink(event)]
+    pub struct PropertyMetadataUpdated {
+        #[ink(topic)]
+        property_id: u64,
+        metadata: PropertyMetadata,
+    }
+
+    #[ink(event)]
+    pub struct Approval {
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        owner: AccountId,
+        #[ink(topic)]
+        approved: AccountId,
     }
 
     #[ink(event)]
@@ -97,6 +120,7 @@ mod propchain_contracts {
             Self {
                 properties: Mapping::default(),
                 owner_properties: Mapping::default(),
+                approvals: Mapping::default(),
                 property_count: 0,
                 version: 1,
                 admin: Self::env().caller(),
@@ -134,6 +158,7 @@ mod propchain_contracts {
             self.env().emit_event(PropertyRegistered {
                 property_id,
                 owner: caller,
+                version: 1,
             });
 
             Ok(property_id)
@@ -145,14 +170,17 @@ mod propchain_contracts {
             let caller = self.env().caller();
             let mut property = self.properties.get(&property_id).ok_or(Error::PropertyNotFound)?;
 
-            if property.owner != caller {
+            let approved = self.approvals.get(&property_id);
+            if property.owner != caller && Some(caller) != approved {
                 return Err(Error::Unauthorized);
             }
 
+            let from = property.owner;
+
             // Remove from current owner's properties
-            let mut current_owner_props = self.owner_properties.get(&caller).unwrap_or_default();
+            let mut current_owner_props = self.owner_properties.get(&from).unwrap_or_default();
             current_owner_props.retain(|&id| id != property_id);
-            self.owner_properties.insert(&caller, &current_owner_props);
+            self.owner_properties.insert(&from, &current_owner_props);
             
             // Add to new owner's properties
             let mut new_owner_props = self.owner_properties.get(&to).unwrap_or_default();
@@ -163,15 +191,17 @@ mod propchain_contracts {
             property.owner = to;
             self.properties.insert(&property_id, &property);
 
+            // Clear approval
+            self.approvals.remove(&property_id);
+
             self.env().emit_event(PropertyTransferred {
                 property_id,
-                from: caller,
+                from,
                 to,
             });
 
             Ok(())
         }
-
 
         /// Gets property information
         #[ink(message)]
@@ -189,6 +219,68 @@ mod propchain_contracts {
         #[ink(message)]
         pub fn property_count(&self) -> u64 {
             self.property_count
+        }
+
+        /// Updates property metadata
+        #[ink(message)]
+        pub fn update_metadata(&mut self, property_id: u64, metadata: PropertyMetadata) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let mut property = self.properties.get(&property_id).ok_or(Error::PropertyNotFound)?;
+
+            if property.owner != caller {
+                return Err(Error::Unauthorized);
+            }
+
+            // check if metadata is valid (basic check)
+            if metadata.location.is_empty() {
+                return Err(Error::InvalidMetadata);
+            }
+
+            property.metadata = metadata.clone();
+            self.properties.insert(&property_id, &property);
+
+            self.env().emit_event(PropertyMetadataUpdated {
+                property_id,
+                metadata,
+            });
+
+            Ok(())
+        }
+
+        /// Approves an account to transfer a specific property
+        #[ink(message)]
+        pub fn approve(&mut self, property_id: u64, to: Option<AccountId>) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let property = self.properties.get(&property_id).ok_or(Error::PropertyNotFound)?;
+
+            if property.owner != caller {
+                return Err(Error::Unauthorized);
+            }
+
+            if let Some(account) = to {
+                self.approvals.insert(&property_id, &account);
+                self.env().emit_event(Approval {
+                    property_id,
+                    owner: caller,
+                    approved: account,
+                });
+            } else {
+                self.approvals.remove(&property_id);
+                let zero_account = AccountId::from([0u8; 32]);
+                self.env().emit_event(Approval {
+                    property_id,
+                    owner: caller,
+                    approved: zero_account,
+                });
+            }
+
+            Ok(())
+        }
+
+        /// Gets the approved account for a property
+        #[ink(message)]
+        pub fn get_approved(&self, property_id: u64) -> Option<AccountId> {
+            self.approvals.get(&property_id)
         }
 
         /// Creates a new escrow for property transfer

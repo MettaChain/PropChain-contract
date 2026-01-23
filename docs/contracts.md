@@ -46,6 +46,29 @@ Retrieves property information by ID.
 **Returns:**
 - `PropertyInfo`: Property details if found, `None` otherwise
 
+##### `update_metadata(property_id: PropertyId, metadata: PropertyMetadata) -> Result<(), Error>`
+Updates the metadata for a registered property.
+
+**Parameters:**
+- `property_id`: ID of the property to update
+- `metadata`: New property metadata
+
+##### `approve(property_id: PropertyId, to: Option<AccountId>) -> Result<(), Error>`
+Approves an account to transfer a specific property.
+
+**Parameters:**
+- `property_id`: ID of the property
+- `to`: Account to approve (Some) or remove approval (None)
+
+##### `get_approved(property_id: PropertyId) -> Option<AccountId>`
+Gets the approved account for a property.
+
+**Parameters:**
+- `property_id`: ID of the property
+
+**Returns:**
+- `Option<AccountId>`: Approved account if any
+
 ### EscrowContract
 
 Handles secure property transfers with escrow protection.
@@ -112,20 +135,40 @@ pub enum Error {
 
 ## Events
 
-```rust
 #[ink(event)]
 pub struct PropertyRegistered {
     #[ink(topic)]
     property_id: PropertyId,
+    #[ink(topic)]
     owner: AccountId,
+    version: u8,
 }
 
 #[ink(event)]
 pub struct PropertyTransferred {
     #[ink(topic)]
     property_id: PropertyId,
+    #[ink(topic)]
     from: AccountId,
+    #[ink(topic)]
     to: AccountId,
+}
+
+#[ink(event)]
+pub struct PropertyMetadataUpdated {
+    #[ink(topic)]
+    property_id: PropertyId,
+    metadata: PropertyMetadata,
+}
+
+#[ink(event)]
+pub struct Approval {
+    #[ink(topic)]
+    property_id: PropertyId,
+    #[ink(topic)]
+    owner: AccountId,
+    #[ink(topic)]
+    approved: AccountId,
 }
 
 #[ink(event)]
