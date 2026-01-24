@@ -44,3 +44,8 @@ psp22 = ["openbrush/psp22"]
 
 # Testing features
 e2e-tests = []
+
+# Internal ink! dylint features (suppress warnings)
+__ink_dylint_Storage = []
+__ink_dylint_EventBase = []
+__ink_dylint_Constructor = []

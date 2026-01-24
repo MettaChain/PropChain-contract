@@ -70,26 +70,6 @@ mod propchain_proxy {
             self.admin
         }
 
-        /// Fallback-like mechanism to forward calls to the logic contract.
-        /// This is a simplified version; in a real-world scenario, you might use 
-        /// more advanced patterns like ink!'s `delegate_call`.
-        #[ink(message, payable, selector = _)]
-        pub fn forward(&self) {
-            // Forward everything else to implementation
-            // Since ink! doesn't have a native "catch-all" fallback like Solidity yet,
-            // we use the selector = _ pattern for non-matching calls.
-            let selector = self.env().msg_packer().selector();
-            let mut result = self.env()
-                .call_v1(self.code_hash)
-                .delegate()
-                .call_flags(ink::env::CallFlags::default())
-                .try_invoke()
-                .expect("Forwarding failed");
-
-            // We omit the actual return data handling here for brevity as ink!'s dynamic forwarding
-            // is still evolving, but this demonstrates the pattern.
-        }
-
         fn ensure_admin(&self) -> Result<(), Error> {
             if self.env().caller() != self.admin {
                 return Err(Error::Unauthorized);

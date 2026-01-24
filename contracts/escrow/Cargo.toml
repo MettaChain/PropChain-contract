@@ -1,0 +1,36 @@
+[package]
+name = "propchain-escrow"
+version = "1.0.0"
+authors = ["PropChain Team <dev@propchain.io>"]
+edition = "2021"
+description = "Advanced escrow system for property transactions with multi-signature support"
+license = "MIT"
+homepage = "https://propchain.io"
+repository = "https://github.com/MettaChain/PropChain-contract"
+keywords = ["blockchain", "real-estate", "smart-contracts", "ink", "escrow"]
+categories = ["cryptography::cryptocurrencies"]
+publish = false
+
+[dependencies]
+ink = { workspace = true }
+scale = { workspace = true }
+scale-info = { workspace = true }
+propchain-traits = { path = "../traits" }
+
+[dev-dependencies]
+ink_e2e = "5.0.0"
+
+[lib]
+name = "propchain_escrow"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[features]
+default = ["std"]
+std = [
+    "ink/std",
+    "scale/std",
+    "scale-info/std",
+]
+ink-as-dependency = []
+e2e-tests = []

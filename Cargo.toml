@@ -3,7 +3,7 @@ members = [
     "contracts/lib",
     "contracts/traits",
     "contracts/proxy",
-    "contracts/property-token",
+    "contracts/escrow",
     "security-audit",
 ]
 resolver = "2"
