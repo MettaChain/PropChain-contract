@@ -1,0 +1,27 @@
+[package]
+name = "ipfs-metadata"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ink = { workspace = true }
+scale = { workspace = true, features = ["derive"] }
+scale-info = { workspace = true, features = ["derive"], optional = true }
+propchain-traits = { path = "../traits", default-features = false }
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = ["std"]
+std = [
+    "ink/std",
+    "scale/std",
+    "scale-info/std",
+    "propchain-traits/std",
+]
+ink-as-dependency = []
