@@ -70,7 +70,7 @@ mod tests {
         let contract = IpfsMetadataRegistry::new();
         let metadata = valid_property_metadata();
 
-        let result = contract.validate_metadata(&metadata);
+        let result = contract.validate_metadata(metadata);
         assert!(result.is_ok());
     }
 
@@ -80,7 +80,7 @@ mod tests {
         let mut metadata = valid_property_metadata();
         metadata.location = String::new();
 
-        let result = contract.validate_metadata(&metadata);
+        let result = contract.validate_metadata(metadata);
         assert_eq!(result, Err(Error::RequiredFieldMissing));
     }
 
@@ -90,7 +90,7 @@ mod tests {
         let mut metadata = valid_property_metadata();
         metadata.legal_description = String::new();
 
-        let result = contract.validate_metadata(&metadata);
+        let result = contract.validate_metadata(metadata);
         assert_eq!(result, Err(Error::RequiredFieldMissing));
     }
 
@@ -100,7 +100,7 @@ mod tests {
         let mut metadata = valid_property_metadata();
         metadata.location = "a".repeat(501);
 
-        let result = contract.validate_metadata(&metadata);
+        let result = contract.validate_metadata(metadata);
         assert_eq!(result, Err(Error::SizeLimitExceeded));
     }
 
@@ -110,7 +110,7 @@ mod tests {
         let mut metadata = valid_property_metadata();
         metadata.size = 0;
 
-        let result = contract.validate_metadata(&metadata);
+        let result = contract.validate_metadata(metadata);
         assert_eq!(result, Err(Error::DataTypeMismatch));
     }
 
@@ -120,7 +120,7 @@ mod tests {
         let mut metadata = valid_property_metadata();
         metadata.size = 1_000_000_001;
 
-        let result = contract.validate_metadata(&metadata);
+        let result = contract.validate_metadata(metadata);
         assert_eq!(result, Err(Error::DataTypeMismatch));
     }
 
@@ -130,7 +130,7 @@ mod tests {
         let mut metadata = valid_property_metadata();
         metadata.valuation = 0;
 
-        let result = contract.validate_metadata(&metadata);
+        let result = contract.validate_metadata(metadata);
         assert_eq!(result, Err(Error::DataTypeMismatch));
     }
 

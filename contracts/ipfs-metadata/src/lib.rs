@@ -352,7 +352,7 @@ mod ipfs_metadata {
             let caller = self.env().caller();
 
             // Validate metadata structure
-            self.validate_metadata(&metadata)?;
+            self.validate_metadata(metadata.clone())?;
 
             // Store metadata
             self.property_metadata.insert(property_id, &metadata);
@@ -375,7 +375,7 @@ mod ipfs_metadata {
 
         /// Validates metadata according to validation rules
         #[ink(message)]
-        pub fn validate_metadata(&self, metadata: &PropertyMetadata) -> Result<(), Error> {
+        pub fn validate_metadata(&self, metadata: PropertyMetadata) -> Result<(), Error> {
             // Check required fields
             if metadata.location.is_empty() {
                 return Err(Error::RequiredFieldMissing);
