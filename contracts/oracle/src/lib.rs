@@ -245,7 +245,7 @@ mod propchain_oracle {
                 .map(|trend| VolatilityMetrics {
                     property_type: trend.property_type,
                     location: trend.location,
-                    volatility_index: (trend.trend_percentage.abs() as u32).min(100),
+                    volatility_index: (trend.trend_percentage.unsigned_abs()).min(100),
                     average_price_change: trend.trend_percentage,
                     period_days: trend.period_months * 30, // Approximate
                     last_updated: trend.last_updated,
@@ -443,11 +443,7 @@ mod propchain_oracle {
             let variance: u128 = prices
                 .iter()
                 .map(|p| {
-                    let diff = if p.price > mean {
-                        p.price - mean
-                    } else {
-                        mean - p.price
-                    };
+                    let diff = p.price.abs_diff(mean);
                     diff * diff
                 })
                 .sum();
@@ -465,11 +461,7 @@ mod propchain_oracle {
             prices
                 .iter()
                 .filter(|p| {
-                    let diff = if p.price > mean {
-                        p.price - mean
-                    } else {
-                        mean - p.price
-                    };
+                    let diff = p.price.abs_diff(mean);
                     diff <= std_dev * self.outlier_threshold as u128
                 })
                 .cloned()
@@ -498,17 +490,13 @@ mod propchain_oracle {
             let variance: u128 = prices
                 .iter()
                 .map(|p| {
-                    let diff = if p.price > mean {
-                        p.price - mean
-                    } else {
-                        mean - p.price
-                    };
+                    let diff = p.price.abs_diff(mean);
                     diff * diff
                 })
                 .sum();
 
             // Calculate coefficient of variation using fixed point arithmetic
-            let std_dev = if prices.len() > 0 {
+            let std_dev = if !prices.is_empty() {
                 let variance_avg = variance / prices.len() as u128;
                 // Simple approximation of square root (for fixed point)
                 let mut approx = variance_avg;
@@ -553,11 +541,7 @@ mod propchain_oracle {
                 let curr = historical[i].valuation;
 
                 if prev > 0 {
-                    let change = if curr > prev {
-                        ((curr - prev) * 10000) / prev // Change in basis points
-                    } else {
-                        ((prev - curr) * 10000) / prev
-                    };
+                    let change = (curr.abs_diff(prev) * 10000) / prev;
                     changes.push(change);
                 }
             }
@@ -636,11 +620,7 @@ mod propchain_oracle {
                 return 0;
             }
 
-            let diff = if new_value > old_value {
-                new_value - old_value
-            } else {
-                old_value - new_value
-            };
+            let diff = new_value.abs_diff(old_value);
 
             (diff * 100) / old_value
         }
@@ -654,14 +634,15 @@ mod propchain_oracle {
 }
 
 // Re-export the contract
-pub use propchain_oracle::PropertyValuationOracle;
+// Re-export the contract and error type
+pub use propchain_oracle::{OracleError, PropertyValuationOracle};
 
 #[cfg(test)]
 mod oracle_tests {
     use super::*;
-    use ink::codegen::env::Env;
+    // use ink::codegen::env::Env; // Removed invalid import
     use ink::env::{
-        test::{self, DefaultAccounts},
+        test,
         DefaultEnvironment,
     };
 
@@ -808,7 +789,7 @@ mod oracle_tests {
 
         let aggregated = result.unwrap();
         // Should be close to the average of 100, 105, 98 = 101
-        assert!(aggregated >= 98 && aggregated <= 105);
+        assert!((98..=105).contains(&aggregated));
     }
 
     #[ink::test]

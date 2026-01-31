@@ -1,18 +1,19 @@
 #[cfg(test)]
 pub mod escrow_tests {
-    use super::*;
+    use crate::propchain_escrow::*;
+    use ink::primitives::{AccountId, Hash};
     use ink::env::test::DefaultAccounts;
 
     fn default_accounts() -> DefaultAccounts<ink::env::DefaultEnvironment> {
-        test::default_accounts::<ink::env::DefaultEnvironment>()
+        ink::env::test::default_accounts::<ink::env::DefaultEnvironment>()
     }
 
     fn set_caller(caller: AccountId) {
-        test::set_caller::<ink::env::DefaultEnvironment>(caller);
+        ink::env::test::set_caller::<ink::env::DefaultEnvironment>(caller);
     }
 
     fn set_balance(account: AccountId, balance: u128) {
-        test::set_account_balance::<ink::env::DefaultEnvironment>(account, balance);
+        ink::env::test::set_account_balance::<ink::env::DefaultEnvironment>(account, balance);
     }
 
     #[ink::test]
@@ -95,7 +96,7 @@ pub mod escrow_tests {
             .unwrap();
 
         // Deposit funds
-        test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
         let result = contract.deposit_funds(escrow_id);
         assert!(result.is_ok());
 
@@ -133,7 +134,7 @@ pub mod escrow_tests {
         assert_eq!(documents.len(), 1);
         assert_eq!(documents[0].hash, doc_hash);
         assert_eq!(documents[0].document_type, "Title Deed");
-        assert_eq!(documents[0].verified, false);
+        assert!(!documents[0].verified);
     }
 
     #[ink::test]
@@ -166,7 +167,7 @@ pub mod escrow_tests {
         assert!(result.is_ok());
 
         let documents = contract.get_documents(escrow_id);
-        assert_eq!(documents[0].verified, true);
+        assert!(documents[0].verified);
     }
 
     #[ink::test]
@@ -198,7 +199,7 @@ pub mod escrow_tests {
         let conditions = contract.get_conditions(escrow_id);
         assert_eq!(conditions.len(), 1);
         assert_eq!(conditions[0].description, "Property inspection completed");
-        assert_eq!(conditions[0].met, false);
+        assert!(!conditions[0].met);
     }
 
     #[ink::test]
@@ -229,7 +230,7 @@ pub mod escrow_tests {
         assert!(result.is_ok());
 
         let conditions = contract.get_conditions(escrow_id);
-        assert_eq!(conditions[0].met, true);
+        assert!(conditions[0].met);
         assert_eq!(conditions[0].verified_by, Some(accounts.alice));
     }
 
@@ -326,7 +327,7 @@ pub mod escrow_tests {
         let dispute = contract.get_dispute(escrow_id).unwrap();
         assert_eq!(dispute.raised_by, accounts.alice);
         assert_eq!(dispute.reason, "Property condition not as described");
-        assert_eq!(dispute.resolved, false);
+        assert!(!dispute.resolved);
 
         let escrow = contract.get_escrow(escrow_id).unwrap();
         assert_eq!(escrow.status, EscrowStatus::Disputed);
@@ -364,7 +365,7 @@ pub mod escrow_tests {
         assert!(result.is_ok());
 
         let dispute = contract.get_dispute(escrow_id).unwrap();
-        assert_eq!(dispute.resolved, true);
+        assert!(dispute.resolved);
         assert_eq!(
             dispute.resolution,
             Some("Resolved in favor of buyer".to_string())

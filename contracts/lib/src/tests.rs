@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use crate::propchain_contracts::Error;
     use crate::propchain_contracts::PropertyRegistry;
@@ -194,7 +195,7 @@ mod tests {
         // Verify that a transfer event was emitted
         let emitted_events = ink::env::test::recorded_events().collect::<Vec<_>>();
         assert!(
-            emitted_events.len() >= 1,
+            !emitted_events.is_empty(),
             "PropertyTransferred event should be emitted"
         );
     }

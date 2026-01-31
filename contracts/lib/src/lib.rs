@@ -1759,10 +1759,7 @@ mod propchain_contracts {
         #[ink(message)]
         pub fn get_portfolio_details(&self, owner: AccountId) -> PortfolioDetails {
             let property_ids = self.owner_properties.get(owner).unwrap_or_default();
-            let mut properties = Vec::new();
-
-            // Optimized loop with capacity pre-allocation
-            properties.reserve(property_ids.len());
+            let mut properties = Vec::with_capacity(property_ids.len());
 
             let iter = property_ids.iter();
             for &property_id in iter {
