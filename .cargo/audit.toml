@@ -1,0 +1,12 @@
+# Cargo audit configuration
+# This file configures which security advisories to ignore during cargo audit
+
+[advisories]
+# Ignore proc-macro-error unmaintained advisory
+# This is a transitive dependency from ink! framework
+# Issue: RUSTSEC-2024-0370
+# Reason: Waiting for upstream ink! to update dependencies
+# Impact: Low - does not affect smart contract security
+ignore = [
+    "RUSTSEC-2024-0370"  # proc-macro-error is unmaintained
+]
