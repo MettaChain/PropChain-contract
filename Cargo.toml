@@ -4,6 +4,7 @@ members = [
     "contracts/traits",
     "contracts/proxy",
     "contracts/escrow",
+    "contracts/ipfs-metadata",
     "security-audit",
     "contracts/oracle",
 ]

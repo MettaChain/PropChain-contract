@@ -28,9 +28,8 @@ jobs:
 
     - name: Build Security Audit Tool
       run: |
-        cd security-audit
-        cargo build --release
-        cp target/release/security-audit ../security-audit-tool
+        cargo build --release -p security-audit
+        cp target/release/security-audit ./security-audit-tool
 
     - name: Run Security Audit Pipeline
       run: |
@@ -41,7 +40,7 @@ jobs:
         cat security-report.json
 
     - name: Upload Security Report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: security-report
         path: security-report.json
