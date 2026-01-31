@@ -137,7 +137,7 @@ jobs:
           done
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: contracts
           path: |
@@ -167,7 +167,7 @@ jobs:
         run: cargo install cargo-contract --locked
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: contracts
           path: artifacts/
