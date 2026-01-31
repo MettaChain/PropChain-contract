@@ -6,6 +6,7 @@ members = [
     "contracts/escrow",
     "contracts/ipfs-metadata",
     "security-audit",
+    "contracts/oracle",
 ]
 resolver = "2"
 

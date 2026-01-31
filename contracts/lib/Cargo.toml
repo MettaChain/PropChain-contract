@@ -18,6 +18,10 @@ scale = { workspace = true, features = ["std"] }
 scale-info = { workspace = true, features = ["std"] }
 propchain-traits = { path = "../traits" }
 
+# Additional dependencies for oracle functionality
+# serde = { version = "1.0", default-features = false, features = ["derive"] }
+# hex = { version = "0.4", default-features = false }
+
 # OpenBrush for contract extensions (optional)
 openbrush = { version = "4.0.0-beta", default-features = false, features = ["psp22"], optional = true }
 

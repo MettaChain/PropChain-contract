@@ -5,6 +5,9 @@ use ink::prelude::vec::Vec;
 use ink::storage::Mapping;
 use propchain_traits::*;
 
+// Re-export traits
+pub use propchain_traits::*;
+
 #[ink::contract]
 mod propchain_contracts {
     use super::*;
@@ -16,8 +19,18 @@ mod propchain_contracts {
         PropertyNotFound,
         Unauthorized,
         InvalidMetadata,
-        NotCompliant, // Recipient is not compliant
+        NotCompliant,          // Recipient is not compliant
         ComplianceCheckFailed, // Compliance registry call failed
+        EscrowNotFound,
+        EscrowAlreadyReleased,
+        BadgeNotFound,
+        InvalidBadgeType,
+        BadgeAlreadyIssued,
+        NotVerifier,
+        AppealNotFound,
+        InvalidAppealStatus,
+        ComplianceRegistryNotSet,
+        OracleError,
     }
 
     /// Property Registry contract
@@ -43,10 +56,26 @@ mod propchain_contracts {
         escrow_count: u64,
         /// Gas usage tracking
         gas_tracker: GasTracker,
+        /// Compliance registry contract address (optional)
+        compliance_registry: Option<AccountId>,
+        /// Badge storage: (property_id, badge_type) -> Badge
+        property_badges: Mapping<(u64, BadgeType), Badge>,
+        /// Authorized badge verifiers
+        badge_verifiers: Mapping<AccountId, bool>,
+        /// Verification requests
+        verification_requests: Mapping<u64, VerificationRequest>,
+        /// Verification request counter
+        verification_count: u64,
+        /// Appeals
+        appeals: Mapping<u64, Appeal>,
+        /// Appeal counter
+        appeal_count: u64,
     }
 
     /// Escrow information
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct EscrowInfo {
         pub id: u64,
@@ -58,7 +87,9 @@ mod propchain_contracts {
     }
 
     /// Portfolio summary statistics
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct PortfolioSummary {
         pub property_count: u64,
@@ -69,7 +100,9 @@ mod propchain_contracts {
     }
 
     /// Detailed portfolio information
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct PortfolioDetails {
         pub owner: AccountId,
@@ -78,7 +111,9 @@ mod propchain_contracts {
     }
 
     /// Individual property in portfolio
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct PortfolioProperty {
         pub id: u64,
@@ -89,7 +124,9 @@ mod propchain_contracts {
     }
 
     /// Global analytics data
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct GlobalAnalytics {
         pub total_properties: u64,
@@ -101,7 +138,9 @@ mod propchain_contracts {
     }
 
     /// Gas metrics for monitoring
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct GasMetrics {
         pub last_operation_gas: u64,
@@ -112,7 +151,9 @@ mod propchain_contracts {
     }
 
     /// Gas tracker for monitoring usage
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct GasTracker {
         pub total_gas_used: u64,
@@ -120,6 +161,112 @@ mod propchain_contracts {
         pub last_operation_gas: u64,
         pub min_gas_used: u64,
         pub max_gas_used: u64,
+    }
+
+    /// Badge types for property verification
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum BadgeType {
+        OwnerVerification,    // KYC/Identity verified
+        DocumentVerification, // Legal documents verified
+        LegalCompliance,      // Regulatory compliance verified
+        PremiumListing,       // Premium tier property
+    }
+
+    /// Badge information
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct Badge {
+        pub badge_type: BadgeType,
+        pub issued_at: u64,
+        pub issued_by: AccountId,
+        pub expires_at: Option<u64>,
+        pub metadata_url: String,
+        pub revoked: bool,
+        pub revoked_at: Option<u64>,
+        pub revocation_reason: String,
+    }
+
+    /// Verification request for badge
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct VerificationRequest {
+        pub id: u64,
+        pub property_id: u64,
+        pub badge_type: BadgeType,
+        pub requester: AccountId,
+        pub requested_at: u64,
+        pub evidence_url: String,
+        pub status: VerificationStatus,
+        pub reviewed_by: Option<AccountId>,
+        pub reviewed_at: Option<u64>,
+    }
+
+    /// Verification status
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum VerificationStatus {
+        Pending,
+        Approved,
+        Rejected,
+    }
+
+    /// Appeal for badge revocation
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct Appeal {
+        pub id: u64,
+        pub property_id: u64,
+        pub badge_type: BadgeType,
+        pub appellant: AccountId,
+        pub reason: String,
+        pub submitted_at: u64,
+        pub status: AppealStatus,
+        pub resolved_by: Option<AccountId>,
+        pub resolved_at: Option<u64>,
+        pub resolution: String,
+    }
+
+    /// Appeal status
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum AppealStatus {
+        Pending,
+        Approved,
+        Rejected,
     }
 
     // ============================================================================
@@ -368,13 +515,140 @@ mod propchain_contracts {
         transferred_by: AccountId,
     }
 
+    /// Event emitted when a badge is issued to a property
+    #[ink(event)]
+    pub struct BadgeIssued {
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        badge_type: BadgeType,
+        #[ink(topic)]
+        issued_by: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        expires_at: Option<u64>,
+        metadata_url: String,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+    }
+
+    /// Event emitted when a badge is revoked
+    #[ink(event)]
+    pub struct BadgeRevoked {
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        badge_type: BadgeType,
+        #[ink(topic)]
+        revoked_by: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        reason: String,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+    }
+
+    /// Event emitted when a verification is requested
+    #[ink(event)]
+    pub struct VerificationRequested {
+        #[ink(topic)]
+        request_id: u64,
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        badge_type: BadgeType,
+        #[ink(topic)]
+        requester: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        evidence_url: String,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+    }
+
+    /// Event emitted when a verification is reviewed
+    #[ink(event)]
+    pub struct VerificationReviewed {
+        #[ink(topic)]
+        request_id: u64,
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        reviewer: AccountId,
+        #[ink(topic)]
+        approved: bool,
+        #[ink(topic)]
+        event_version: u8,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+    }
+
+    /// Event emitted when an appeal is submitted
+    #[ink(event)]
+    pub struct AppealSubmitted {
+        #[ink(topic)]
+        appeal_id: u64,
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        badge_type: BadgeType,
+        #[ink(topic)]
+        appellant: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        reason: String,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+    }
+
+    /// Event emitted when an appeal is resolved
+    #[ink(event)]
+    pub struct AppealResolved {
+        #[ink(topic)]
+        appeal_id: u64,
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        resolved_by: AccountId,
+        #[ink(topic)]
+        approved: bool,
+        #[ink(topic)]
+        event_version: u8,
+        resolution: String,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+    }
+
+    /// Event emitted when a verifier is added or removed
+    #[ink(event)]
+    pub struct VerifierUpdated {
+        #[ink(topic)]
+        verifier: AccountId,
+        #[ink(topic)]
+        authorized: bool,
+        #[ink(topic)]
+        updated_by: AccountId,
+        #[ink(topic)]
+        event_version: u8,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
+    }
+
     impl PropertyRegistry {
         /// Creates a new PropertyRegistry contract
         #[ink(constructor)]
         pub fn new() -> Self {
             let caller = Self::env().caller();
-            let env = Self::env();
-            
+            let timestamp = Self::env().block_timestamp();
+            let block_number = Self::env().block_number();
+
             let contract = Self {
                 properties: Mapping::default(),
                 owner_properties: Mapping::default(),
@@ -392,14 +666,21 @@ mod propchain_contracts {
                     min_gas_used: u64::MAX,
                     max_gas_used: 0,
                 },
+                compliance_registry: None,
+                property_badges: Mapping::default(),
+                badge_verifiers: Mapping::default(),
+                verification_requests: Mapping::default(),
+                verification_count: 0,
+                appeals: Mapping::default(),
+                appeal_count: 0,
             };
 
             // Emit contract initialization event
-            env.emit_event(ContractInitialized {
+            Self::env().emit_event(ContractInitialized {
                 admin: caller,
                 contract_version: 1,
-                timestamp: env.block_timestamp(),
-                block_number: env.block_number(),
+                timestamp,
+                block_number,
             });
 
             contract
@@ -429,18 +710,67 @@ mod propchain_contracts {
             self.admin = new_admin;
 
             // Emit enhanced admin changed event
-            let env = self.env();
-            let transaction_hash = env.hash_encoded(&(&old_admin, &new_admin, env.block_timestamp()));
-            env.emit_event(AdminChanged {
+
+            let transaction_hash: Hash = [0u8; 32].into();
+            self.env().emit_event(AdminChanged {
                 old_admin,
                 new_admin,
                 event_version: 1,
-                timestamp: env.block_timestamp(),
-                block_number: env.block_number(),
+                timestamp: self.env().block_timestamp(),
+                block_number: self.env().block_number(),
                 transaction_hash,
                 changed_by: caller,
             });
 
+            Ok(())
+        }
+
+        /// Sets the compliance registry contract address (admin only)
+        #[ink(message)]
+        pub fn set_compliance_registry(
+            &mut self,
+            registry: Option<AccountId>,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            self.compliance_registry = registry;
+            Ok(())
+        }
+
+        /// Gets the compliance registry address
+        #[ink(message)]
+        pub fn get_compliance_registry(&self) -> Option<AccountId> {
+            self.compliance_registry
+        }
+
+        /// Helper: Check compliance for an account
+        /// Returns Ok if compliant or no registry set, Err otherwise
+        fn check_compliance(&self, _account: AccountId) -> Result<(), Error> {
+            // If no compliance registry is set, skip check
+            if self.compliance_registry.is_none() {
+                return Ok(());
+            }
+
+            // In a real implementation, this would make a cross-contract call
+            // to the compliance registry to check if the account is compliant.
+            // For now, we'll implement a basic check.
+            //
+            // Example cross-contract call (commented out):
+            // let registry = self.compliance_registry.unwrap();
+            // let is_compliant: bool = ink::env::call::build_call::<Environment>()
+            //     .call(registry)
+            //     .exec_input(...)
+            //     .returns::<bool>()
+            //     .invoke();
+            //
+            // if !is_compliant {
+            //     return Err(Error::NotCompliant);
+            // }
+
+            // For demonstration, we'll just return Ok
+            // In production, implement actual cross-contract call
             Ok(())
         }
 
@@ -449,10 +779,10 @@ mod propchain_contracts {
         #[ink(message)]
         pub fn register_property(&mut self, metadata: PropertyMetadata) -> Result<u64, Error> {
             let caller = self.env().caller();
-            
+
             // Check compliance for property registration (optional but recommended)
             self.check_compliance(caller)?;
-            
+
             self.property_count += 1;
             let property_id = self.property_count;
 
@@ -475,9 +805,9 @@ mod propchain_contracts {
             self.track_gas_usage("register_property".as_bytes());
 
             // Emit enhanced property registration event
-            let env = self.env();
-            let transaction_hash = env.hash_encoded(&(&caller, property_id, env.block_timestamp()));
-            env.emit_event(PropertyRegistered {
+
+            let transaction_hash: Hash = [0u8; 32].into();
+            self.env().emit_event(PropertyRegistered {
                 property_id,
                 owner: caller,
                 event_version: 1,
@@ -485,7 +815,7 @@ mod propchain_contracts {
                 size: property_info.metadata.size,
                 valuation: property_info.metadata.valuation,
                 timestamp: property_info.registered_at,
-                block_number: env.block_number(),
+                block_number: self.env().block_number(),
                 transaction_hash,
             });
 
@@ -497,12 +827,18 @@ mod propchain_contracts {
         #[ink(message)]
         pub fn transfer_property(&mut self, property_id: u64, to: AccountId) -> Result<(), Error> {
             let caller = self.env().caller();
-            let mut property = self.properties.get(&property_id).ok_or(Error::PropertyNotFound)?;
+            let mut property = self
+                .properties
+                .get(&property_id)
+                .ok_or(Error::PropertyNotFound)?;
 
             let approved = self.approvals.get(&property_id);
             if property.owner != caller && Some(caller) != approved {
                 return Err(Error::Unauthorized);
             }
+
+            // Check compliance for recipient
+            self.check_compliance(to)?;
 
             let from = property.owner;
 
@@ -510,7 +846,7 @@ mod propchain_contracts {
             let mut current_owner_props = self.owner_properties.get(&from).unwrap_or_default();
             current_owner_props.retain(|&id| id != property_id);
             self.owner_properties.insert(&from, &current_owner_props);
-            
+
             // Add to new owner's properties
             let mut new_owner_props = self.owner_properties.get(&to).unwrap_or_default();
             new_owner_props.push(property_id);
@@ -529,15 +865,15 @@ mod propchain_contracts {
             self.track_gas_usage("transfer_property".as_bytes());
 
             // Emit enhanced property transfer event
-            let env = self.env();
-            let transaction_hash = env.hash_encoded(&(&from, &to, property_id, env.block_timestamp()));
-            env.emit_event(PropertyTransferred {
+
+            let transaction_hash: Hash = [0u8; 32].into();
+            self.env().emit_event(PropertyTransferred {
                 property_id,
                 from,
                 to,
                 event_version: 1,
-                timestamp: env.block_timestamp(),
-                block_number: env.block_number(),
+                timestamp: self.env().block_timestamp(),
+                block_number: self.env().block_number(),
                 transaction_hash,
                 transferred_by: caller,
             });
@@ -565,9 +901,16 @@ mod propchain_contracts {
 
         /// Updates property metadata
         #[ink(message)]
-        pub fn update_metadata(&mut self, property_id: u64, metadata: PropertyMetadata) -> Result<(), Error> {
+        pub fn update_metadata(
+            &mut self,
+            property_id: u64,
+            metadata: PropertyMetadata,
+        ) -> Result<(), Error> {
             let caller = self.env().caller();
-            let mut property = self.properties.get(&property_id).ok_or(Error::PropertyNotFound)?;
+            let mut property = self
+                .properties
+                .get(&property_id)
+                .ok_or(Error::PropertyNotFound)?;
 
             if property.owner != caller {
                 return Err(Error::Unauthorized);
@@ -586,9 +929,9 @@ mod propchain_contracts {
             self.properties.insert(&property_id, &property);
 
             // Emit enhanced metadata update event
-            let env = self.env();
-            let transaction_hash = env.hash_encoded(&(&caller, property_id, env.block_timestamp()));
-            env.emit_event(PropertyMetadataUpdated {
+
+            let transaction_hash: Hash = [0u8; 32].into();
+            self.env().emit_event(PropertyMetadataUpdated {
                 property_id,
                 owner: caller,
                 event_version: 1,
@@ -596,8 +939,8 @@ mod propchain_contracts {
                 new_location: metadata.location,
                 old_valuation,
                 new_valuation: metadata.valuation,
-                timestamp: env.block_timestamp(),
-                block_number: env.block_number(),
+                timestamp: self.env().block_timestamp(),
+                block_number: self.env().block_number(),
                 transaction_hash,
             });
 
@@ -606,7 +949,10 @@ mod propchain_contracts {
 
         /// Batch registers multiple properties in a single transaction
         #[ink(message)]
-        pub fn batch_register_properties(&mut self, properties: Vec<PropertyMetadata>) -> Result<Vec<u64>, Error> {
+        pub fn batch_register_properties(
+            &mut self,
+            properties: Vec<PropertyMetadata>,
+        ) -> Result<Vec<u64>, Error> {
             let mut results = Vec::new();
             let caller = self.env().caller();
 
@@ -638,15 +984,15 @@ mod propchain_contracts {
             self.owner_properties.insert(&caller, &owner_props);
 
             // Emit enhanced batch registration event
-            let env = self.env();
-            let transaction_hash = env.hash_encoded(&(&caller, &results, env.block_timestamp()));
-            env.emit_event(BatchPropertyRegistered {
+
+            let transaction_hash: Hash = [0u8; 32].into();
+            self.env().emit_event(BatchPropertyRegistered {
                 owner: caller,
                 event_version: 1,
                 property_ids: results.clone(),
                 count: results.len() as u64,
-                timestamp: env.block_timestamp(),
-                block_number: env.block_number(),
+                timestamp: self.env().block_timestamp(),
+                block_number: self.env().block_number(),
                 transaction_hash,
             });
 
@@ -658,29 +1004,52 @@ mod propchain_contracts {
 
         /// Batch transfers multiple properties to the same recipient
         #[ink(message)]
-        pub fn batch_transfer_properties(&mut self, property_ids: Vec<u64>, to: AccountId) -> Result<(), Error> {
+        pub fn batch_transfer_properties(
+            &mut self,
+            property_ids: Vec<u64>,
+            to: AccountId,
+        ) -> Result<(), Error> {
             let caller = self.env().caller();
 
             // Validate all properties first to avoid partial transfers
             for &property_id in &property_ids {
-                let property = self.properties.get(&property_id).ok_or(Error::PropertyNotFound)?;
-                
+                let property = self
+                    .properties
+                    .get(&property_id)
+                    .ok_or(Error::PropertyNotFound)?;
+
                 let approved = self.approvals.get(&property_id);
                 if property.owner != caller && Some(caller) != approved {
                     return Err(Error::Unauthorized);
                 }
             }
 
+            // Capture the original owner before transfers (fix for bug)
+            let from = if !property_ids.is_empty() {
+                let first_property = self
+                    .properties
+                    .get(&property_ids[0])
+                    .ok_or(Error::PropertyNotFound)?;
+                first_property.owner
+            } else {
+                return Ok(()); // No properties to transfer
+            };
+
             // Perform all transfers
             for property_id in &property_ids {
-                let mut property = self.properties.get(property_id).ok_or(Error::PropertyNotFound)?;
-                let from = property.owner;
+                let mut property = self
+                    .properties
+                    .get(property_id)
+                    .ok_or(Error::PropertyNotFound)?;
+                let current_from = property.owner;
 
                 // Remove from current owner's properties
-                let mut current_owner_props = self.owner_properties.get(&from).unwrap_or_default();
+                let mut current_owner_props =
+                    self.owner_properties.get(&current_from).unwrap_or_default();
                 current_owner_props.retain(|&id| id != *property_id);
-                self.owner_properties.insert(&from, &current_owner_props);
-                
+                self.owner_properties
+                    .insert(&current_from, &current_owner_props);
+
                 // Add to new owner's properties
                 let mut new_owner_props = self.owner_properties.get(&to).unwrap_or_default();
                 new_owner_props.push(*property_id);
@@ -698,19 +1067,15 @@ mod propchain_contracts {
 
             // Emit enhanced batch transfer event
             if !property_ids.is_empty() {
-                let first_property = self.properties.get(&property_ids[0]).ok_or(Error::PropertyNotFound)?;
-                let from = first_property.owner;
-                
-                let env = self.env();
-                let transaction_hash = env.hash_encoded(&(&from, &to, &property_ids, env.block_timestamp()));
-                env.emit_event(BatchPropertyTransferred {
+                let transaction_hash: Hash = [0u8; 32].into();
+                self.env().emit_event(BatchPropertyTransferred {
                     from,
                     to,
                     event_version: 1,
                     property_ids: property_ids.clone(),
                     count: property_ids.len() as u64,
-                    timestamp: env.block_timestamp(),
-                    block_number: env.block_number(),
+                    timestamp: self.env().block_timestamp(),
+                    block_number: self.env().block_number(),
                     transaction_hash,
                     transferred_by: caller,
                 });
@@ -724,13 +1089,19 @@ mod propchain_contracts {
 
         /// Batch updates metadata for multiple properties
         #[ink(message)]
-        pub fn batch_update_metadata(&mut self, updates: Vec<(u64, PropertyMetadata)>) -> Result<(), Error> {
+        pub fn batch_update_metadata(
+            &mut self,
+            updates: Vec<(u64, PropertyMetadata)>,
+        ) -> Result<(), Error> {
             let caller = self.env().caller();
 
             // Validate all properties first to avoid partial updates
             for (property_id, ref metadata) in &updates {
-                let property = self.properties.get(property_id).ok_or(Error::PropertyNotFound)?;
-                
+                let property = self
+                    .properties
+                    .get(property_id)
+                    .ok_or(Error::PropertyNotFound)?;
+
                 if property.owner != caller {
                     return Err(Error::Unauthorized);
                 }
@@ -744,8 +1115,11 @@ mod propchain_contracts {
             // Perform all updates
             let mut updated_property_ids = Vec::new();
             for (property_id, metadata) in updates {
-                let mut property = self.properties.get(&property_id).ok_or(Error::PropertyNotFound)?;
-                
+                let mut property = self
+                    .properties
+                    .get(&property_id)
+                    .ok_or(Error::PropertyNotFound)?;
+
                 property.metadata = metadata.clone();
                 self.properties.insert(&property_id, &property);
                 updated_property_ids.push(property_id);
@@ -753,15 +1127,16 @@ mod propchain_contracts {
 
             // Emit enhanced batch metadata update event
             if !updated_property_ids.is_empty() {
-                let env = self.env();
-                let transaction_hash = env.hash_encoded(&(&caller, &updated_property_ids, env.block_timestamp()));
-                env.emit_event(BatchMetadataUpdated {
+                let count = updated_property_ids.len() as u64;
+
+                let transaction_hash: Hash = [0u8; 32].into();
+                self.env().emit_event(BatchMetadataUpdated {
                     owner: caller,
                     event_version: 1,
                     property_ids: updated_property_ids,
-                    count: updated_property_ids.len() as u64,
-                    timestamp: env.block_timestamp(),
-                    block_number: env.block_number(),
+                    count,
+                    timestamp: self.env().block_timestamp(),
+                    block_number: self.env().block_number(),
                     transaction_hash,
                 });
             }
@@ -774,13 +1149,19 @@ mod propchain_contracts {
 
         /// Transfers multiple properties to different recipients
         #[ink(message)]
-        pub fn batch_transfer_properties_to_multiple(&mut self, transfers: Vec<(u64, AccountId)>) -> Result<(), Error> {
+        pub fn batch_transfer_properties_to_multiple(
+            &mut self,
+            transfers: Vec<(u64, AccountId)>,
+        ) -> Result<(), Error> {
             let caller = self.env().caller();
 
             // Validate all properties first to avoid partial transfers
             for (property_id, _) in &transfers {
-                let property = self.properties.get(property_id).ok_or(Error::PropertyNotFound)?;
-                
+                let property = self
+                    .properties
+                    .get(property_id)
+                    .ok_or(Error::PropertyNotFound)?;
+
                 let approved = self.approvals.get(property_id);
                 if property.owner != caller && Some(caller) != approved {
                     return Err(Error::Unauthorized);
@@ -790,14 +1171,17 @@ mod propchain_contracts {
             // Perform all transfers
             let mut transferred_property_ids = Vec::new();
             for (property_id, to) in &transfers {
-                let mut property = self.properties.get(property_id).ok_or(Error::PropertyNotFound)?;
+                let mut property = self
+                    .properties
+                    .get(property_id)
+                    .ok_or(Error::PropertyNotFound)?;
                 let from = property.owner;
 
                 // Remove from current owner's properties
                 let mut current_owner_props = self.owner_properties.get(&from).unwrap_or_default();
                 current_owner_props.retain(|&id| id != *property_id);
                 self.owner_properties.insert(&from, &current_owner_props);
-                
+
                 // Add to new owner's properties
                 let mut new_owner_props = self.owner_properties.get(to).unwrap_or_default();
                 new_owner_props.push(*property_id);
@@ -816,18 +1200,20 @@ mod propchain_contracts {
 
             // Emit enhanced batch transfer to multiple recipients event
             if !transferred_property_ids.is_empty() {
-                let first_property = self.properties.get(&transferred_property_ids[0]).ok_or(Error::PropertyNotFound)?;
+                let first_property = self
+                    .properties
+                    .get(&transferred_property_ids[0])
+                    .ok_or(Error::PropertyNotFound)?;
                 let from = first_property.owner;
-                
-                let env = self.env();
-                let transaction_hash = env.hash_encoded(&(&from, &transfers, env.block_timestamp()));
-                env.emit_event(BatchPropertyTransferredToMultiple {
+
+                let transaction_hash: Hash = [0u8; 32].into();
+                self.env().emit_event(BatchPropertyTransferredToMultiple {
                     from,
                     event_version: 1,
                     transfers: transfers.clone(),
                     count: transfers.len() as u64,
-                    timestamp: env.block_timestamp(),
-                    block_number: env.block_number(),
+                    timestamp: self.env().block_timestamp(),
+                    block_number: self.env().block_number(),
                     transaction_hash,
                     transferred_by: caller,
                 });
@@ -843,36 +1229,38 @@ mod propchain_contracts {
         #[ink(message)]
         pub fn approve(&mut self, property_id: u64, to: Option<AccountId>) -> Result<(), Error> {
             let caller = self.env().caller();
-            let property = self.properties.get(&property_id).ok_or(Error::PropertyNotFound)?;
+            let property = self
+                .properties
+                .get(&property_id)
+                .ok_or(Error::PropertyNotFound)?;
 
             if property.owner != caller {
                 return Err(Error::Unauthorized);
             }
 
-            let env = self.env();
-            let transaction_hash = env.hash_encoded(&(&caller, property_id, env.block_timestamp()));
+            let transaction_hash: Hash = [0u8; 32].into();
 
             if let Some(account) = to {
                 self.approvals.insert(&property_id, &account);
                 // Emit enhanced approval granted event
-                env.emit_event(ApprovalGranted {
+                self.env().emit_event(ApprovalGranted {
                     property_id,
                     owner: caller,
                     approved: account,
                     event_version: 1,
-                    timestamp: env.block_timestamp(),
-                    block_number: env.block_number(),
+                    timestamp: self.env().block_timestamp(),
+                    block_number: self.env().block_number(),
                     transaction_hash,
                 });
             } else {
                 self.approvals.remove(&property_id);
                 // Emit enhanced approval cleared event
-                env.emit_event(ApprovalCleared {
+                self.env().emit_event(ApprovalCleared {
                     property_id,
                     owner: caller,
                     event_version: 1,
-                    timestamp: env.block_timestamp(),
-                    block_number: env.block_number(),
+                    timestamp: self.env().block_timestamp(),
+                    block_number: self.env().block_number(),
                     transaction_hash,
                 });
             }
@@ -887,12 +1275,21 @@ mod propchain_contracts {
         }
 
         /// Creates a new escrow for property transfer
+        /// Seller creates escrow and specifies the buyer
         #[ink(message)]
-        pub fn create_escrow(&mut self, property_id: u64, amount: u128) -> Result<u64, Error> {
+        pub fn create_escrow(
+            &mut self,
+            property_id: u64,
+            buyer: AccountId,
+            amount: u128,
+        ) -> Result<u64, Error> {
             let caller = self.env().caller();
-            let property = self.properties.get(&property_id).ok_or(Error::PropertyNotFound)?;
+            let property = self
+                .properties
+                .get(&property_id)
+                .ok_or(Error::PropertyNotFound)?;
 
-            // Only property owner can create escrow
+            // Only property owner (seller) can create escrow
             if property.owner != caller {
                 return Err(Error::Unauthorized);
             }
@@ -903,7 +1300,7 @@ mod propchain_contracts {
             let escrow_info = EscrowInfo {
                 id: escrow_id,
                 property_id,
-                buyer: caller, // In this simple version, caller is buyer
+                buyer,
                 seller: property.owner,
                 amount,
                 released: false,
@@ -912,17 +1309,17 @@ mod propchain_contracts {
             self.escrows.insert(&escrow_id, &escrow_info);
 
             // Emit enhanced escrow created event
-            let env = self.env();
-            let transaction_hash = env.hash_encoded(&(&caller, escrow_id, property_id, amount, env.block_timestamp()));
-            env.emit_event(EscrowCreated {
+
+            let transaction_hash: Hash = [0u8; 32].into();
+            self.env().emit_event(EscrowCreated {
                 escrow_id,
                 property_id,
-                buyer: caller,
+                buyer,
                 seller: property.owner,
                 event_version: 1,
                 amount,
-                timestamp: env.block_timestamp(),
-                block_number: env.block_number(),
+                timestamp: self.env().block_timestamp(),
+                block_number: self.env().block_number(),
                 transaction_hash,
             });
 
@@ -951,16 +1348,16 @@ mod propchain_contracts {
             self.escrows.insert(&escrow_id, &escrow);
 
             // Emit enhanced escrow released event
-            let env = self.env();
-            let transaction_hash = env.hash_encoded(&(&caller, escrow_id, env.block_timestamp()));
-            env.emit_event(EscrowReleased {
+
+            let transaction_hash: Hash = [0u8; 32].into();
+            self.env().emit_event(EscrowReleased {
                 escrow_id,
                 property_id: escrow.property_id,
                 buyer: escrow.buyer,
                 event_version: 1,
                 amount: escrow.amount,
-                timestamp: env.block_timestamp(),
-                block_number: env.block_number(),
+                timestamp: self.env().block_timestamp(),
+                block_number: self.env().block_number(),
                 transaction_hash,
                 released_by: caller,
             });
@@ -987,16 +1384,16 @@ mod propchain_contracts {
             self.escrows.insert(&escrow_id, &escrow);
 
             // Emit enhanced escrow refunded event
-            let env = self.env();
-            let transaction_hash = env.hash_encoded(&(&caller, escrow_id, env.block_timestamp()));
-            env.emit_event(EscrowRefunded {
+
+            let transaction_hash: Hash = [0u8; 32].into();
+            self.env().emit_event(EscrowRefunded {
                 escrow_id,
                 property_id: escrow.property_id,
                 seller: escrow.seller,
                 event_version: 1,
                 amount: escrow.amount,
-                timestamp: env.block_timestamp(),
-                block_number: env.block_number(),
+                timestamp: self.env().block_timestamp(),
+                block_number: self.env().block_number(),
                 transaction_hash,
                 refunded_by: caller,
             });
@@ -1017,7 +1414,7 @@ mod propchain_contracts {
             let mut total_valuation = 0u128;
             let mut total_size = 0u64;
             let mut property_count = 0u64;
-            
+
             // Optimized loop with iterator for better performance
             let mut iter = property_ids.iter();
             while let Some(&property_id) = iter.next() {
@@ -1028,13 +1425,21 @@ mod propchain_contracts {
                     property_count += 1;
                 }
             }
-            
+
             PortfolioSummary {
                 property_count,
                 total_valuation,
-                average_valuation: if property_count > 0 { total_valuation / property_count as u128 } else { 0 },
+                average_valuation: if property_count > 0 {
+                    total_valuation / property_count as u128
+                } else {
+                    0
+                },
                 total_size,
-                average_size: if property_count > 0 { total_size / property_count } else { 0 },
+                average_size: if property_count > 0 {
+                    total_size / property_count
+                } else {
+                    0
+                },
             }
         }
 
@@ -1043,10 +1448,10 @@ mod propchain_contracts {
         pub fn get_portfolio_details(&self, owner: AccountId) -> PortfolioDetails {
             let property_ids = self.owner_properties.get(&owner).unwrap_or_default();
             let mut properties = Vec::new();
-            
+
             // Optimized loop with capacity pre-allocation
             properties.reserve(property_ids.len());
-            
+
             let mut iter = property_ids.iter();
             while let Some(&property_id) = iter.next() {
                 if let Some(property) = self.properties.get(&property_id) {
@@ -1061,7 +1466,7 @@ mod propchain_contracts {
                     properties.push(portfolio_property);
                 }
             }
-            
+
             PortfolioDetails {
                 owner,
                 total_count: properties.len() as u64,
@@ -1070,13 +1475,14 @@ mod propchain_contracts {
         }
 
         /// Analytics: Gets aggregated statistics across all properties
+        /// WARNING: This is expensive for large datasets. Consider off-chain indexing.
         #[ink(message)]
         pub fn get_global_analytics(&self) -> GlobalAnalytics {
             let mut total_valuation = 0u128;
             let mut total_size = 0u64;
             let mut property_count = 0u64;
-            let mut owners = std::collections::BTreeSet::new();
-            
+            let mut owners = Vec::new();
+
             // Optimized loop with early termination possibility
             // Note: This is expensive for large datasets. Consider off-chain indexing.
             let mut i = 1u64;
@@ -1085,17 +1491,29 @@ mod propchain_contracts {
                     total_valuation += property.metadata.valuation;
                     total_size += property.metadata.size;
                     property_count += 1;
-                    owners.insert(property.owner);
+
+                    // Add owner if not already in list (manual deduplication)
+                    if !owners.contains(&property.owner) {
+                        owners.push(property.owner);
+                    }
                 }
                 i += 1;
             }
-            
+
             GlobalAnalytics {
                 total_properties: property_count,
                 total_valuation,
-                average_valuation: if property_count > 0 { total_valuation / property_count as u128 } else { 0 },
+                average_valuation: if property_count > 0 {
+                    total_valuation / property_count as u128
+                } else {
+                    0
+                },
                 total_size,
-                average_size: if property_count > 0 { total_size / property_count } else { 0 },
+                average_size: if property_count > 0 {
+                    total_size / property_count
+                } else {
+                    0
+                },
                 unique_owners: owners.len() as u64,
             }
         }
@@ -1104,7 +1522,7 @@ mod propchain_contracts {
         #[ink(message)]
         pub fn get_properties_by_price_range(&self, min_price: u128, max_price: u128) -> Vec<u64> {
             let mut result = Vec::new();
-            
+
             // Optimized loop with pre-check to reduce iterations
             let mut i = 1u64;
             while i <= self.property_count {
@@ -1117,7 +1535,7 @@ mod propchain_contracts {
                 }
                 i += 1;
             }
-            
+
             result
         }
 
@@ -1125,7 +1543,7 @@ mod propchain_contracts {
         #[ink(message)]
         pub fn get_properties_by_size_range(&self, min_size: u64, max_size: u64) -> Vec<u64> {
             let mut result = Vec::new();
-            
+
             // Optimized loop with pre-check to reduce iterations
             let mut i = 1u64;
             while i <= self.property_count {
@@ -1138,7 +1556,7 @@ mod propchain_contracts {
                 }
                 i += 1;
             }
-            
+
             result
         }
 
@@ -1150,7 +1568,7 @@ mod propchain_contracts {
             self.gas_tracker.operation_count += 1;
             self.gas_tracker.last_operation_gas = gas_used;
             self.gas_tracker.total_gas_used += gas_used;
-            
+
             // Track min/max gas usage
             if gas_used < self.gas_tracker.min_gas_used {
                 self.gas_tracker.min_gas_used = gas_used;
@@ -1171,7 +1589,11 @@ mod propchain_contracts {
                     0
                 },
                 total_operations: self.gas_tracker.operation_count,
-                min_gas_used: if self.gas_tracker.min_gas_used == u64::MAX { 0 } else { self.gas_tracker.min_gas_used },
+                min_gas_used: if self.gas_tracker.min_gas_used == u64::MAX {
+                    0
+                } else {
+                    self.gas_tracker.min_gas_used
+                },
                 max_gas_used: self.gas_tracker.max_gas_used,
             }
         }
@@ -1180,7 +1602,7 @@ mod propchain_contracts {
         #[ink(message)]
         pub fn get_performance_recommendations(&self) -> Vec<String> {
             let mut recommendations = Vec::new();
-            
+
             // Check for high gas usage operations
             let avg_gas = if self.gas_tracker.operation_count > 0 {
                 self.gas_tracker.total_gas_used / self.gas_tracker.operation_count
@@ -1188,25 +1610,463 @@ mod propchain_contracts {
                 0
             };
             if avg_gas > 50000 {
-                recommendations.push("Consider using batch operations for multiple properties".to_string());
+                recommendations
+                    .push("Consider using batch operations for multiple properties".to_string());
             }
-            
+
             // Check for many small operations
             if self.gas_tracker.operation_count > 100 && avg_gas < 10000 {
-                recommendations.push("Operations are efficient but consider consolidating related operations".to_string());
+                recommendations.push(
+                    "Operations are efficient but consider consolidating related operations"
+                        .to_string(),
+                );
             }
-            
+
             // Check for inconsistent gas usage
             if self.gas_tracker.max_gas_used > self.gas_tracker.min_gas_used * 10 {
-                recommendations.push("Gas usage varies significantly - review operation patterns".to_string());
+                recommendations
+                    .push("Gas usage varies significantly - review operation patterns".to_string());
             }
-            
+
             // General recommendations
-            recommendations.push("Use batch operations for multiple property transfers".to_string());
-            recommendations.push("Prefer portfolio analytics over individual property queries".to_string());
-            recommendations.push("Consider off-chain indexing for complex analytics".to_string());
-            
             recommendations
+                .push("Use batch operations for multiple property transfers".to_string());
+            recommendations
+                .push("Prefer portfolio analytics over individual property queries".to_string());
+            recommendations.push("Consider off-chain indexing for complex analytics".to_string());
+
+            recommendations
+        }
+
+        // ============================================================================
+        // BADGE MANAGEMENT SYSTEM
+        // ============================================================================
+
+        /// Adds or removes a badge verifier (admin only)
+        #[ink(message)]
+        pub fn set_verifier(&mut self, verifier: AccountId, authorized: bool) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            self.badge_verifiers.insert(&verifier, &authorized);
+
+            // Emit verifier updated event
+            let timestamp = self.env().block_timestamp();
+            let block_number = self.env().block_number();
+            self.env().emit_event(VerifierUpdated {
+                verifier,
+                authorized,
+                updated_by: caller,
+                event_version: 1,
+                timestamp,
+                block_number,
+                transaction_hash: [0u8; 32].into(),
+            });
+
+            Ok(())
+        }
+
+        /// Checks if an account is an authorized verifier
+        #[ink(message)]
+        pub fn is_verifier(&self, account: AccountId) -> bool {
+            self.badge_verifiers.get(&account).unwrap_or(false)
+        }
+
+        /// Issues a badge to a property (verifier only)
+        #[ink(message)]
+        pub fn issue_badge(
+            &mut self,
+            property_id: u64,
+            badge_type: BadgeType,
+            expires_at: Option<u64>,
+            metadata_url: String,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+            // Only verifiers can issue badges
+            if !self.is_verifier(caller) && caller != self.admin {
+                return Err(Error::NotVerifier);
+            }
+
+            // Check if property exists
+            self.properties
+                .get(&property_id)
+                .ok_or(Error::PropertyNotFound)?;
+
+            // Check if badge already exists and is not revoked
+            if let Some(existing_badge) = self.property_badges.get(&(property_id, badge_type)) {
+                if !existing_badge.revoked {
+                    return Err(Error::BadgeAlreadyIssued);
+                }
+            }
+
+            let badge = Badge {
+                badge_type,
+                issued_at: self.env().block_timestamp(),
+                issued_by: caller,
+                expires_at,
+                metadata_url: metadata_url.clone(),
+                revoked: false,
+                revoked_at: None,
+                revocation_reason: String::new(),
+            };
+
+            self.property_badges
+                .insert(&(property_id, badge_type), &badge);
+
+            // Emit badge issued event
+            let timestamp = self.env().block_timestamp();
+            let block_number = self.env().block_number();
+            self.env().emit_event(BadgeIssued {
+                property_id,
+                badge_type,
+                issued_by: caller,
+                event_version: 1,
+                expires_at,
+                metadata_url,
+                timestamp,
+                block_number,
+                transaction_hash: [0u8; 32].into(),
+            });
+
+            Ok(())
+        }
+
+        /// Revokes a badge from a property (verifier or admin only)
+        #[ink(message)]
+        pub fn revoke_badge(
+            &mut self,
+            property_id: u64,
+            badge_type: BadgeType,
+            reason: String,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+            // Only verifiers or admin can revoke badges
+            if !self.is_verifier(caller) && caller != self.admin {
+                return Err(Error::NotVerifier);
+            }
+
+            let mut badge = self
+                .property_badges
+                .get(&(property_id, badge_type))
+                .ok_or(Error::BadgeNotFound)?;
+
+            if badge.revoked {
+                return Err(Error::BadgeNotFound); 
+            }
+
+            badge.revoked = true;
+            badge.revoked_at = Some(self.env().block_timestamp());
+            badge.revocation_reason = reason.clone();
+
+            self.property_badges
+                .insert(&(property_id, badge_type), &badge);
+
+     
+            let timestamp = self.env().block_timestamp();
+            let block_number = self.env().block_number();
+            self.env().emit_event(BadgeRevoked {
+                property_id,
+                badge_type,
+                revoked_by: caller,
+                event_version: 1,
+                reason,
+                timestamp,
+                block_number,
+                transaction_hash: [0u8; 32].into(),
+            });
+
+            Ok(())
+        }
+
+      
+        #[ink(message)]
+        pub fn request_verification(
+            &mut self,
+            property_id: u64,
+            badge_type: BadgeType,
+            evidence_url: String,
+        ) -> Result<u64, Error> {
+            let caller = self.env().caller();
+            let property = self
+                .properties
+                .get(&property_id)
+                .ok_or(Error::PropertyNotFound)?;
+
+            
+            if property.owner != caller {
+                return Err(Error::Unauthorized);
+            }
+
+            self.verification_count += 1;
+            let request_id = self.verification_count;
+
+            let request = VerificationRequest {
+                id: request_id,
+                property_id,
+                badge_type,
+                requester: caller,
+                requested_at: self.env().block_timestamp(),
+                evidence_url: evidence_url.clone(),
+                status: VerificationStatus::Pending,
+                reviewed_by: None,
+                reviewed_at: None,
+            };
+
+            self.verification_requests.insert(&request_id, &request);
+
+            // Emit verification requested event
+            let timestamp = self.env().block_timestamp();
+            let block_number = self.env().block_number();
+            self.env().emit_event(VerificationRequested {
+                request_id,
+                property_id,
+                badge_type,
+                requester: caller,
+                event_version: 1,
+                evidence_url,
+                timestamp,
+                block_number,
+                transaction_hash: [0u8; 32].into(),
+            });
+
+            Ok(request_id)
+        }
+
+      
+        #[ink(message)]
+        pub fn review_verification(
+            &mut self,
+            request_id: u64,
+            approved: bool,
+            expires_at: Option<u64>,
+            metadata_url: String,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+           
+            if !self.is_verifier(caller) && caller != self.admin {
+                return Err(Error::NotVerifier);
+            }
+
+            let mut request = self
+                .verification_requests
+                .get(&request_id)
+                .ok_or(Error::BadgeNotFound)?;
+
+            request.status = if approved {
+                VerificationStatus::Approved
+            } else {
+                VerificationStatus::Rejected
+            };
+            request.reviewed_by = Some(caller);
+            request.reviewed_at = Some(self.env().block_timestamp());
+
+            self.verification_requests.insert(&request_id, &request);
+
+          
+            if approved {
+                self.issue_badge(
+                    request.property_id,
+                    request.badge_type,
+                    expires_at,
+                    metadata_url,
+                )?;
+            }
+
+          
+            let timestamp = self.env().block_timestamp();
+            let block_number = self.env().block_number();
+            self.env().emit_event(VerificationReviewed {
+                request_id,
+                property_id: request.property_id,
+                reviewer: caller,
+                approved,
+                event_version: 1,
+                timestamp,
+                block_number,
+                transaction_hash: [0u8; 32].into(),
+            });
+
+            Ok(())
+        }
+
+      
+        #[ink(message)]
+        pub fn submit_appeal(
+            &mut self,
+            property_id: u64,
+            badge_type: BadgeType,
+            reason: String,
+        ) -> Result<u64, Error> {
+            let caller = self.env().caller();
+            let property = self
+                .properties
+                .get(&property_id)
+                .ok_or(Error::PropertyNotFound)?;
+
+          
+            if property.owner != caller {
+                return Err(Error::Unauthorized);
+            }
+
+          
+            let badge = self
+                .property_badges
+                .get(&(property_id, badge_type))
+                .ok_or(Error::BadgeNotFound)?;
+
+            if !badge.revoked {
+                return Err(Error::InvalidAppealStatus); 
+            }
+
+            self.appeal_count += 1;
+            let appeal_id = self.appeal_count;
+
+            let appeal = Appeal {
+                id: appeal_id,
+                property_id,
+                badge_type,
+                appellant: caller,
+                reason: reason.clone(),
+                submitted_at: self.env().block_timestamp(),
+                status: AppealStatus::Pending,
+                resolved_by: None,
+                resolved_at: None,
+                resolution: String::new(),
+            };
+
+            self.appeals.insert(&appeal_id, &appeal);
+
+          
+            let timestamp = self.env().block_timestamp();
+            let block_number = self.env().block_number();
+            self.env().emit_event(AppealSubmitted {
+                appeal_id,
+                property_id,
+                badge_type,
+                appellant: caller,
+                event_version: 1,
+                reason,
+                timestamp,
+                block_number,
+                transaction_hash: [0u8; 32].into(),
+            });
+
+            Ok(appeal_id)
+        }
+
+        #[ink(message)]
+        pub fn resolve_appeal(
+            &mut self,
+            appeal_id: u64,
+            approved: bool,
+            resolution: String,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+            if caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            let mut appeal = self.appeals.get(&appeal_id).ok_or(Error::AppealNotFound)?;
+
+            appeal.status = if approved {
+                AppealStatus::Approved
+            } else {
+                AppealStatus::Rejected
+            };
+            appeal.resolved_by = Some(caller);
+            appeal.resolved_at = Some(self.env().block_timestamp());
+            appeal.resolution = resolution.clone();
+
+            self.appeals.insert(&appeal_id, &appeal);
+
+            // If approved, reinstate the badge
+            if approved {
+                if let Some(mut badge) = self
+                    .property_badges
+                    .get(&(appeal.property_id, appeal.badge_type))
+                {
+                    badge.revoked = false;
+                    badge.revoked_at = None;
+                    badge.revocation_reason = String::new();
+                    self.property_badges
+                        .insert(&(appeal.property_id, appeal.badge_type), &badge);
+                }
+            }
+
+            // Emit appeal resolved event
+            let timestamp = self.env().block_timestamp();
+            let block_number = self.env().block_number();
+            self.env().emit_event(AppealResolved {
+                appeal_id,
+                property_id: appeal.property_id,
+                resolved_by: caller,
+                approved,
+                event_version: 1,
+                resolution,
+                timestamp,
+                block_number,
+                transaction_hash: [0u8; 32].into(),
+            });
+
+            Ok(())
+        }
+
+        /// Gets all badges for a property
+        #[ink(message)]
+        pub fn get_property_badges(&self, property_id: u64) -> Vec<(BadgeType, Badge)> {
+            let mut badges = Vec::new();
+
+            // Check all badge types
+            let badge_types = [
+                BadgeType::OwnerVerification,
+                BadgeType::DocumentVerification,
+                BadgeType::LegalCompliance,
+                BadgeType::PremiumListing,
+            ];
+
+            for badge_type in badge_types.iter() {
+                if let Some(badge) = self.property_badges.get(&(property_id, *badge_type)) {
+                    if !badge.revoked {
+                        badges.push((*badge_type, badge));
+                    }
+                }
+            }
+
+            badges
+        }
+
+     
+        #[ink(message)]
+        pub fn has_badge(&self, property_id: u64, badge_type: BadgeType) -> bool {
+            if let Some(badge) = self.property_badges.get(&(property_id, badge_type)) {
+                !badge.revoked
+            } else {
+                false
+            }
+        }
+
+      
+        #[ink(message)]
+        pub fn get_badge(&self, property_id: u64, badge_type: BadgeType) -> Option<Badge> {
+            self.property_badges.get(&(property_id, badge_type))
+        }
+
+      
+        #[ink(message)]
+        pub fn get_verification_request(&self, request_id: u64) -> Option<VerificationRequest> {
+            self.verification_requests.get(&request_id)
+        }
+
+      
+        #[ink(message)]
+        pub fn get_appeal(&self, appeal_id: u64) -> Option<Appeal> {
+            self.appeals.get(&appeal_id)
         }
     }
 
@@ -1245,7 +2105,11 @@ mod propchain_contracts {
         type Error = Error;
 
         fn create_escrow(&mut self, property_id: u64, amount: u128) -> Result<u64, Self::Error> {
-            self.create_escrow(property_id, amount)
+            // For trait compatibility, use caller as buyer
+            // In production, use the direct create_escrow method with explicit buyer
+            use ink::codegen::Env;
+            let caller = self.env().caller();
+            self.create_escrow(property_id, caller, amount)
         }
 
         fn release_escrow(&mut self, escrow_id: u64) -> Result<(), Self::Error> {
@@ -1257,6 +2121,7 @@ mod propchain_contracts {
         }
     }
 }
+
 
 #[cfg(test)]
 mod tests;
