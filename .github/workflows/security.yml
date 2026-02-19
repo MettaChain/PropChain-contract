@@ -31,6 +31,12 @@ jobs:
         cargo build --release -p security-audit
         cp target/release/security-audit ./security-audit-tool
 
+    - name: Install cargo-deny
+      run: cargo install cargo-deny
+      
+    - name: Run cargo-deny check
+      run: cargo deny check --config deny.toml
+      
     - name: Run Security Audit Pipeline
       run: |
         ./security-audit-tool audit --report security-report.json

@@ -1,0 +1,64 @@
+# Configuration for cargo-deny
+# This addresses the CVSS 4.0 parsing issue
+
+[advisories]
+# Ignore the problematic advisory that uses CVSS 4.0
+ignore = [
+    "RUSTSEC-2026-0003",  # CVSS 4.0 advisory causing parse error
+]
+
+# Set the database path to avoid conflicts
+db-path = ""
+db-urls = [
+    "https://github.com/rustsec/advisory-db.git",
+]
+
+# Severity threshold for advisories
+severity-threshold = "low"
+
+[bans]
+# Allow cycles in the dependency graph
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+
+# List of crates to deny
+deny = []
+
+[sources]
+# Allow crates from any registry
+allow-git = []
+allow-registries = []
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[sources.allow-org]
+# Allow crates from specific organizations
+github = []
+gitlab = []
+bitbucket = []
+
+[licenses]
+# License checking configuration
+unlicensed = "deny"
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "ISC",
+    "CC0-1.0",
+    "Unicode-DFS-2016",
+    "OpenSSL",
+]
+deny = []
+copyleft = "warn"
+confidence-threshold = 0.8
+exceptions = []
+
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 },
+]
