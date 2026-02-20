@@ -322,13 +322,13 @@ mod property_token {
         /// ERC-721: Returns the balance of tokens owned by an account
         #[ink(message)]
         pub fn balance_of(&self, owner: AccountId) -> u32 {
-            self.owner_token_count.get(&owner).unwrap_or(0)
+            self.owner_token_count.get(owner).unwrap_or(0)
         }
 
         /// ERC-721: Returns the owner of a token
         #[ink(message)]
         pub fn owner_of(&self, token_id: TokenId) -> Option<AccountId> {
-            self.token_owner.get(&token_id)
+            self.token_owner.get(token_id)
         }
 
         /// ERC-721: Transfers a token from one account to another
@@ -342,16 +342,13 @@ mod property_token {
             let caller = self.env().caller();
 
             // Check if caller is authorized to transfer
-            let token_owner = self
-                .token_owner
-                .get(&token_id)
-                .ok_or(Error::TokenNotFound)?;
+            let token_owner = self.token_owner.get(token_id).ok_or(Error::TokenNotFound)?;
             if token_owner != from {
                 return Err(Error::Unauthorized);
             }
 
             if caller != from
-                && Some(caller) != self.token_approvals.get(&token_id)
+                && Some(caller) != self.token_approvals.get(token_id)
                 && !self.is_approved_for_all(from, caller)
             {
                 return Err(Error::Unauthorized);
@@ -362,7 +359,7 @@ mod property_token {
             self.add_token_to_owner(to, token_id)?;
 
             // Clear approvals
-            self.token_approvals.remove(&token_id);
+            self.token_approvals.remove(token_id);
 
             // Update ownership history
             self.update_ownership_history(token_id, from, to)?;
@@ -380,16 +377,13 @@ mod property_token {
         #[ink(message)]
         pub fn approve(&mut self, to: AccountId, token_id: TokenId) -> Result<(), Error> {
             let caller = self.env().caller();
-            let token_owner = self
-                .token_owner
-                .get(&token_id)
-                .ok_or(Error::TokenNotFound)?;
+            let token_owner = self.token_owner.get(token_id).ok_or(Error::TokenNotFound)?;
 
             if token_owner != caller && !self.is_approved_for_all(token_owner, caller) {
                 return Err(Error::Unauthorized);
             }
 
-            self.token_approvals.insert(&token_id, &to);
+            self.token_approvals.insert(token_id, &to);
 
             self.env().emit_event(Approval {
                 owner: token_owner,
@@ -423,7 +417,7 @@ mod property_token {
         /// ERC-721: Gets the approved account for a token
         #[ink(message)]
         pub fn get_approved(&self, token_id: TokenId) -> Option<AccountId> {
-            self.token_approvals.get(&token_id)
+            self.token_approvals.get(token_id)
         }
 
         /// ERC-721: Checks if an operator is approved for an owner
@@ -490,11 +484,11 @@ mod property_token {
             }
 
             // Emit transfer events for each token
-            for i in 0..ids.len() {
+            for id in &ids {
                 self.env().emit_event(Transfer {
                     from: Some(from),
                     to: Some(to),
-                    id: ids[i],
+                    id: *id,
                 });
             }
 
@@ -505,7 +499,7 @@ mod property_token {
         #[ink(message)]
         pub fn uri(&self, token_id: TokenId) -> Option<String> {
             // Return a standard URI format for the token metadata
-            let _property_info = self.token_properties.get(&token_id)?;
+            let _property_info = self.token_properties.get(token_id)?;
             Some(format!(
                 "ipfs://property/{:?}/{}/metadata.json",
                 self.env().account_id(),
@@ -536,15 +530,15 @@ mod property_token {
                 registered_at: self.env().block_timestamp(),
             };
 
-            self.token_owner.insert(&token_id, &caller);
+            self.token_owner.insert(token_id, &caller);
             self.add_token_to_owner(caller, token_id)?;
 
             // Initialize balances
             self.balances.insert((&caller, &token_id), &1u128);
 
             // Store property-specific information
-            self.token_properties.insert(&token_id, &property_info);
-            self.property_tokens.insert(&token_id, &token_id); // property_id maps to token_id
+            self.token_properties.insert(token_id, &property_info);
+            self.property_tokens.insert(token_id, &token_id); // property_id maps to token_id
 
             // Initialize ownership history
             let initial_transfer = OwnershipTransfer {
@@ -563,7 +557,7 @@ mod property_token {
             };
 
             self.ownership_history
-                .insert(&token_id, &vec![initial_transfer]);
+                .insert(token_id, &vec![initial_transfer]);
 
             // Initialize compliance as unverified
             let compliance_info = ComplianceInfo {
@@ -572,11 +566,11 @@ mod property_token {
                 verifier: AccountId::from([0u8; 32]),
                 compliance_type: String::from("KYC"),
             };
-            self.compliance_flags.insert(&token_id, &compliance_info);
+            self.compliance_flags.insert(token_id, &compliance_info);
 
             // Initialize legal documents vector
             self.legal_documents
-                .insert(&token_id, &Vec::<DocumentInfo>::new());
+                .insert(token_id, &Vec::<DocumentInfo>::new());
 
             self.total_supply += 1;
 
@@ -598,17 +592,14 @@ mod property_token {
             document_type: String,
         ) -> Result<(), Error> {
             let caller = self.env().caller();
-            let token_owner = self
-                .token_owner
-                .get(&token_id)
-                .ok_or(Error::TokenNotFound)?;
+            let token_owner = self.token_owner.get(token_id).ok_or(Error::TokenNotFound)?;
 
             if token_owner != caller {
                 return Err(Error::Unauthorized);
             }
 
             // Get existing documents
-            let mut documents = self.legal_documents.get(&token_id).unwrap_or(Vec::new());
+            let mut documents = self.legal_documents.get(token_id).unwrap_or_default();
 
             // Add new document
             let document_info = DocumentInfo {
@@ -621,7 +612,7 @@ mod property_token {
             documents.push(document_info);
 
             // Save updated documents
-            self.legal_documents.insert(&token_id, &documents);
+            self.legal_documents.insert(token_id, &documents);
 
             self.env().emit_event(LegalDocumentAttached {
                 token_id,
@@ -648,13 +639,13 @@ mod property_token {
 
             let mut compliance_info = self
                 .compliance_flags
-                .get(&token_id)
+                .get(token_id)
                 .ok_or(Error::TokenNotFound)?;
             compliance_info.verified = verification_status;
             compliance_info.verification_date = self.env().block_timestamp();
             compliance_info.verifier = caller;
 
-            self.compliance_flags.insert(&token_id, &compliance_info);
+            self.compliance_flags.insert(token_id, &compliance_info);
 
             self.env().emit_event(ComplianceVerified {
                 token_id,
@@ -668,7 +659,7 @@ mod property_token {
         /// Property-specific: Gets ownership history for a token
         #[ink(message)]
         pub fn get_ownership_history(&self, token_id: TokenId) -> Option<Vec<OwnershipTransfer>> {
-            self.ownership_history.get(&token_id)
+            self.ownership_history.get(token_id)
         }
 
         /// Cross-chain: Initiates token bridging to another chain with multi-signature
@@ -682,10 +673,7 @@ mod property_token {
             timeout_blocks: Option<u64>,
         ) -> Result<u64, Error> {
             let caller = self.env().caller();
-            let token_owner = self
-                .token_owner
-                .get(&token_id)
-                .ok_or(Error::TokenNotFound)?;
+            let token_owner = self.token_owner.get(token_id).ok_or(Error::TokenNotFound)?;
 
             // Check authorization
             if token_owner != caller {
@@ -709,7 +697,7 @@ mod property_token {
             // Check compliance before bridging
             let compliance_info = self
                 .compliance_flags
-                .get(&token_id)
+                .get(token_id)
                 .ok_or(Error::ComplianceFailed)?;
             if !compliance_info.verified {
                 return Err(Error::ComplianceFailed);
@@ -731,12 +719,11 @@ mod property_token {
             self.bridge_request_counter += 1;
             let request_id = self.bridge_request_counter;
             let current_block = self.env().block_number();
-            let _expires_at =
-                timeout_blocks.map(|blocks| u64::from(current_block) + u64::from(blocks));
+            let _expires_at = timeout_blocks.map(|blocks| u64::from(current_block) + blocks);
 
             let property_info = self
                 .token_properties
-                .get(&token_id)
+                .get(token_id)
                 .ok_or(Error::PropertyNotFound)?;
 
             let request = MultisigBridgeRequest {
@@ -749,13 +736,12 @@ mod property_token {
                 required_signatures,
                 signatures: Vec::new(),
                 created_at: u64::from(current_block),
-                expires_at: timeout_blocks
-                    .map(|blocks| u64::from(current_block) + u64::from(blocks)),
+                expires_at: timeout_blocks.map(|blocks| u64::from(current_block) + blocks),
                 status: BridgeOperationStatus::Pending,
                 metadata: property_info.metadata.clone(),
             };
 
-            self.bridge_requests.insert(&request_id, &request);
+            self.bridge_requests.insert(request_id, &request);
 
             self.env().emit_event(BridgeRequestCreated {
                 request_id,
@@ -780,14 +766,14 @@ mod property_token {
 
             let mut request = self
                 .bridge_requests
-                .get(&request_id)
+                .get(request_id)
                 .ok_or(Error::InvalidRequest)?;
 
             // Check if request has expired
             if let Some(expires_at) = request.expires_at {
                 if u64::from(self.env().block_number()) > expires_at {
                     request.status = BridgeOperationStatus::Expired;
-                    self.bridge_requests.insert(&request_id, &request);
+                    self.bridge_requests.insert(request_id, &request);
                     return Err(Error::RequestExpired);
                 }
             }
@@ -814,15 +800,15 @@ mod property_token {
                 // Lock the token for bridging
                 let token_owner = self
                     .token_owner
-                    .get(&request.token_id)
+                    .get(request.token_id)
                     .ok_or(Error::TokenNotFound)?;
                 self.balances
                     .insert((&token_owner, &request.token_id), &0u128);
                 self.token_owner
-                    .insert(&request.token_id, &AccountId::from([0u8; 32])); // Lock to zero address
+                    .insert(request.token_id, &AccountId::from([0u8; 32])); // Lock to zero address
             }
 
-            self.bridge_requests.insert(&request_id, &request);
+            self.bridge_requests.insert(request_id, &request);
 
             self.env().emit_event(BridgeRequestSigned {
                 request_id,
@@ -846,7 +832,7 @@ mod property_token {
 
             let mut request = self
                 .bridge_requests
-                .get(&request_id)
+                .get(request_id)
                 .ok_or(Error::InvalidRequest)?;
 
             // Check if request is ready for execution
@@ -879,18 +865,18 @@ mod property_token {
 
             // Update request status
             request.status = BridgeOperationStatus::Completed;
-            self.bridge_requests.insert(&request_id, &request);
+            self.bridge_requests.insert(request_id, &request);
 
             // Store transaction verification
-            self.verified_bridge_hashes.insert(&transaction_hash, &true);
+            self.verified_bridge_hashes.insert(transaction_hash, &true);
 
             // Add to bridge history
             let mut history = self
                 .bridge_transactions
-                .get(&request.sender)
-                .unwrap_or(Vec::new());
+                .get(request.sender)
+                .unwrap_or_default();
             history.push(transaction.clone());
-            self.bridge_transactions.insert(&request.sender, &history);
+            self.bridge_transactions.insert(request.sender, &history);
 
             // Update bridged token info
             let bridged_info = BridgedTokenInfo {
@@ -935,7 +921,7 @@ mod property_token {
             // Verify transaction hash
             if !self
                 .verified_bridge_hashes
-                .get(&transaction_hash)
+                .get(transaction_hash)
                 .unwrap_or(false)
             {
                 return Err(Error::InvalidRequest);
@@ -953,8 +939,8 @@ mod property_token {
                 registered_at: self.env().block_timestamp(),
             };
 
-            self.token_properties.insert(&new_token_id, &property_info);
-            self.token_owner.insert(&new_token_id, &recipient);
+            self.token_properties.insert(new_token_id, &property_info);
+            self.token_owner.insert(new_token_id, &recipient);
             self.add_token_to_owner(recipient, new_token_id)?;
             self.balances.insert((&recipient, &new_token_id), &1u128);
 
@@ -975,7 +961,7 @@ mod property_token {
             };
 
             self.ownership_history
-                .insert(&new_token_id, &vec![initial_transfer]);
+                .insert(new_token_id, &vec![initial_transfer]);
 
             // Initialize compliance as verified for bridged tokens
             let compliance_info = ComplianceInfo {
@@ -984,12 +970,11 @@ mod property_token {
                 verifier: caller,
                 compliance_type: String::from("Bridge"),
             };
-            self.compliance_flags
-                .insert(&new_token_id, &compliance_info);
+            self.compliance_flags.insert(new_token_id, &compliance_info);
 
             // Initialize legal documents vector
             self.legal_documents
-                .insert(&new_token_id, &Vec::<DocumentInfo>::new());
+                .insert(new_token_id, &Vec::<DocumentInfo>::new());
 
             self.total_supply += 1;
 
@@ -1021,10 +1006,7 @@ mod property_token {
             _recipient: AccountId,
         ) -> Result<(), Error> {
             let caller = self.env().caller();
-            let token_owner = self
-                .token_owner
-                .get(&token_id)
-                .ok_or(Error::TokenNotFound)?;
+            let token_owner = self.token_owner.get(token_id).ok_or(Error::TokenNotFound)?;
 
             // Check authorization
             if token_owner != caller {
@@ -1043,7 +1025,7 @@ mod property_token {
 
             // Burn the token
             self.remove_token_from_owner(caller, token_id)?;
-            self.token_owner.remove(&token_id);
+            self.token_owner.remove(token_id);
             self.balances.insert((&caller, &token_id), &0u128);
             self.total_supply -= 1;
 
@@ -1078,7 +1060,7 @@ mod property_token {
 
             let mut request = self
                 .bridge_requests
-                .get(&request_id)
+                .get(request_id)
                 .ok_or(Error::InvalidRequest)?;
 
             // Check if request is in a failed state
@@ -1093,10 +1075,10 @@ mod property_token {
             match recovery_action {
                 RecoveryAction::UnlockToken => {
                     // Unlock the token
-                    if let Some(token_owner) = self.token_owner.get(&request.token_id) {
+                    if let Some(token_owner) = self.token_owner.get(request.token_id) {
                         if token_owner == AccountId::from([0u8; 32]) {
                             // Token is locked, restore ownership to original sender
-                            self.token_owner.insert(&request.token_id, &request.sender);
+                            self.token_owner.insert(request.token_id, &request.sender);
                             self.balances
                                 .insert((&request.sender, &request.token_id), &1u128);
                             self.add_token_to_owner(request.sender, request.token_id)?;
@@ -1115,9 +1097,9 @@ mod property_token {
                 RecoveryAction::CancelBridge => {
                     // Mark as cancelled and unlock token
                     request.status = BridgeOperationStatus::Failed;
-                    if let Some(token_owner) = self.token_owner.get(&request.token_id) {
+                    if let Some(token_owner) = self.token_owner.get(request.token_id) {
                         if token_owner == AccountId::from([0u8; 32]) {
-                            self.token_owner.insert(&request.token_id, &request.sender);
+                            self.token_owner.insert(request.token_id, &request.sender);
                             self.balances
                                 .insert((&request.sender, &request.token_id), &1u128);
                             self.add_token_to_owner(request.sender, request.token_id)?;
@@ -1126,7 +1108,7 @@ mod property_token {
                 }
             }
 
-            self.bridge_requests.insert(&request_id, &request);
+            self.bridge_requests.insert(request_id, &request);
 
             self.env().emit_event(BridgeRecovered {
                 request_id,
@@ -1154,7 +1136,7 @@ mod property_token {
             let base_gas = self.bridge_config.gas_limit_per_bridge;
             let property_info = self
                 .token_properties
-                .get(&token_id)
+                .get(token_id)
                 .ok_or(Error::TokenNotFound)?;
             let metadata_gas = property_info.metadata.legal_description.len() as u64 * 100;
 
@@ -1164,7 +1146,7 @@ mod property_token {
         /// Monitors bridge status
         #[ink(message)]
         pub fn monitor_bridge_status(&self, request_id: u64) -> Option<BridgeMonitoringInfo> {
-            let request = self.bridge_requests.get(&request_id)?;
+            let request = self.bridge_requests.get(request_id)?;
 
             Some(BridgeMonitoringInfo {
                 bridge_request_id: request.request_id,
@@ -1183,19 +1165,19 @@ mod property_token {
         /// Gets bridge history for an account
         #[ink(message)]
         pub fn get_bridge_history(&self, account: AccountId) -> Vec<BridgeTransaction> {
-            self.bridge_transactions.get(&account).unwrap_or(Vec::new())
+            self.bridge_transactions.get(account).unwrap_or_default()
         }
 
         /// Verifies bridge transaction hash
         #[ink(message)]
         pub fn verify_bridge_transaction(
             &self,
-            token_id: TokenId,
+            _token_id: TokenId,
             transaction_hash: Hash,
-            source_chain: ChainId,
+            _source_chain: ChainId,
         ) -> bool {
             self.verified_bridge_hashes
-                .get(&transaction_hash)
+                .get(transaction_hash)
                 .unwrap_or(false)
         }
 
@@ -1317,9 +1299,9 @@ mod property_token {
         }
 
         /// Internal helper to add a token to an owner
-        fn add_token_to_owner(&mut self, to: AccountId, token_id: TokenId) -> Result<(), Error> {
-            let count = self.owner_token_count.get(&to).unwrap_or(0);
-            self.owner_token_count.insert(&to, &(count + 1));
+        fn add_token_to_owner(&mut self, to: AccountId, _token_id: TokenId) -> Result<(), Error> {
+            let count = self.owner_token_count.get(to).unwrap_or(0);
+            self.owner_token_count.insert(to, &(count + 1));
             Ok(())
         }
 
@@ -1327,13 +1309,13 @@ mod property_token {
         fn remove_token_from_owner(
             &mut self,
             from: AccountId,
-            token_id: TokenId,
+            _token_id: TokenId,
         ) -> Result<(), Error> {
-            let count = self.owner_token_count.get(&from).unwrap_or(0);
+            let count = self.owner_token_count.get(from).unwrap_or(0);
             if count == 0 {
                 return Err(Error::TokenNotFound);
             }
-            self.owner_token_count.insert(&from, &(count - 1));
+            self.owner_token_count.insert(from, &(count - 1));
             Ok(())
         }
 
@@ -1344,7 +1326,7 @@ mod property_token {
             from: AccountId,
             to: AccountId,
         ) -> Result<(), Error> {
-            let mut history = self.ownership_history.get(&token_id).unwrap_or_default();
+            let mut history = self.ownership_history.get(token_id).unwrap_or_default();
 
             let transfer_record = OwnershipTransfer {
                 from,

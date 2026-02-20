@@ -3,10 +3,10 @@
 
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
-use ink::primitives::Hash;
 use ink::storage::Mapping;
 
 #[ink::contract]
+#[allow(clippy::too_many_arguments)]
 mod ipfs_metadata {
     use super::*;
 
@@ -173,7 +173,8 @@ mod ipfs_metadata {
         pub max_pinned_size_per_property: u64,
     }
 
-    /// IPFS pin status
+    /// Document pinning status
+    #[allow(dead_code)]
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(
         feature = "std",
@@ -478,6 +479,7 @@ mod ipfs_metadata {
 
         /// Uploads document metadata to registry (actual IPFS upload handled off-chain)
         #[ink(message)]
+        #[allow(clippy::too_many_arguments)]
         pub fn register_ipfs_document(
             &mut self,
             property_id: u64,
@@ -513,14 +515,13 @@ mod ipfs_metadata {
             }
 
             // Validate MIME type if restrictions are set
-            if !self.validation_rules.allowed_mime_types.is_empty() {
-                if !self
+            if !self.validation_rules.allowed_mime_types.is_empty()
+                && !self
                     .validation_rules
                     .allowed_mime_types
                     .contains(&mime_type)
-                {
-                    return Err(Error::FileTypeNotAllowed);
-                }
+            {
+                return Err(Error::FileTypeNotAllowed);
             }
 
             // Increment document counter

@@ -157,7 +157,7 @@ mod bridge {
                     confirmation_blocks: 6, // 6 block confirmations
                     supported_tokens: Vec::new(),
                 };
-                bridge.chain_info.insert(&chain_id, &chain_info);
+                bridge.chain_info.insert(chain_id, &chain_info);
             }
 
             bridge
@@ -202,7 +202,7 @@ mod bridge {
             self.request_counter += 1;
             let request_id = self.request_counter;
             let current_block = u64::from(self.env().block_number());
-            let expires_at = timeout_blocks.map(|blocks| current_block + u64::from(blocks));
+            let expires_at = timeout_blocks.map(|blocks| current_block + blocks);
 
             let request = MultisigBridgeRequest {
                 request_id,
@@ -219,7 +219,7 @@ mod bridge {
                 metadata,
             };
 
-            self.bridge_requests.insert(&request_id, &request);
+            self.bridge_requests.insert(request_id, &request);
 
             self.env().emit_event(BridgeRequestCreated {
                 request_id,
@@ -244,7 +244,7 @@ mod bridge {
 
             let mut request = self
                 .bridge_requests
-                .get(&request_id)
+                .get(request_id)
                 .ok_or(Error::InvalidRequest)?;
 
             // Check if request has expired
@@ -269,7 +269,7 @@ mod bridge {
                 request.status = BridgeOperationStatus::Locked;
             }
 
-            self.bridge_requests.insert(&request_id, &request);
+            self.bridge_requests.insert(request_id, &request);
 
             self.env().emit_event(BridgeRequestSigned {
                 request_id,
@@ -293,7 +293,7 @@ mod bridge {
 
             let mut request = self
                 .bridge_requests
-                .get(&request_id)
+                .get(request_id)
                 .ok_or(Error::InvalidRequest)?;
 
             // Check if request is ready for execution
@@ -327,18 +327,15 @@ mod bridge {
 
             // Update request status
             request.status = BridgeOperationStatus::Completed;
-            self.bridge_requests.insert(&request_id, &request);
+            self.bridge_requests.insert(request_id, &request);
 
             // Store transaction verification
-            self.verified_transactions.insert(&transaction_hash, &true);
+            self.verified_transactions.insert(transaction_hash, &true);
 
             // Add to bridge history
-            let mut history = self
-                .bridge_history
-                .get(&request.sender)
-                .unwrap_or(Vec::new());
+            let mut history = self.bridge_history.get(request.sender).unwrap_or_default();
             history.push(transaction.clone());
-            self.bridge_history.insert(&request.sender, &history);
+            self.bridge_history.insert(request.sender, &history);
 
             self.env().emit_event(BridgeExecuted {
                 request_id,
@@ -365,7 +362,7 @@ mod bridge {
 
             let mut request = self
                 .bridge_requests
-                .get(&request_id)
+                .get(request_id)
                 .ok_or(Error::InvalidRequest)?;
 
             // Check if request is in a failed state
@@ -396,7 +393,7 @@ mod bridge {
                 }
             }
 
-            self.bridge_requests.insert(&request_id, &request);
+            self.bridge_requests.insert(request_id, &request);
 
             self.env().emit_event(BridgeRecovered {
                 request_id,
@@ -410,12 +407,12 @@ mod bridge {
         #[ink(message)]
         pub fn estimate_bridge_gas(
             &self,
-            token_id: TokenId,
+            _token_id: TokenId,
             destination_chain: ChainId,
         ) -> Result<u64, Error> {
             let chain_info = self
                 .chain_info
-                .get(&destination_chain)
+                .get(destination_chain)
                 .ok_or(Error::InvalidChain)?;
 
             let base_gas = self.config.gas_limit_per_bridge;
@@ -427,7 +424,7 @@ mod bridge {
         /// Monitors bridge status
         #[ink(message)]
         pub fn monitor_bridge_status(&self, request_id: u64) -> Option<BridgeMonitoringInfo> {
-            let request = self.bridge_requests.get(&request_id)?;
+            let request = self.bridge_requests.get(request_id)?;
 
             Some(BridgeMonitoringInfo {
                 bridge_request_id: request.request_id,
@@ -448,17 +445,17 @@ mod bridge {
         pub fn verify_bridge_transaction(
             &self,
             transaction_hash: Hash,
-            source_chain: ChainId,
+            _source_chain: ChainId,
         ) -> bool {
             self.verified_transactions
-                .get(&transaction_hash)
+                .get(transaction_hash)
                 .unwrap_or(false)
         }
 
         /// Gets bridge history for an account
         #[ink(message)]
         pub fn get_bridge_history(&self, account: AccountId) -> Vec<BridgeTransaction> {
-            self.bridge_history.get(&account).unwrap_or(Vec::new())
+            self.bridge_history.get(account).unwrap_or_default()
         }
 
         /// Adds a bridge operator
@@ -533,7 +530,7 @@ mod bridge {
         /// Gets chain information
         #[ink(message)]
         pub fn get_chain_info(&self, chain_id: ChainId) -> Option<ChainBridgeInfo> {
-            self.chain_info.get(&chain_id)
+            self.chain_info.get(chain_id)
         }
 
         /// Updates chain information (admin only)
@@ -548,13 +545,13 @@ mod bridge {
                 return Err(Error::Unauthorized);
             }
 
-            self.chain_info.insert(&chain_id, &info);
+            self.chain_info.insert(chain_id, &info);
             Ok(())
         }
 
         // Helper functions
 
-        fn is_authorized_for_token(&self, account: AccountId, token_id: TokenId) -> bool {
+        fn is_authorized_for_token(&self, _account: AccountId, _token_id: TokenId) -> bool {
             // This would typically check with the property token contract
             // For now, we'll assume any account can initiate a bridge
             true
