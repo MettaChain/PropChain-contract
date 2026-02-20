@@ -1,8 +1,8 @@
 #[cfg(test)]
 pub mod escrow_tests {
     use crate::propchain_escrow::*;
-    use ink::primitives::{AccountId, Hash};
     use ink::env::test::DefaultAccounts;
+    use ink::primitives::{AccountId, Hash};
 
     fn default_accounts() -> DefaultAccounts<ink::env::DefaultEnvironment> {
         ink::env::test::default_accounts::<ink::env::DefaultEnvironment>()

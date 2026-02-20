@@ -1,0 +1,23 @@
+[package]
+name = "propchain-bridge"
+version = "1.0.0"
+authors = ["PropChain Team <dev@propchain.io>"]
+edition = "2021"
+
+[dependencies]
+ink = { workspace = true, default-features = false }
+scale = { workspace = true, default-features = false }
+scale-info = { workspace = true, default-features = false }
+propchain-traits = { path = "../traits", default-features = false }
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = ["std"]
+std = [
+    "ink/std",
+    "scale/std",
+    "scale-info/std",
+    "propchain-traits/std",
+]

@@ -51,12 +51,23 @@ jobs:
     - name: Run clippy
       run: cargo clippy --all-targets --all-features -- -D warnings
     
-    - name: Run tests
+    - name: Run unit tests
       run: cargo test --all-features
     
     - name: Run PropertyRegistry unit tests
       working-directory: contracts/lib
       run: cargo test --lib
+    
+    - name: Run PropertyToken unit tests
+      working-directory: contracts/property-token
+      run: cargo test --lib
+    
+    - name: Run Bridge unit tests
+      working-directory: contracts/bridge
+      run: cargo test --lib
+    
+    - name: Run integration tests
+      run: cargo test --test integration_property_token --test integration_tests --test property_registry_tests --test property_token_tests
     
     - name: Build contracts
       run: |
@@ -80,6 +91,54 @@ jobs:
           fi
         done
 
+  bridge-specific-tests:
+    name: Bridge Integration Tests
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+        components: rustfmt
+    
+    - name: Add WASM target
+      run: rustup target add wasm32-unknown-unknown
+    
+    - name: Install cargo-contract
+      run: cargo install cargo-contract --locked
+    
+    - name: Run bridge-specific integration tests
+      run: |
+        cargo test --test integration_property_token test_bridge_multisig_workflow
+        cargo test --test integration_property_token test_bridge_gas_estimation
+        cargo test --test integration_property_token test_bridge_recovery_mechanisms
+        cargo test --test integration_property_token test_bridge_configuration_management
+        cargo test --test integration_property_token test_bridge_operator_management
+        cargo test --test integration_property_token test_bridge_transaction_verification
+        cargo test --test integration_property_token test_cross_chain_metadata_preservation
+        cargo test --test integration_property_token test_bridge_error_handling
+        cargo test --test integration_property_token test_bridge_history_tracking
+    
+    - name: Build bridge contracts
+      working-directory: contracts/bridge
+      run: cargo contract build --release
+    
+    - name: Verify bridge contract size
+      working-directory: contracts/bridge
+      run: |
+        CONTRACT_SIZE=$(wc -c < target/ink/propchain_bridge.contract)
+        MAX_SIZE=$((1024 * 1024)) # 1MB limit
+        if [ $CONTRACT_SIZE -gt $MAX_SIZE ]; then
+          echo "Contract size $CONTRACT_SIZE exceeds limit $MAX_SIZE"
+          exit 1
+        fi
+        echo "Contract size: $CONTRACT_SIZE bytes (within limit)"
+
   security:
     name: Security Audit
     runs-on: ubuntu-latest
@@ -102,10 +161,18 @@ jobs:
       - name: Run cargo-deny
         uses: EmbarkStudios/cargo-deny-action@v1
 
+      - name: Check for security vulnerabilities in dependencies
+        working-directory: contracts/bridge
+        run: cargo audit
+
+      - name: Check for security vulnerabilities in property-token
+        working-directory: contracts/property-token
+        run: cargo audit
+
   build:
     name: Build Release
     runs-on: ubuntu-latest
-    needs: [test, security]
+    needs: [test, bridge-specific-tests, security]
     steps:
       - uses: actions/checkout@v4
 
@@ -133,6 +200,18 @@ jobs:
               cd "$dir"
               cargo contract build --release
               cd ..
+            fi
+          done
+
+      - name: Verify all contracts built successfully
+        run: |
+          cd contracts
+          for dir in */; do
+            if [ -f "$dir/Cargo.toml" ]; then
+              if [ ! -f "$dir/target/ink/${dir%?}.contract" ]; then
+                echo "Contract $dir failed to build"
+                exit 1
+              fi
             fi
           done
 
@@ -201,3 +280,51 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: target/doc
+
+  pr-validation:
+    name: PR Validation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [test, bridge-specific-tests, security]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for required documentation
+        run: |
+          # Check if bridge documentation exists
+          if ! grep -q "Cross-chain bridge protocol" README.md; then
+            echo "Bridge protocol documentation missing from README.md"
+            exit 1
+          fi
+          
+          # Check if bridge tests exist
+          if ! find tests/ -name "*bridge*" -type f | grep -q .; then
+            echo "Bridge integration tests missing"
+            exit 1
+          fi
+
+      - name: Verify bridge module structure
+        run: |
+          if [ ! -d "contracts/bridge" ]; then
+            echo "Bridge module directory missing"
+            exit 1
+          fi
+          
+          if [ ! -f "contracts/bridge/Cargo.toml" ]; then
+            echo "Bridge Cargo.toml missing"
+            exit 1
+          fi
+          
+          if [ ! -f "contracts/bridge/src/lib.rs" ]; then
+            echo "Bridge lib.rs missing"
+            exit 1
+          fi
+
+      - name: Check workspace configuration
+        run: |
+          if ! grep -q "contracts/bridge" Cargo.toml; then
+            echo "Bridge module not included in workspace"
+            exit 1
+          fi

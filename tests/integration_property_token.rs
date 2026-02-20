@@ -321,4 +321,465 @@ mod integration_tests {
         token_contract.set_approval_for_all(accounts.charlie, true).unwrap();
         assert!(token_contract.is_approved_for_all(accounts.alice, accounts.charlie));
     }
+
+    #[ink::test]
+    fn test_bridge_multisig_workflow() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let mut token_contract = PropertyToken::new();
+        
+        // Create a property token
+        let metadata = TokenPropertyMetadata {
+            location: String::from("Bridge Test Property"),
+            size: 1500,
+            legal_description: String::from("Property for bridge testing"),
+            valuation: 400000,
+            documents_url: String::from("ipfs://bridge-test"),
+        };
+        
+        let token_id = token_contract.register_property_with_token(metadata).unwrap();
+        
+        // Verify compliance (required for bridging)
+        test::set_caller::<DefaultEnvironment>(token_contract.admin());
+        token_contract.verify_compliance(token_id, true).unwrap();
+        
+        // Add bridge operators
+        let operator1 = accounts.bob;
+        let operator2 = accounts.charlie;
+        token_contract.add_bridge_operator(operator1).unwrap();
+        token_contract.add_bridge_operator(operator2).unwrap();
+        
+        // Initiate bridge request
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let request_id = token_contract.initiate_bridge_multisig(
+            token_id,
+            2, // Destination chain
+            accounts.django,
+            2, // Required signatures
+            Some(100), // Timeout blocks
+        ).unwrap();
+        
+        // Verify request was created
+        let status = token_contract.monitor_bridge_status(request_id).unwrap();
+        assert_eq!(status.signatures_collected, 0);
+        assert_eq!(status.signatures_required, 2);
+        
+        // First operator signs
+        test::set_caller::<DefaultEnvironment>(operator1);
+        token_contract.sign_bridge_request(request_id, true).unwrap();
+        
+        let status_after_first = token_contract.monitor_bridge_status(request_id).unwrap();
+        assert_eq!(status_after_first.signatures_collected, 1);
+        
+        // Second operator signs
+        test::set_caller::<DefaultEnvironment>(operator2);
+        token_contract.sign_bridge_request(request_id, true).unwrap();
+        
+        let status_after_second = token_contract.monitor_bridge_status(request_id).unwrap();
+        assert_eq!(status_after_second.signatures_collected, 2);
+        
+        // Execute bridge
+        token_contract.execute_bridge(request_id).unwrap();
+        
+        // Verify token is locked
+        let bridge_status = token_contract.get_bridge_status(token_id).unwrap();
+        assert!(bridge_status.is_locked);
+    }
+
+    #[ink::test]
+    fn test_bridge_gas_estimation() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let mut token_contract = PropertyToken::new();
+        
+        // Create a property token
+        let metadata = TokenPropertyMetadata {
+            location: String::from("Gas Test Property"),
+            size: 2000,
+            legal_description: String::from("Property with long legal description for gas estimation testing"),
+            valuation: 600000,
+            documents_url: String::from("ipfs://gas-test"),
+        };
+        
+        let token_id = token_contract.register_property_with_token(metadata).unwrap();
+        
+        // Estimate gas for bridge to different chains
+        let gas_estimate = token_contract.estimate_bridge_gas(token_id, 2).unwrap();
+        assert!(gas_estimate > 0);
+        
+        // Test invalid chain
+        let invalid_gas = token_contract.estimate_bridge_gas(token_id, 999);
+        assert_eq!(invalid_gas, Err(crate::property_token::Error::InvalidChain));
+    }
+
+    #[ink::test]
+    fn test_bridge_recovery_mechanisms() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let mut token_contract = PropertyToken::new();
+        
+        // Create a property token
+        let metadata = TokenPropertyMetadata {
+            location: String::from("Recovery Test Property"),
+            size: 1200,
+            legal_description: String::from("Property for recovery testing"),
+            valuation: 350000,
+            documents_url: String::from("ipfs://recovery-test"),
+        };
+        
+        let token_id = token_contract.register_property_with_token(metadata).unwrap();
+        
+        // Verify compliance
+        test::set_caller::<DefaultEnvironment>(token_contract.admin());
+        token_contract.verify_compliance(token_id, true).unwrap();
+        
+        // Add bridge operator
+        token_contract.add_bridge_operator(accounts.bob).unwrap();
+        
+        // Initiate bridge request
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let request_id = token_contract.initiate_bridge_multisig(
+            token_id,
+            2,
+            accounts.charlie,
+            2,
+            Some(1), // Very short timeout
+        ).unwrap();
+        
+        // Simulate request expiration by advancing blocks (simplified)
+        // In a real test environment, you would advance the block number
+        
+        // Operator rejects the request
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let reject_result = token_contract.sign_bridge_request(request_id, false);
+        assert!(reject_result.is_ok());
+        
+        // Admin recovers the failed bridge
+        test::set_caller::<DefaultEnvironment>(token_contract.admin());
+        let recovery_result = token_contract.recover_failed_bridge(
+            request_id,
+            RecoveryAction::UnlockToken,
+        );
+        assert!(recovery_result.is_ok());
+    }
+
+    #[ink::test]
+    fn test_bridge_configuration_management() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let mut token_contract = PropertyToken::new();
+        
+        // Get initial configuration
+        let initial_config = token_contract.get_bridge_config();
+        assert!(!initial_config.emergency_pause);
+        assert_eq!(initial_config.min_signatures_required, 2);
+        
+        // Test emergency pause
+        test::set_caller::<DefaultEnvironment>(token_contract.admin());
+        token_contract.set_emergency_pause(true).unwrap();
+        
+        let paused_config = token_contract.get_bridge_config();
+        assert!(paused_config.emergency_pause);
+        
+        // Test unauthorized configuration change
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let unauthorized_result = token_contract.set_emergency_pause(false);
+        assert_eq!(unauthorized_result, Err(crate::property_token::Error::Unauthorized));
+        
+        // Update configuration
+        test::set_caller::<DefaultEnvironment>(token_contract.admin());
+        let new_config = BridgeConfig {
+            supported_chains: vec![1, 2, 3, 4],
+            min_signatures_required: 3,
+            max_signatures_required: 7,
+            default_timeout_blocks: 200,
+            gas_limit_per_bridge: 1000000,
+            emergency_pause: false,
+            metadata_preservation: true,
+        };
+        
+        token_contract.update_bridge_config(new_config.clone()).unwrap();
+        
+        let updated_config = token_contract.get_bridge_config();
+        assert_eq!(updated_config.min_signatures_required, 3);
+        assert_eq!(updated_config.max_signatures_required, 7);
+    }
+
+    #[ink::test]
+    fn test_bridge_operator_management() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let mut token_contract = PropertyToken::new();
+        
+        // Initial state - only admin is operator
+        let initial_operators = token_contract.get_bridge_operators();
+        assert_eq!(initial_operators.len(), 1);
+        assert!(initial_operators.contains(&accounts.alice));
+        
+        // Add new operator
+        let new_operator = accounts.bob;
+        token_contract.add_bridge_operator(new_operator).unwrap();
+        
+        let updated_operators = token_contract.get_bridge_operators();
+        assert_eq!(updated_operators.len(), 2);
+        assert!(updated_operators.contains(&new_operator));
+        
+        // Test operator check
+        assert!(token_contract.is_bridge_operator(new_operator));
+        assert!(!token_contract.is_bridge_operator(accounts.charlie));
+        
+        // Remove operator
+        token_contract.remove_bridge_operator(new_operator).unwrap();
+        
+        let final_operators = token_contract.get_bridge_operators();
+        assert_eq!(final_operators.len(), 1);
+        assert!(!final_operators.contains(&new_operator));
+        
+        // Test unauthorized operator management
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let unauthorized_add = token_contract.add_bridge_operator(accounts.charlie);
+        assert_eq!(unauthorized_add, Err(crate::property_token::Error::Unauthorized));
+    }
+
+    #[ink::test]
+    fn test_bridge_transaction_verification() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let mut token_contract = PropertyToken::new();
+        
+        // Create and setup token
+        let metadata = TokenPropertyMetadata {
+            location: String::from("Verification Test Property"),
+            size: 1800,
+            legal_description: String::from("Property for transaction verification testing"),
+            valuation: 450000,
+            documents_url: String::from("ipfs://verification-test"),
+        };
+        
+        let token_id = token_contract.register_property_with_token(metadata).unwrap();
+        
+        // Verify compliance
+        test::set_caller::<DefaultEnvironment>(token_contract.admin());
+        token_contract.verify_compliance(token_id, true).unwrap();
+        
+        // Add operator and initiate bridge
+        token_contract.add_bridge_operator(accounts.bob).unwrap();
+        
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let request_id = token_contract.initiate_bridge_multisig(
+            token_id,
+            2,
+            accounts.charlie,
+            1, // Only need 1 signature for this test
+            Some(100),
+        ).unwrap();
+        
+        // Sign and execute bridge
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        token_contract.sign_bridge_request(request_id, true).unwrap();
+        token_contract.execute_bridge(request_id).unwrap();
+        
+        // Get bridge history
+        let history = token_contract.get_bridge_history(accounts.alice);
+        assert_eq!(history.len(), 1);
+        
+        let transaction = &history[0];
+        assert_eq!(transaction.token_id, token_id);
+        assert_eq!(transaction.source_chain, 1);
+        assert_eq!(transaction.destination_chain, 2);
+        
+        // Verify transaction hash
+        let is_verified = token_contract.verify_bridge_transaction(
+            token_id,
+            transaction.transaction_hash,
+            1,
+        );
+        assert!(is_verified);
+    }
+
+    #[ink::test]
+    fn test_cross_chain_metadata_preservation() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let mut token_contract = PropertyToken::new();
+        
+        // Create original token with rich metadata
+        let original_metadata = TokenPropertyMetadata {
+            location: String::from("123 Metadata Preservation St"),
+            size: 2500,
+            legal_description: String::from("Property with comprehensive metadata for cross-chain preservation testing"),
+            valuation: 750000,
+            documents_url: String::from("ipfs://comprehensive-metadata"),
+        };
+        
+        let original_token_id = token_contract.register_property_with_token(original_metadata.clone()).unwrap();
+        
+        // Add legal documents
+        let doc_hash = ink::Hash::from([1u8; 32]);
+        token_contract.attach_legal_document(original_token_id, doc_hash, String::from("Deed")).unwrap();
+        
+        // Verify compliance
+        test::set_caller::<DefaultEnvironment>(token_contract.admin());
+        token_contract.verify_compliance(original_token_id, true).unwrap();
+        
+        // Simulate receiving bridged token with metadata preservation
+        let bridged_token_id = token_contract.receive_bridged_token(
+            1, // Source chain
+            original_token_id,
+            accounts.bob,
+            original_metadata,
+            ink::Hash::from([2u8; 32]), // Transaction hash
+        ).unwrap();
+        
+        // Verify metadata was preserved
+        let bridged_property = token_contract.token_properties.get(&bridged_token_id).unwrap();
+        assert_eq!(bridged_property.metadata.location, original_metadata.location);
+        assert_eq!(bridged_property.metadata.size, original_metadata.size);
+        assert_eq!(bridged_property.metadata.valuation, original_metadata.valuation);
+        
+        // Verify compliance was automatically set for bridged token
+        let compliance_info = token_contract.compliance_flags.get(&bridged_token_id).unwrap();
+        assert!(compliance_info.verified);
+        assert_eq!(compliance_info.compliance_type, "Bridge");
+    }
+
+    #[ink::test]
+    fn test_bridge_error_handling() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let mut token_contract = PropertyToken::new();
+        
+        // Create token
+        let metadata = TokenPropertyMetadata {
+            location: String::from("Error Test Property"),
+            size: 1000,
+            legal_description: String::from("Property for error handling testing"),
+            valuation: 300000,
+            documents_url: String::from("ipfs://error-test"),
+        };
+        
+        let token_id = token_contract.register_property_with_token(metadata).unwrap();
+        
+        // Test bridging without compliance verification
+        let bridge_result = token_contract.initiate_bridge_multisig(
+            token_id,
+            2,
+            accounts.bob,
+            2,
+            Some(100),
+        );
+        assert_eq!(bridge_result, Err(crate::property_token::Error::ComplianceFailed));
+        
+        // Test bridging with invalid chain
+        test::set_caller::<DefaultEnvironment>(token_contract.admin());
+        token_contract.verify_compliance(token_id, true).unwrap();
+        
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let invalid_chain_result = token_contract.initiate_bridge_multisig(
+            token_id,
+            999, // Invalid chain
+            accounts.bob,
+            2,
+            Some(100),
+        );
+        assert_eq!(invalid_chain_result, Err(crate::property_token::Error::InvalidChain));
+        
+        // Test insufficient signatures
+        let insufficient_sigs_result = token_contract.initiate_bridge_multisig(
+            token_id,
+            2,
+            accounts.bob,
+            0, // Less than minimum required
+            Some(100),
+        );
+        assert_eq!(insufficient_sigs_result, Err(crate::property_token::Error::InsufficientSignatures));
+        
+        // Test emergency pause
+        test::set_caller::<DefaultEnvironment>(token_contract.admin());
+        token_contract.set_emergency_pause(true).unwrap();
+        
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let paused_result = token_contract.initiate_bridge_multisig(
+            token_id,
+            2,
+            accounts.bob,
+            2,
+            Some(100),
+        );
+        assert_eq!(paused_result, Err(crate::property_token::Error::BridgePaused));
+    }
+
+    #[ink::test]
+    fn test_bridge_history_tracking() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let mut token_contract = PropertyToken::new();
+        
+        // Create multiple tokens
+        let tokens_data = vec![
+            ("Property 1", 1000u64, 300000u128),
+            ("Property 2", 1500u64, 450000u128),
+            ("Property 3", 2000u64, 600000u128),
+        ];
+        
+        let mut token_ids = Vec::new();
+        
+        for (location, size, valuation) in tokens_data {
+            let metadata = TokenPropertyMetadata {
+                location: String::from(location),
+                size,
+                legal_description: String::from("Bridge history test property"),
+                valuation,
+                documents_url: String::from("ipfs://history-test"),
+            };
+            
+            let token_id = token_contract.register_property_with_token(metadata).unwrap();
+            token_ids.push(token_id);
+            
+            // Verify compliance
+            test::set_caller::<DefaultEnvironment>(token_contract.admin());
+            token_contract.verify_compliance(token_id, true).unwrap();
+        }
+        
+        // Add bridge operator
+        token_contract.add_bridge_operator(accounts.bob).unwrap();
+        
+        // Bridge multiple tokens
+        for &token_id in &token_ids {
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+            let request_id = token_contract.initiate_bridge_multisig(
+                token_id,
+                2,
+                accounts.charlie,
+                1,
+                Some(100),
+            ).unwrap();
+            
+            test::set_caller::<DefaultEnvironment>(accounts.bob);
+            token_contract.sign_bridge_request(request_id, true).unwrap();
+            token_contract.execute_bridge(request_id).unwrap();
+        }
+        
+        // Verify bridge history
+        let history = token_contract.get_bridge_history(accounts.alice);
+        assert_eq!(history.len(), 3);
+        
+        // Verify all transactions are in history
+        for (i, &token_id) in token_ids.iter().enumerate() {
+            assert_eq!(history[i].token_id, token_id);
+            assert_eq!(history[i].source_chain, 1);
+            assert_eq!(history[i].destination_chain, 2);
+            assert_eq!(history[i].sender, accounts.alice);
+            assert_eq!(history[i].recipient, accounts.charlie);
+        }
+    }
 }
