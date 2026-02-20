@@ -1742,13 +1742,15 @@ mod propchain_contracts {
                 property_count,
                 total_valuation,
                 average_valuation: if property_count > 0 {
-                    total_valuation / property_count as u128
+                    total_valuation
+                        .checked_div(property_count as u128)
+                        .unwrap_or(0)
                 } else {
                     0
                 },
                 total_size,
                 average_size: if property_count > 0 {
-                    total_size / property_count
+                    total_size.checked_div(property_count).unwrap_or(0)
                 } else {
                     0
                 },
@@ -1813,13 +1815,15 @@ mod propchain_contracts {
                 total_properties: property_count,
                 total_valuation,
                 average_valuation: if property_count > 0 {
-                    total_valuation / property_count as u128
+                    total_valuation
+                        .checked_div(property_count as u128)
+                        .unwrap_or(0)
                 } else {
                     0
                 },
                 total_size,
                 average_size: if property_count > 0 {
-                    total_size / property_count
+                    total_size.checked_div(property_count).unwrap_or(0)
                 } else {
                     0
                 },
@@ -1893,7 +1897,10 @@ mod propchain_contracts {
             GasMetrics {
                 last_operation_gas: self.gas_tracker.last_operation_gas,
                 average_operation_gas: if self.gas_tracker.operation_count > 0 {
-                    self.gas_tracker.total_gas_used / self.gas_tracker.operation_count
+                    self.gas_tracker
+                        .total_gas_used
+                        .checked_div(self.gas_tracker.operation_count)
+                        .unwrap_or(0)
                 } else {
                     0
                 },
@@ -1914,7 +1921,10 @@ mod propchain_contracts {
 
             // Check for high gas usage operations
             let avg_gas = if self.gas_tracker.operation_count > 0 {
-                self.gas_tracker.total_gas_used / self.gas_tracker.operation_count
+                self.gas_tracker
+                    .total_gas_used
+                    .checked_div(self.gas_tracker.operation_count)
+                    .unwrap_or(0)
             } else {
                 0
             };

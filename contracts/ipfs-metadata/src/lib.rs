@@ -4,9 +4,9 @@
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
 use ink::storage::Mapping;
-use ink::primitives::Hash;
 
 #[ink::contract]
+#[allow(clippy::too_many_arguments)]
 mod ipfs_metadata {
     use super::*;
 
@@ -55,7 +55,10 @@ mod ipfs_metadata {
 
     /// Enhanced property metadata with IPFS integration
     #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub struct PropertyMetadata {
         /// Physical address (required)
         pub location: String,
@@ -81,7 +84,10 @@ mod ipfs_metadata {
 
     /// Document information stored on IPFS
     #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub struct IpfsDocument {
         /// Document unique identifier
         pub document_id: u64,
@@ -111,7 +117,10 @@ mod ipfs_metadata {
 
     /// Document type enumeration
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub enum DocumentType {
         /// Property deed
         Deed,
@@ -139,7 +148,10 @@ mod ipfs_metadata {
 
     /// Metadata validation rules
     #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub struct ValidationRules {
         /// Maximum location string length
         pub max_location_length: u32,
@@ -161,9 +173,13 @@ mod ipfs_metadata {
         pub max_pinned_size_per_property: u64,
     }
 
-    /// IPFS pin status
+    /// Document pinning status
+    #[allow(dead_code)]
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub enum PinStatus {
         Pinned,
         Unpinned,
@@ -279,7 +295,10 @@ mod ipfs_metadata {
 
     /// Access level for property documents
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub enum AccessLevel {
         None,
         Read,
@@ -310,7 +329,7 @@ mod ipfs_metadata {
                     max_size: 1_000_000_000, // 1 billion sq meters
                     max_legal_description_length: 5000,
                     min_valuation: 1,
-                    max_file_size: 100_000_000, // 100 MB
+                    max_file_size: 100_000_000,     // 100 MB
                     allowed_mime_types: Vec::new(), // Initialize empty, populate via update
                     max_documents_per_property: 100,
                     max_pinned_size_per_property: 500_000_000, // 500 MB
@@ -358,10 +377,8 @@ mod ipfs_metadata {
             self.property_metadata.insert(property_id, &metadata);
 
             // Grant admin access to property owner
-            self.access_permissions.insert(
-                (property_id, caller),
-                &AccessLevel::Admin,
-            );
+            self.access_permissions
+                .insert((property_id, caller), &AccessLevel::Admin);
 
             // Emit validation event
             self.env().emit_event(MetadataValidated {
@@ -390,12 +407,16 @@ mod ipfs_metadata {
                 return Err(Error::SizeLimitExceeded);
             }
 
-            if metadata.legal_description.len() as u32 > self.validation_rules.max_legal_description_length {
+            if metadata.legal_description.len() as u32
+                > self.validation_rules.max_legal_description_length
+            {
                 return Err(Error::SizeLimitExceeded);
             }
 
             // Check data type validation
-            if metadata.size < self.validation_rules.min_size || metadata.size > self.validation_rules.max_size {
+            if metadata.size < self.validation_rules.min_size
+                || metadata.size > self.validation_rules.max_size
+            {
                 return Err(Error::DataTypeMismatch);
             }
 
@@ -420,7 +441,7 @@ mod ipfs_metadata {
         }
 
         /// Validates IPFS CID format
-        fn validate_ipfs_cid(&self, cid: &str) -> Result<(), Error> {
+        pub fn validate_ipfs_cid(&self, cid: &str) -> Result<(), Error> {
             // Basic CID validation
             // CIDv0: starts with "Qm" and is 46 characters
             // CIDv1: starts with "b" and uses base32
@@ -434,7 +455,9 @@ mod ipfs_metadata {
                     return Err(Error::InvalidIpfsCid);
                 }
                 // Check if it contains only valid base58 characters
-                if !cid.chars().all(|c| "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz".contains(c)) {
+                if !cid.chars().all(|c| {
+                    "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz".contains(c)
+                }) {
                     return Err(Error::InvalidIpfsCid);
                 }
             }
@@ -443,8 +466,7 @@ mod ipfs_metadata {
                 if cid.len() < 10 {
                     return Err(Error::InvalidIpfsCid);
                 }
-            }
-            else {
+            } else {
                 return Err(Error::InvalidIpfsCid);
             }
 
@@ -457,6 +479,7 @@ mod ipfs_metadata {
 
         /// Uploads document metadata to registry (actual IPFS upload handled off-chain)
         #[ink(message)]
+        #[allow(clippy::too_many_arguments)]
         pub fn register_ipfs_document(
             &mut self,
             property_id: u64,
@@ -492,10 +515,13 @@ mod ipfs_metadata {
             }
 
             // Validate MIME type if restrictions are set
-            if !self.validation_rules.allowed_mime_types.is_empty() {
-                if !self.validation_rules.allowed_mime_types.contains(&mime_type) {
-                    return Err(Error::FileTypeNotAllowed);
-                }
+            if !self.validation_rules.allowed_mime_types.is_empty()
+                && !self
+                    .validation_rules
+                    .allowed_mime_types
+                    .contains(&mime_type)
+            {
+                return Err(Error::FileTypeNotAllowed);
             }
 
             // Increment document counter
@@ -548,7 +574,9 @@ mod ipfs_metadata {
         pub fn pin_document(&mut self, document_id: u64) -> Result<(), Error> {
             let caller = self.env().caller();
 
-            let mut document = self.documents.get(document_id)
+            let mut document = self
+                .documents
+                .get(document_id)
                 .ok_or(Error::DocumentNotFound)?;
 
             // Check access permissions
@@ -560,11 +588,14 @@ mod ipfs_metadata {
             }
 
             // Check pin size limits
-            let current_pinned_size = self.property_pinned_size
+            let current_pinned_size = self
+                .property_pinned_size
                 .get(document.property_id)
                 .unwrap_or(0);
 
-            if current_pinned_size + document.file_size > self.validation_rules.max_pinned_size_per_property {
+            if current_pinned_size + document.file_size
+                > self.validation_rules.max_pinned_size_per_property
+            {
                 return Err(Error::PinLimitExceeded);
             }
 
@@ -593,7 +624,9 @@ mod ipfs_metadata {
         pub fn unpin_document(&mut self, document_id: u64) -> Result<(), Error> {
             let caller = self.env().caller();
 
-            let mut document = self.documents.get(document_id)
+            let mut document = self
+                .documents
+                .get(document_id)
                 .ok_or(Error::DocumentNotFound)?;
 
             // Check access permissions
@@ -609,7 +642,8 @@ mod ipfs_metadata {
             self.documents.insert(document_id, &document);
 
             // Update total pinned size
-            let current_pinned_size = self.property_pinned_size
+            let current_pinned_size = self
+                .property_pinned_size
                 .get(document.property_id)
                 .unwrap_or(0);
 
@@ -639,7 +673,9 @@ mod ipfs_metadata {
         ) -> Result<bool, Error> {
             let caller = self.env().caller();
 
-            let mut document = self.documents.get(document_id)
+            let mut document = self
+                .documents
+                .get(document_id)
                 .ok_or(Error::DocumentNotFound)?;
 
             // Check access permissions
@@ -686,18 +722,15 @@ mod ipfs_metadata {
                 self.check_admin_access(property_id, caller)?;
             }
 
-            self.access_permissions.insert((property_id, account), &access_level);
+            self.access_permissions
+                .insert((property_id, account), &access_level);
 
             Ok(())
         }
 
         /// Revokes access to property documents
         #[ink(message)]
-        pub fn revoke_access(
-            &mut self,
-            property_id: u64,
-            account: AccountId,
-        ) -> Result<(), Error> {
+        pub fn revoke_access(&mut self, property_id: u64, account: AccountId) -> Result<(), Error> {
             let caller = self.env().caller();
 
             // Only admin or property owner can revoke access
@@ -716,7 +749,8 @@ mod ipfs_metadata {
                 return Ok(());
             }
 
-            let access_level = self.access_permissions
+            let access_level = self
+                .access_permissions
                 .get((property_id, account))
                 .unwrap_or(AccessLevel::None);
 
@@ -732,7 +766,8 @@ mod ipfs_metadata {
                 return Ok(());
             }
 
-            let access_level = self.access_permissions
+            let access_level = self
+                .access_permissions
                 .get((property_id, account))
                 .unwrap_or(AccessLevel::None);
 
@@ -744,7 +779,8 @@ mod ipfs_metadata {
 
         /// Checks if account has admin access
         fn check_admin_access(&self, property_id: u64, account: AccountId) -> Result<(), Error> {
-            let access_level = self.access_permissions
+            let access_level = self
+                .access_permissions
                 .get((property_id, account))
                 .unwrap_or(AccessLevel::None);
 
@@ -822,7 +858,11 @@ mod ipfs_metadata {
                 return Err(Error::Unauthorized);
             }
 
-            if !self.validation_rules.allowed_mime_types.contains(&mime_type) {
+            if !self
+                .validation_rules
+                .allowed_mime_types
+                .contains(&mime_type)
+            {
                 self.validation_rules.allowed_mime_types.push(mime_type);
             }
 
@@ -842,7 +882,9 @@ mod ipfs_metadata {
                 return Err(Error::Unauthorized);
             }
 
-            let document = self.documents.get(document_id)
+            let document = self
+                .documents
+                .get(document_id)
                 .ok_or(Error::DocumentNotFound)?;
 
             // Emit malicious file event
@@ -858,9 +900,13 @@ mod ipfs_metadata {
             self.cid_to_document.remove(&document.ipfs_cid);
 
             // Remove from property documents list
-            let mut doc_ids = self.property_documents.get(document.property_id).unwrap_or_default();
+            let mut doc_ids = self
+                .property_documents
+                .get(document.property_id)
+                .unwrap_or_default();
             doc_ids.retain(|&id| id != document_id);
-            self.property_documents.insert(document.property_id, &doc_ids);
+            self.property_documents
+                .insert(document.property_id, &doc_ids);
 
             Ok(())
         }

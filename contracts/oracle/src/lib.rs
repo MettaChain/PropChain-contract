@@ -641,10 +641,7 @@ pub use propchain_oracle::{OracleError, PropertyValuationOracle};
 mod oracle_tests {
     use super::*;
     // use ink::codegen::env::Env; // Removed invalid import
-    use ink::env::{
-        test,
-        DefaultEnvironment,
-    };
+    use ink::env::{test, DefaultEnvironment};
 
     fn setup_oracle() -> PropertyValuationOracle {
         let accounts = test::default_accounts::<DefaultEnvironment>();
