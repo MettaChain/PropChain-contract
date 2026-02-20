@@ -1447,8 +1447,8 @@ mod property_token {
                 documents_url: String::from("ipfs://sample-docs"),
             };
 
-            let token_id = contract.register_property_with_token(metadata).unwrap();
-            let caller = AccountId::from([1u8; 32]);
+            let _token_id = contract.register_property_with_token(metadata).unwrap();
+            let _caller = AccountId::from([1u8; 32]);
 
             // Set up mock caller for the test
             let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -1495,7 +1495,7 @@ mod property_token {
 
             let token_id = contract.register_property_with_token(metadata).unwrap();
 
-            let accounts = test::default_accounts::<DefaultEnvironment>();
+            let _accounts = test::default_accounts::<DefaultEnvironment>();
             test::set_caller::<DefaultEnvironment>(contract.admin());
 
             let result = contract.verify_compliance(token_id, true);

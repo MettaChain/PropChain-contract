@@ -221,7 +221,7 @@ mod tests {
 
     #[ink::test]
     fn test_register_document_success() {
-        let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+        let _accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
         let mut contract = IpfsMetadataRegistry::new();
 
         // First register metadata
@@ -528,7 +528,7 @@ mod tests {
 
     #[ink::test]
     fn test_grant_access_success() {
-        let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+        let _accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
         let mut contract = IpfsMetadataRegistry::new();
 
         // Register metadata
@@ -545,7 +545,7 @@ mod tests {
 
     #[ink::test]
     fn test_revoke_access_success() {
-        let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+        let _accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
         let mut contract = IpfsMetadataRegistry::new();
 
         // Register metadata
