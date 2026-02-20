@@ -1,2 +1,2 @@
-createSrcSidebar('[["ipfs_metadata",["",[],["lib.rs"]]],["oracle",["",[],["lib.rs"]]],["propchain_contracts",["",[],["lib.rs"]]],["propchain_escrow",["",[],["lib.rs","tests.rs"]]],["propchain_proxy",["",[],["lib.rs"]]],["propchain_traits",["",[],["lib.rs"]]],["security_audit",["",[],["main.rs"]]]]');
-//{"start":19,"fragment_lengths":[36,30,43,51,39,40,39]}
+createSrcSidebar('[["ipfs_metadata",["",[],["lib.rs"]]],["oracle",["",[],["lib.rs"]]],["propchain_bridge",["",[],["lib.rs"]]],["propchain_contracts",["",[],["lib.rs"]]],["propchain_escrow",["",[],["lib.rs","tests.rs"]]],["propchain_proxy",["",[],["lib.rs"]]],["propchain_traits",["",[],["lib.rs"]]],["property_token",["",[],["lib.rs"]]],["security_audit",["",[],["main.rs"]]]]');
+//{"start":19,"fragment_lengths":[36,30,40,43,51,39,40,38,39]}
