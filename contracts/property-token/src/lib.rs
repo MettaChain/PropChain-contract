@@ -457,7 +457,7 @@ mod property_token {
             to: AccountId,
             ids: Vec<TokenId>,
             amounts: Vec<u128>,
-            data: Vec<u8>,
+            _data: Vec<u8>,
         ) -> Result<(), Error> {
             let caller = self.env().caller();
 
@@ -505,7 +505,7 @@ mod property_token {
         #[ink(message)]
         pub fn uri(&self, token_id: TokenId) -> Option<String> {
             // Return a standard URI format for the token metadata
-            let property_info = self.token_properties.get(&token_id)?;
+            let _property_info = self.token_properties.get(&token_id)?;
             Some(format!(
                 "ipfs://property/{:?}/{}/metadata.json",
                 self.env().account_id(),
@@ -731,7 +731,7 @@ mod property_token {
             self.bridge_request_counter += 1;
             let request_id = self.bridge_request_counter;
             let current_block = self.env().block_number();
-            let expires_at =
+            let _expires_at =
                 timeout_blocks.map(|blocks| u64::from(current_block) + u64::from(blocks));
 
             let property_info = self
@@ -1018,7 +1018,7 @@ mod property_token {
             &mut self,
             token_id: TokenId,
             destination_chain: ChainId,
-            recipient: AccountId,
+            _recipient: AccountId,
         ) -> Result<(), Error> {
             let caller = self.env().caller();
             let token_owner = self
@@ -1344,7 +1344,7 @@ mod property_token {
             from: AccountId,
             to: AccountId,
         ) -> Result<(), Error> {
-            let mut history = self.ownership_history.get(&token_id).unwrap_or(Vec::new());
+            let mut history = self.ownership_history.get(&token_id).unwrap_or_default();
 
             let transfer_record = OwnershipTransfer {
                 from,
@@ -1363,7 +1363,7 @@ mod property_token {
 
             history.push(transfer_record);
 
-            self.ownership_history.insert(&token_id, &history);
+            self.ownership_history.insert(token_id, &history);
 
             Ok(())
         }
@@ -1373,7 +1373,7 @@ mod property_token {
             // This is a simplified check - in a real implementation,
             // you might want to maintain a separate mapping for efficiency
             for i in 1..=self.bridge_request_counter {
-                if let Some(request) = self.bridge_requests.get(&i) {
+                if let Some(request) = self.bridge_requests.get(i) {
                     if request.token_id == token_id
                         && matches!(
                             request.status,
