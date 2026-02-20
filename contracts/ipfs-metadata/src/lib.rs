@@ -6,6 +6,7 @@ use ink::prelude::vec::Vec;
 use ink::storage::Mapping;
 
 #[ink::contract]
+#[allow(clippy::too_many_arguments)]
 mod ipfs_metadata {
     use super::*;
 
@@ -461,6 +462,7 @@ mod ipfs_metadata {
 
         /// Uploads document metadata to registry (actual IPFS upload handled off-chain)
         #[ink(message)]
+        #[allow(clippy::too_many_arguments)]
         pub fn register_ipfs_document(
             &mut self,
             property_id: u64,
@@ -503,6 +505,13 @@ mod ipfs_metadata {
                 {
                     return Err(Error::FileTypeNotAllowed);
                 }
+            if !self.validation_rules.allowed_mime_types.is_empty()
+                && !self
+                    .validation_rules
+                    .allowed_mime_types
+                    .contains(&mime_type)
+            {
+                return Err(Error::FileTypeNotAllowed);
             }
 
             // Increment document counter
@@ -730,7 +739,8 @@ mod ipfs_metadata {
                 return Ok(());
             }
 
-            let access_level = self.access_permissions
+            let access_level = self
+                .access_permissions
                 .get((property_id, account))
                 .unwrap_or(AccessLevel::None);
 
@@ -746,7 +756,8 @@ mod ipfs_metadata {
                 return Ok(());
             }
 
-            let access_level = self.access_permissions
+            let access_level = self
+                .access_permissions
                 .get((property_id, account))
                 .unwrap_or(AccessLevel::None);
 
@@ -758,7 +769,8 @@ mod ipfs_metadata {
 
         /// Checks if account has admin access
         fn check_admin_access(&self, property_id: u64, account: AccountId) -> Result<(), Error> {
-            let access_level = self.access_permissions
+            let access_level = self
+                .access_permissions
                 .get((property_id, account))
                 .unwrap_or(AccessLevel::None);
 
@@ -878,7 +890,10 @@ mod ipfs_metadata {
             self.cid_to_document.remove(&document.ipfs_cid);
 
             // Remove from property documents list
-            let mut doc_ids = self.property_documents.get(document.property_id).unwrap_or_default();
+            let mut doc_ids = self
+                .property_documents
+                .get(document.property_id)
+                .unwrap_or_default();
             doc_ids.retain(|&id| id != document_id);
             self.property_documents
                 .insert(document.property_id, &doc_ids);

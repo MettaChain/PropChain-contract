@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use super::*;
     use ink::prelude::string::String;
@@ -229,13 +230,15 @@ mod tests {
 
     #[ink::test]
     fn test_register_document_success() {
-        let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+        let _accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
         let mut contract = IpfsMetadataRegistry::new();
 
         // First register metadata
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
         // Register document
         let ipfs_cid = "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string();
@@ -268,7 +271,9 @@ mod tests {
         // First register metadata
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
         // Try to register document with invalid CID
         let ipfs_cid = "invalid_cid".to_string();
@@ -294,7 +299,9 @@ mod tests {
         // First register metadata
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
         // Try to register document that's too large
         let ipfs_cid = "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string();
@@ -320,21 +327,25 @@ mod tests {
         // First register metadata
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
         // Register first document
         let ipfs_cid = "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string();
         let content_hash = Hash::from([0x02; 32]);
 
-        contract.register_ipfs_document(
-            property_id,
-            ipfs_cid.clone(),
-            DocumentType::Deed,
-            content_hash,
-            1_000_000,
-            "application/pdf".to_string(),
-            false,
-        ).unwrap();
+        contract
+            .register_ipfs_document(
+                property_id,
+                ipfs_cid.clone(),
+                DocumentType::Deed,
+                content_hash,
+                1_000_000,
+                "application/pdf".to_string(),
+                false,
+            )
+            .unwrap();
 
         // Try to register same CID again
         let result = contract.register_ipfs_document(
@@ -361,17 +372,21 @@ mod tests {
         // Register metadata and document
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
-        let document_id = contract.register_ipfs_document(
-            property_id,
-            "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string(),
-            DocumentType::Deed,
-            Hash::from([0x02; 32]),
-            1_000_000,
-            "application/pdf".to_string(),
-            false,
-        ).unwrap();
+        let document_id = contract
+            .register_ipfs_document(
+                property_id,
+                "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string(),
+                DocumentType::Deed,
+                Hash::from([0x02; 32]),
+                1_000_000,
+                "application/pdf".to_string(),
+                false,
+            )
+            .unwrap();
 
         // Pin document
         let result = contract.pin_document(document_id);
@@ -393,18 +408,22 @@ mod tests {
         // Register metadata
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
         // Register a document that exceeds pin limit
-        let document_id = contract.register_ipfs_document(
-            property_id,
-            "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string(),
-            DocumentType::Deed,
-            Hash::from([0x02; 32]),
-            600_000_000, // Exceeds max_pinned_size_per_property
-            "application/pdf".to_string(),
-            false,
-        ).unwrap();
+        let document_id = contract
+            .register_ipfs_document(
+                property_id,
+                "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string(),
+                DocumentType::Deed,
+                Hash::from([0x02; 32]),
+                600_000_000, // Exceeds max_pinned_size_per_property
+                "application/pdf".to_string(),
+                false,
+            )
+            .unwrap();
 
         // Try to pin - should fail
         let result = contract.pin_document(document_id);
@@ -418,17 +437,21 @@ mod tests {
         // Register metadata and document
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
-        let document_id = contract.register_ipfs_document(
-            property_id,
-            "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string(),
-            DocumentType::Deed,
-            Hash::from([0x02; 32]),
-            1_000_000,
-            "application/pdf".to_string(),
-            false,
-        ).unwrap();
+        let document_id = contract
+            .register_ipfs_document(
+                property_id,
+                "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string(),
+                DocumentType::Deed,
+                Hash::from([0x02; 32]),
+                1_000_000,
+                "application/pdf".to_string(),
+                false,
+            )
+            .unwrap();
 
         // Pin then unpin
         contract.pin_document(document_id).unwrap();
@@ -455,23 +478,27 @@ mod tests {
         // Register metadata and document
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
         let content_hash = Hash::from([0x02; 32]);
-        let document_id = contract.register_ipfs_document(
-            property_id,
-            "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string(),
-            DocumentType::Deed,
-            content_hash,
-            1_000_000,
-            "application/pdf".to_string(),
-            false,
-        ).unwrap();
+        let document_id = contract
+            .register_ipfs_document(
+                property_id,
+                "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string(),
+                DocumentType::Deed,
+                content_hash,
+                1_000_000,
+                "application/pdf".to_string(),
+                false,
+            )
+            .unwrap();
 
         // Verify with correct hash
         let result = contract.verify_content_hash(document_id, content_hash);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true);
+        assert!(result.unwrap());
     }
 
     #[ink::test]
@@ -481,18 +508,22 @@ mod tests {
         // Register metadata and document
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
         let content_hash = Hash::from([0x02; 32]);
-        let document_id = contract.register_ipfs_document(
-            property_id,
-            "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string(),
-            DocumentType::Deed,
-            content_hash,
-            1_000_000,
-            "application/pdf".to_string(),
-            false,
-        ).unwrap();
+        let document_id = contract
+            .register_ipfs_document(
+                property_id,
+                "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string(),
+                DocumentType::Deed,
+                content_hash,
+                1_000_000,
+                "application/pdf".to_string(),
+                false,
+            )
+            .unwrap();
 
         // Verify with incorrect hash
         let wrong_hash = Hash::from([0x03; 32]);
@@ -506,13 +537,15 @@ mod tests {
 
     #[ink::test]
     fn test_grant_access_success() {
-        let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+        let _accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
         let mut contract = IpfsMetadataRegistry::new();
 
         // Register metadata
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
         // Grant access to Bob
         let result = contract.grant_access(property_id, accounts.bob, AccessLevel::Read);
@@ -521,16 +554,20 @@ mod tests {
 
     #[ink::test]
     fn test_revoke_access_success() {
-        let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+        let _accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
         let mut contract = IpfsMetadataRegistry::new();
 
         // Register metadata
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
         // Grant then revoke access
-        contract.grant_access(property_id, accounts.bob, AccessLevel::Read).unwrap();
+        contract
+            .grant_access(property_id, accounts.bob, AccessLevel::Read)
+            .unwrap();
         let result = contract.revoke_access(property_id, accounts.bob);
         assert!(result.is_ok());
     }
@@ -546,20 +583,24 @@ mod tests {
         // Register metadata
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
         // Register multiple documents
         for i in 0..3 {
             let cid = format!("QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbd{}", i);
-            contract.register_ipfs_document(
-                property_id,
-                cid,
-                DocumentType::Deed,
-                Hash::from([i as u8; 32]),
-                1_000_000,
-                "application/pdf".to_string(),
-                false,
-            ).unwrap();
+            contract
+                .register_ipfs_document(
+                    property_id,
+                    cid,
+                    DocumentType::Deed,
+                    Hash::from([i as u8; 32]),
+                    1_000_000,
+                    "application/pdf".to_string(),
+                    false,
+                )
+                .unwrap();
         }
 
         // Get all documents
@@ -574,18 +615,22 @@ mod tests {
         // Register metadata and document
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
         let ipfs_cid = "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string();
-        contract.register_ipfs_document(
-            property_id,
-            ipfs_cid.clone(),
-            DocumentType::Deed,
-            Hash::from([0x02; 32]),
-            1_000_000,
-            "application/pdf".to_string(),
-            false,
-        ).unwrap();
+        contract
+            .register_ipfs_document(
+                property_id,
+                ipfs_cid.clone(),
+                DocumentType::Deed,
+                Hash::from([0x02; 32]),
+                1_000_000,
+                "application/pdf".to_string(),
+                false,
+            )
+            .unwrap();
 
         // Get document by CID
         let document = contract.get_document_by_cid(ipfs_cid.clone());
@@ -638,17 +683,21 @@ mod tests {
         // Register metadata and document
         let property_id = 1;
         let metadata = valid_property_metadata();
-        contract.validate_and_register_metadata(property_id, metadata).unwrap();
+        contract
+            .validate_and_register_metadata(property_id, metadata)
+            .unwrap();
 
-        let document_id = contract.register_ipfs_document(
-            property_id,
-            "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string(),
-            DocumentType::Deed,
-            Hash::from([0x02; 32]),
-            1_000_000,
-            "application/pdf".to_string(),
-            false,
-        ).unwrap();
+        let document_id = contract
+            .register_ipfs_document(
+                property_id,
+                "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string(),
+                DocumentType::Deed,
+                Hash::from([0x02; 32]),
+                1_000_000,
+                "application/pdf".to_string(),
+                false,
+            )
+            .unwrap();
 
         // Report as malicious
         let result = contract.report_malicious_file(document_id, "Contains malware".to_string());
@@ -663,10 +712,8 @@ mod tests {
     fn test_handle_ipfs_failure() {
         let mut contract = IpfsMetadataRegistry::new();
 
-        let result = contract.handle_ipfs_failure(
-            "pin_document".to_string(),
-            "Network timeout".to_string(),
-        );
+        let result =
+            contract.handle_ipfs_failure("pin_document".to_string(), "Network timeout".to_string());
         assert!(result.is_ok());
     }
 }
