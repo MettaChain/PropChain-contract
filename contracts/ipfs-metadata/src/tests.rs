@@ -395,19 +395,40 @@ mod tests {
         let metadata = valid_property_metadata();
         contract.validate_and_register_metadata(property_id, metadata).unwrap();
 
-        // Register a document that exceeds pin limit
-        let document_id = contract.register_ipfs_document(
-            property_id,
-            "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdJ".to_string(),
-            DocumentType::Deed,
-            Hash::from([0x02; 32]),
-            600_000_000, // Exceeds max_pinned_size_per_property
-            "application/pdf".to_string(),
-            false,
-        ).unwrap();
+        // Register 6 documents at max_file_size (100 MB each).
+        // The max_pinned_size_per_property is 500 MB, so pinning 5 fills it;
+        // the 6th pin must be rejected with PinLimitExceeded.
+        // Using distinct CIDs (last character differs: A-F).
+        let cids = [
+            "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdA",
+            "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdB",
+            "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdC",
+            "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdD",
+            "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdE",
+            "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdF",
+        ];
 
-        // Try to pin - should fail
-        let result = contract.pin_document(document_id);
+        let mut document_ids = Vec::new();
+        for (i, cid) in cids.iter().enumerate() {
+            let doc_id = contract.register_ipfs_document(
+                property_id,
+                cid.to_string(),
+                DocumentType::Deed,
+                Hash::from([(i + 1) as u8; 32]),
+                100_000_000, // 100 MB — within max_file_size
+                "application/pdf".to_string(),
+                false,
+            ).unwrap();
+            document_ids.push(doc_id);
+        }
+
+        // Pin the first 5 documents to reach the 500 MB pin limit
+        for &doc_id in &document_ids[..5] {
+            contract.pin_document(doc_id).unwrap();
+        }
+
+        // Pinning the 6th document (100 MB) would bring total to 600 MB > 500 MB limit
+        let result = contract.pin_document(document_ids[5]);
         assert_eq!(result, Err(Error::PinLimitExceeded));
     }
 

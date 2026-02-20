@@ -402,7 +402,7 @@ mod propchain_oracle {
         }
 
         pub fn aggregate_prices(&self, prices: &[PriceData]) -> Result<u128, OracleError> {
-            if prices.is_empty() {
+            if prices.len() < self.min_sources_required as usize {
                 return Err(OracleError::InsufficientSources);
             }
 
@@ -449,13 +449,21 @@ mod propchain_oracle {
                 .sum();
 
             let variance_avg = variance / prices.len() as u128;
-            // Simple square root approximation
-            let mut std_dev = variance_avg;
-            for _ in 0..5 {
-                if std_dev > 0 {
-                    std_dev = (std_dev + variance_avg / std_dev) / 2;
+            // Integer square root via Newton-Raphson.
+            // Starting from variance_avg is always an upper bound (sqrt(x) <= x for x >= 1),
+            // so the sequence decreases monotonically to floor(sqrt(variance_avg)).
+            let std_dev = if variance_avg == 0 {
+                0u128
+            } else {
+                let mut x = variance_avg;
+                loop {
+                    let y = (x + variance_avg / x) / 2;
+                    if y >= x {
+                        break x; // converged
+                    }
+                    x = y;
                 }
-            }
+            };
 
             // Filter outliers (beyond threshold standard deviations)
             prices
@@ -764,7 +772,20 @@ mod oracle_tests {
 
     #[ink::test]
     fn test_aggregate_prices_works() {
-        let oracle = setup_oracle();
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Register oracle sources so get_source_weight succeeds
+        for (id, weight) in &[("source1", 50u32), ("source2", 50u32), ("source3", 50u32)] {
+            oracle.add_oracle_source(OracleSource {
+                id: id.to_string(),
+                source_type: OracleSourceType::Manual,
+                address: accounts.bob,
+                is_active: true,
+                weight: *weight,
+                last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+            }).unwrap();
+        }
 
         let prices = vec![
             PriceData {
@@ -788,7 +809,7 @@ mod oracle_tests {
         assert!(result.is_ok());
 
         let aggregated = result.unwrap();
-        // Should be close to the average of 100, 105, 98 = 101
+        // Should be close to the weighted average of 100, 105, 98 ≈ 101
         assert!((98..=105).contains(&aggregated));
     }
 
@@ -796,28 +817,47 @@ mod oracle_tests {
     fn test_filter_outliers_works() {
         let oracle = setup_oracle();
 
+        // 5 tightly-clustered values + 1 extreme outlier.
+        // With these values: mean ≈ 250, std_dev ≈ 335.
+        // 1000's deviation (750) > 2 * 335 (670), so it is filtered.
+        // The 5 normal values are all within 2σ and are kept.
         let prices = vec![
             PriceData {
-                price: 100,
+                price: 98,
                 timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
                 source: "source1".to_string(),
             },
             PriceData {
-                price: 105,
+                price: 99,
                 timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
                 source: "source2".to_string(),
             },
             PriceData {
-                price: 200, // Outlier
+                price: 100,
                 timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
                 source: "source3".to_string(),
+            },
+            PriceData {
+                price: 101,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "source4".to_string(),
+            },
+            PriceData {
+                price: 102,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "source5".to_string(),
+            },
+            PriceData {
+                price: 1000, // True outlier: ~2.2 sigma from mean
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "source6".to_string(),
             },
         ];
 
         let filtered = oracle.filter_outliers(&prices);
-        // Should filter out the outlier (200), leaving 2 prices
-        assert_eq!(filtered.len(), 2);
-        assert!(filtered.iter().all(|p| p.price < 150));
+        // The 1000 outlier should be filtered, leaving the 5 normal prices
+        assert_eq!(filtered.len(), 5);
+        assert!(filtered.iter().all(|p| p.price < 200));
     }
 
     #[ink::test]
