@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["OracleError"],"struct":["PropertyValuationOracle"]};
+window.SIDEBAR_ITEMS = {"enum":["OracleError"]};
