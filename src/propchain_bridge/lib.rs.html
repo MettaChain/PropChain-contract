@@ -645,7 +645,7 @@
 <a href=#645 id=645 data-nosnippet>645</a>
 <a href=#646 id=646 data-nosnippet>646</a>            <span class="kw">let </span>request_id = bridge
 <a href=#647 id=647 data-nosnippet>647</a>                .initiate_bridge_multisig(<span class="number">1</span>, <span class="number">2</span>, accounts.bob, <span class="number">2</span>, <span class="prelude-val">Some</span>(<span class="number">50</span>), metadata)
-<a href=#648 id=648 data-nosnippet>648</a>                .unwrap();
+<a href=#648 id=648 data-nosnippet>648</a>                .expect(<span class="string">"Bridge initiation should succeed in test"</span>);
 <a href=#649 id=649 data-nosnippet>649</a>
 <a href=#650 id=650 data-nosnippet>650</a>            <span class="comment">// Now sign it as a bridge operator
 <a href=#651 id=651 data-nosnippet>651</a>            </span><span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();

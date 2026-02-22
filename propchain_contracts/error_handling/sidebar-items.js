@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ErrorCategory","ErrorSeverity"],"fn":["authorization_error","map_to_error_info","network_error","safe_expect","safe_unwrap","state_error","system_error","user_error","validation_error"],"struct":["ErrorInfo","ErrorLogger","ErrorRate"]};
