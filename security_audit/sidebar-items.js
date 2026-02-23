@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["Commands"],"fn":["main"],"struct":["Cli","CodeQualityResults","DependencyScanResults","SecurityReport","StaticAnalysisResults"]};
+window.SIDEBAR_ITEMS = {"enum":["Commands"],"fn":["main"],"struct":["Cli","CodeQualityResults","DependencyScanResults","FormalVerificationResults","FuzzingResults","GasOptimizationResults","SecurityReport","StaticAnalysisResults"]};
