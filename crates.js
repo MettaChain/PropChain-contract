@@ -1,2 +1,2 @@
-window.ALL_CRATES = ["ipfs_metadata","oracle","propchain_analytics","propchain_bridge","propchain_contracts","propchain_escrow","propchain_fees","propchain_insurance","propchain_proxy","propchain_traits","property_token","security_audit"];
-//{"start":21,"fragment_lengths":[15,9,22,19,22,19,17,22,18,19,17,17]}
+window.ALL_CRATES = ["compliance_registry","ipfs_metadata","oracle","propchain_analytics","propchain_bridge","propchain_contracts","propchain_escrow","propchain_fees","propchain_insurance","propchain_proxy","propchain_traits","property_token","security_audit"];
+//{"start":21,"fragment_lengths":[21,16,9,22,19,22,19,17,22,18,19,17,17]}
