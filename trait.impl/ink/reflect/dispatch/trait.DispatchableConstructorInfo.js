@@ -1,9 +1,9 @@
 (function() {
-    var implementors = Object.fromEntries([["propchain_insurance",[["impl DispatchableConstructorInfo&lt;2611912030&gt; for <a class=\"struct\" href=\"propchain_insurance/struct.PropertyInsurance.html\" title=\"struct propchain_insurance::PropertyInsurance\">PropertyInsurance</a>"]]]]);
+    const implementors = Object.fromEntries([["propchain_insurance",[["impl DispatchableConstructorInfo&lt;2611912030&gt; for <a class=\"struct\" href=\"propchain_insurance/struct.PropertyInsurance.html\" title=\"struct propchain_insurance::PropertyInsurance\">PropertyInsurance</a>",0]]]]);
     if (window.register_implementors) {
         window.register_implementors(implementors);
     } else {
         window.pending_implementors = implementors;
     }
 })()
-//{"start":57,"fragment_lengths":[241]}
+//{"start":59,"fragment_lengths":[243]}
