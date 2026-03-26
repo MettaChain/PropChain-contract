@@ -116,9 +116,9 @@ mod propchain_oracle {
                 location_adjustments: Mapping::default(),
                 market_trends: Mapping::default(),
                 comparable_cache: Mapping::default(),
-                max_price_staleness: 3600, // 1 hour
-                min_sources_required: 2,
-                outlier_threshold: 2, // 2 standard deviations
+                max_price_staleness: propchain_traits::constants::DEFAULT_MAX_PRICE_STALENESS,
+                min_sources_required: propchain_traits::constants::DEFAULT_MIN_SOURCES_REQUIRED,
+                outlier_threshold: propchain_traits::constants::DEFAULT_OUTLIER_THRESHOLD,
                 source_reputations: Mapping::default(),
                 source_stakes: Mapping::default(),
                 pending_requests: Mapping::default(),
