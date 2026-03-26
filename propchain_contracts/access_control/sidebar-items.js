@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AccessControlError","Action","AuditAction","Resource","Role"],"struct":["AccessControl","Permission","PermissionAuditEntry"]};
