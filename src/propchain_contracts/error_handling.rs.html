@@ -230,7 +230,7 @@
 <a href=#230 id=230 data-nosnippet>230</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>((<span class="kw">_</span>, rate)) = <span class="self">self</span>.error_rates.iter_mut().find(|(c, <span class="kw">_</span>)| <span class="kw-2">*</span>c == code) {
 <a href=#231 id=231 data-nosnippet>231</a>                rate.increment(current_timestamp);
 <a href=#232 id=232 data-nosnippet>232</a>            } <span class="kw">else </span>{
-<a href=#233 id=233 data-nosnippet>233</a>                <span class="kw">let </span><span class="kw-2">mut </span>rate = ErrorRate::new(<span class="number">3600_000</span>); <span class="comment">// 1 hour window
+<a href=#233 id=233 data-nosnippet>233</a>                <span class="kw">let </span><span class="kw-2">mut </span>rate = ErrorRate::new(<span class="number">3_600_000</span>); <span class="comment">// 1 hour window
 <a href=#234 id=234 data-nosnippet>234</a>                </span>rate.increment(current_timestamp);
 <a href=#235 id=235 data-nosnippet>235</a>                <span class="self">self</span>.error_rates.push((error_info.code.clone(), rate));
 <a href=#236 id=236 data-nosnippet>236</a>            }
@@ -287,9 +287,9 @@
 <a href=#287 id=287 data-nosnippet>287</a>    }
 <a href=#288 id=288 data-nosnippet>288</a>}
 <a href=#289 id=289 data-nosnippet>289</a>
-<a href=#290 id=290 data-nosnippet>290</a><span class="doccomment">/// Helper functions for creating common error types
+<a href=#290 id=290 data-nosnippet>290</a><span class="comment">// Helper functions for creating common error types
 <a href=#291 id=291 data-nosnippet>291</a>
-<a href=#292 id=292 data-nosnippet>292</a>/// Create a user error with recovery suggestions
+<a href=#292 id=292 data-nosnippet>292</a></span><span class="doccomment">/// Create a user error with recovery suggestions
 <a href=#293 id=293 data-nosnippet>293</a></span><span class="kw">pub fn </span>user_error(
 <a href=#294 id=294 data-nosnippet>294</a>    code: <span class="kw">impl </span>Into&lt;String&gt;,
 <a href=#295 id=295 data-nosnippet>295</a>    message: <span class="kw">impl </span>Into&lt;String&gt;,
