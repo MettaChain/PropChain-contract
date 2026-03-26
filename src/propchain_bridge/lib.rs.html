@@ -224,9 +224,9 @@
 <a href=#224 id=224 data-nosnippet>224</a>                    chain_name: <span class="macro">format!</span>(<span class="string">"Chain-{}"</span>, chain_id),
 <a href=#225 id=225 data-nosnippet>225</a>                    bridge_contract_address: <span class="prelude-val">None</span>,
 <a href=#226 id=226 data-nosnippet>226</a>                    is_active: <span class="bool-val">true</span>,
-<a href=#227 id=227 data-nosnippet>227</a>                    gas_multiplier: <span class="number">100</span>,    <span class="comment">// 1.0x multiplier
-<a href=#228 id=228 data-nosnippet>228</a>                    </span>confirmation_blocks: <span class="number">6</span>, <span class="comment">// 6 block confirmations
-<a href=#229 id=229 data-nosnippet>229</a>                    </span>supported_tokens: Vec::new(),
+<a href=#227 id=227 data-nosnippet>227</a>                    gas_multiplier: propchain_traits::constants::DEFAULT_GAS_MULTIPLIER,
+<a href=#228 id=228 data-nosnippet>228</a>                    confirmation_blocks: propchain_traits::constants::DEFAULT_CONFIRMATION_BLOCKS,
+<a href=#229 id=229 data-nosnippet>229</a>                    supported_tokens: Vec::new(),
 <a href=#230 id=230 data-nosnippet>230</a>                };
 <a href=#231 id=231 data-nosnippet>231</a>                bridge.chain_info.insert(chain_id, <span class="kw-2">&amp;</span>chain_info);
 <a href=#232 id=232 data-nosnippet>232</a>            }
