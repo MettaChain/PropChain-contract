@@ -111,13 +111,7 @@ mod propchain_oracle {
             let now = ink::env::block_timestamp::<ink::env::DefaultEnvironment>();
             let block_number = ink::env::block_number::<ink::env::DefaultEnvironment>();
             access_control.bootstrap(admin, block_number, now);
-            let _ = access_control.grant_role(
-                admin,
-                admin,
-                Role::OracleAdmin,
-                block_number,
-                now,
-            );
+            let _ = access_control.grant_role(admin, admin, Role::OracleAdmin, block_number, now);
             let _ = access_control.grant_permission_to_role(
                 admin,
                 Role::Admin,

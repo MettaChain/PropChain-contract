@@ -2250,6 +2250,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
+name = "governance"
+version = "0.1.0"
+dependencies = [
+ "ink 5.1.1",
+ "parity-scale-codec",
+ "propchain-traits",
+ "scale-info",
+]
+
+[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6993,6 +7003,16 @@ dependencies = [
  "sp-std",
  "sp-weights",
  "staging-xcm",
+]
+
+[[package]]
+name = "staking"
+version = "0.1.0"
+dependencies = [
+ "ink 5.1.1",
+ "parity-scale-codec",
+ "propchain-traits",
+ "scale-info",
 ]
 
 [[package]]

@@ -6,6 +6,8 @@ on:
     paths:
       - 'contracts/lib/**'
       - 'contracts/traits/**'
+      - 'contracts/governance/**'
+      - 'contracts/staking/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
   pull_request:
@@ -13,6 +15,8 @@ on:
     paths:
       - 'contracts/lib/**'
       - 'contracts/traits/**'
+      - 'contracts/governance/**'
+      - 'contracts/staking/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
   workflow_dispatch:
@@ -43,4 +47,52 @@ jobs:
 
       - name: Run PropertyRegistry unit tests
         working-directory: contracts/lib
+        run: cargo test --lib
+
+  governance-tests:
+    name: Governance Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Run Governance unit tests
+        working-directory: contracts/governance
+        run: cargo test --lib
+
+  staking-tests:
+    name: Staking Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Run Staking unit tests
+        working-directory: contracts/staking
         run: cargo test --lib

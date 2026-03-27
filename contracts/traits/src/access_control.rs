@@ -3,7 +3,10 @@ use ink::primitives::AccountId;
 use ink::storage::Mapping;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
 pub enum Role {
     SuperAdmin,
     Admin,
@@ -17,7 +20,10 @@ pub enum Role {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
 pub enum Resource {
     Global,
     PropertyRegistry,
@@ -34,7 +40,10 @@ pub enum Resource {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
 pub enum Action {
     ManageRoles,
     Configure,
@@ -47,14 +56,20 @@ pub enum Action {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
 pub struct Permission {
     pub resource: Resource,
     pub action: Action,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
 pub enum AuditAction {
     RoleGranted,
     RoleRevoked,
@@ -65,7 +80,10 @@ pub enum AuditAction {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
 pub struct PermissionAuditEntry {
     pub id: u64,
     pub actor: AccountId,
@@ -215,13 +233,18 @@ impl AccessControl {
 
     pub fn has_role(&self, account: AccountId, role: Role) -> bool {
         self.role_assignments.get((account, role)).unwrap_or(false)
-            || self
-                .ancestor_roles(role)
-                .iter()
-                .any(|ancestor| self.role_assignments.get((account, *ancestor)).unwrap_or(false))
+            || self.ancestor_roles(role).iter().any(|ancestor| {
+                self.role_assignments
+                    .get((account, *ancestor))
+                    .unwrap_or(false)
+            })
     }
 
-    pub fn ensure_has_role(&self, account: AccountId, role: Role) -> Result<(), AccessControlError> {
+    pub fn ensure_has_role(
+        &self,
+        account: AccountId,
+        role: Role,
+    ) -> Result<(), AccessControlError> {
         if self.has_role(account, role) {
             Ok(())
         } else {

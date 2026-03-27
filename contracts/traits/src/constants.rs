@@ -84,3 +84,53 @@ pub const DEFAULT_BULL_BEAR_RATIO_BPS: u32 = 5_000;
 
 /// Basis points denominator (100% = 10000 bps).
 pub const BASIS_POINTS_DENOMINATOR: u32 = 10_000;
+
+// ── Storage Constants ────────────────────────────────────────────────────────
+
+/// Number of reserved `u128` slots for future storage upgrades.
+/// Each contract SHOULD include a `__storage_gap: [u128; STORAGE_GAP_SIZE]`
+/// field at the end of its storage struct.
+pub const STORAGE_GAP_SIZE: usize = 20;
+
+// ── Governance Constants ─────────────────────────────────────────────────────
+
+/// Minimum number of signers required for a governance multisig.
+pub const GOVERNANCE_MIN_SIGNERS: u32 = 2;
+
+/// Maximum number of signers allowed in a governance multisig.
+pub const GOVERNANCE_MAX_SIGNERS: u32 = 50;
+
+/// Default timelock duration in blocks before a proposal can be executed.
+pub const GOVERNANCE_DEFAULT_TIMELOCK_BLOCKS: u64 = 100;
+
+/// Maximum number of active proposals at once.
+pub const GOVERNANCE_MAX_ACTIVE_PROPOSALS: u32 = 100;
+
+// ── Staking Constants ────────────────────────────────────────────────────────
+
+/// Minimum stake amount (in smallest token unit).
+pub const STAKING_MIN_AMOUNT: u128 = 1_000_000_000_000; // 1 token at 1e12 precision
+
+/// Lock period: 30 days in blocks (assuming 6-second blocks).
+pub const LOCK_PERIOD_30_DAYS: u64 = 432_000;
+
+/// Lock period: 90 days in blocks.
+pub const LOCK_PERIOD_90_DAYS: u64 = 1_296_000;
+
+/// Lock period: 1 year in blocks.
+pub const LOCK_PERIOD_1_YEAR: u64 = 5_256_000;
+
+/// Reward rate precision (basis points, 10000 = 100%).
+pub const REWARD_RATE_PRECISION: u128 = 10_000;
+
+/// Lock-period reward multiplier: flexible = 1x (100 bps).
+pub const MULTIPLIER_FLEXIBLE: u128 = 100;
+
+/// Lock-period reward multiplier: 30 days = 1.25x.
+pub const MULTIPLIER_30_DAYS: u128 = 125;
+
+/// Lock-period reward multiplier: 90 days = 1.75x.
+pub const MULTIPLIER_90_DAYS: u128 = 175;
+
+/// Lock-period reward multiplier: 1 year = 3x.
+pub const MULTIPLIER_1_YEAR: u128 = 300;

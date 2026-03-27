@@ -841,7 +841,8 @@ mod propchain_contracts {
                     let mut ac = AccessControl::new(64);
                     ac.bootstrap(caller, block_number, timestamp);
                     let _ = ac.grant_role(caller, caller, Role::Verifier, block_number, timestamp);
-                    let _ = ac.grant_role(caller, caller, Role::PauseGuardian, block_number, timestamp);
+                    let _ =
+                        ac.grant_role(caller, caller, Role::PauseGuardian, block_number, timestamp);
                     ac
                 },
             };
