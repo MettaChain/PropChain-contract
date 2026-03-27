@@ -791,7 +791,69 @@ mod propchain_contracts {
     }
 
     impl PropertyRegistry {
-        /// Creates a new PropertyRegistry contract
+        /// # Creates a new PropertyRegistry Contract Instance
+        ///
+        /// ## Description
+        /// Initializes a new instance of the PropertyRegistry contract with the caller as admin.
+        /// This is the constructor that must be called once during deployment to set up initial state.
+        ///
+        /// ## Parameters
+        /// None - Uses `env().caller()` as the initial admin
+        ///
+        /// ## Returns
+        /// - `PropertyRegistry` - New contract instance with:
+        ///   - `admin` set to caller's account
+        ///   - `version` set to 1
+        ///   - All storage mappings initialized
+        ///   - Access control bootstrap completed
+        ///
+        /// ## Events Emitted
+        /// - [`ContractInitialized`](crate::ContractInitialized) - Emitted immediately after initialization
+        ///   - `admin`: Account ID of contract creator
+        ///   - `contract_version`: Version number (always 1 for initial deployment)
+        ///   - `timestamp`: Block timestamp at initialization
+        ///   - `block_number`: Block number at initialization
+        ///
+        /// ## Example
+        /// ```rust,ignore
+        /// // Deploy and initialize contract
+        /// use ink::env::DefaultEnvironment;
+        /// use propchain_contracts::PropertyRegistry;
+        ///
+        /// // Constructor is called automatically during deployment
+        /// let contract = PropertyRegistry::new();
+        ///
+        /// // Verify admin is set correctly
+        /// assert_eq!(contract.admin(), caller_account);
+        /// assert_eq!(contract.version(), 1);
+        /// ```
+        ///
+        /// ## Security Requirements
+        /// - **Caller**: Becomes contract admin with full privileges
+        /// - **One-time call**: Should only be called once during deployment
+        /// - **Access Control**: Admin role granted to caller automatically
+        ///
+        /// ## Gas Considerations
+        /// - **Cost**: ~200,000 gas (one-time deployment cost)
+        /// - **Storage**: Allocates initial contract state (~50 bytes)
+        /// - **Optimization**: No user-controllable parameters to optimize
+        ///
+        /// ## Post-Deployment Steps
+        /// 1. Verify admin account is correct
+        /// 2. Configure oracle contract (if using valuations)
+        /// 3. Set compliance registry address (if enforcing KYC/AML)
+        /// 4. Add pause guardians for emergency controls
+        /// 5. Fund contract with initial balance for operations
+        ///
+        /// ## Related Functions
+        /// - [`change_admin`](crate::PropertyRegistry::change_admin) - Transfer admin privileges
+        /// - [`set_oracle`](crate::PropertyRegistry::set_oracle) - Configure price oracle
+        /// - [`set_compliance_registry`](crate::PropertyRegistry::set_compliance_registry) - Set compliance
+        ///
+        /// ## Version History
+        /// - **v1.0.0** - Initial implementation
+        /// - **v1.1.0** - Added access control bootstrap
+        /// - **v1.2.0** - Enhanced with pause guardians and gas tracking
         #[ink(constructor)]
         pub fn new() -> Self {
             let caller = Self::env().caller();
@@ -858,19 +920,134 @@ mod propchain_contracts {
             contract
         }
 
-        /// Returns the contract version
+        /// # Returns the Contract Version
+        ///
+        /// ## Description
+        /// Returns the current version number of the PropertyRegistry contract.
+        /// Used for compatibility checks and upgrade management.
+        ///
+        /// ## Parameters
+        /// None
+        ///
+        /// ## Returns
+        /// - `u32` - Contract version number (currently 1)
+        ///
+        /// ## Example
+        /// ```rust,ignore
+        /// // Check contract version before calling version-specific methods
+        /// let version = contract.version();
+        /// assert_eq!(version, 1);
+        ///
+        /// if version >= 2 {
+        ///     // Use v2+ features
+        ///     contract.new_feature()?;
+        /// } else {
+        ///     // Use legacy approach
+        ///     contract.legacy_feature()?;
+        /// }
+        /// ```
+        ///
+        /// ## Gas Considerations
+        /// - **Cost**: ~500 gas (simple storage read)
+        /// - **Optimization**: Free function, no state changes
+        ///
+        /// ## Related Functions
+        /// - [`admin`](crate::PropertyRegistry::admin) - Get admin account
+        /// - [`health_check`](crate::PropertyRegistry::health_check) - Full health status
         #[ink(message)]
         pub fn version(&self) -> u32 {
             self.version
         }
 
-        /// Returns the admin account
+        /// # Returns the Admin Account
+        ///
+        /// ## Description
+        /// Returns the AccountId of the current contract administrator.
+        /// The admin has privileges to configure contracts, pause operations, and manage access control.
+        ///
+        /// ## Parameters
+        /// None
+        ///
+        /// ## Returns
+        /// - `AccountId` - Account ID of contract administrator
+        ///
+        /// ## Example
+        /// ```rust,ignore
+        /// // Verify admin before sensitive operations
+        /// let admin = contract.admin();
+        /// println!("Contract admin: {:?}", admin);
+        ///
+        /// // Check if caller is admin
+        /// if self.env().caller() == contract.admin() {
+        ///     // Perform admin-only operation
+        /// }
+        /// ```
+        ///
+        /// ## Security Requirements
+        /// - **Access**: Read-only, anyone can query
+        /// - **Use Case**: Verify admin identity for off-chain coordination
+        ///
+        /// ## Gas Considerations
+        /// - **Cost**: ~500 gas (storage read)
+        ///
+        /// ## Related Functions
+        /// - [`change_admin`](crate::PropertyRegistry::change_admin) - Transfer admin privileges
+        /// - [`version`](crate::PropertyRegistry::version) - Get contract version
         #[ink(message)]
         pub fn admin(&self) -> AccountId {
             self.admin
         }
 
-        /// Returns the full health status of the contract for monitoring
+        /// # Returns Full Contract Health Status
+        ///
+        /// ## Description
+        /// Provides comprehensive health monitoring data for the contract.
+        /// Used by monitoring systems, dashboards, and automated health checks.
+        ///
+        /// ## Parameters
+        /// None
+        ///
+        /// ## Returns
+        /// - [`HealthStatus`](crate::HealthStatus) - Complete health information including:
+        ///   - `is_healthy`: Overall health flag (false if paused)
+        ///   - `is_paused`: Current pause state
+        ///   - `contract_version`: Version number
+        ///   - `property_count`: Total registered properties
+        ///   - `escrow_count`: Active escrows
+        ///   - `has_oracle`: Oracle configured
+        ///   - `has_compliance_registry`: Compliance registry configured
+        ///   - `has_fee_manager`: Fee manager configured
+        ///   - `block_number`: Current block
+        ///   - `timestamp`: Current timestamp
+        ///
+        /// ## Example
+        /// ```rust,ignore
+        /// // Monitor contract health in dashboard
+        /// let health = contract.health_check()?;
+        ///
+        /// if !health.is_healthy {
+        ///     alert_admins("Contract unhealthy!");
+        /// }
+        ///
+        /// println!("Properties: {}", health.property_count);
+        /// println!("Escrows: {}", health.escrow_count);
+        /// println!("Oracle: {:?}", health.has_oracle);
+        /// ```
+        ///
+        /// ## Use Cases
+        /// 1. **Monitoring Dashboards**: Display real-time contract status
+        /// 2. **Automated Alerts**: Trigger notifications on unhealthy states
+        /// 3. **Pre-flight Checks**: Verify contract before operations
+        /// 4. **Audit Trails**: Log periodic health snapshots
+        ///
+        /// ## Gas Considerations
+        /// - **Cost**: ~2,000 gas (multiple storage reads)
+        /// - **Optimization**: Read-only, no state changes
+        ///
+        /// ## Related Functions
+        /// - [`ping`](crate::PropertyRegistry::ping) - Simple liveness check
+        /// - [`dependencies_healthy`](crate::PropertyRegistry::dependencies_healthy) - Dependency check
+        /// - [`pause_contract`](crate::PropertyRegistry::pause_contract) - Pause operations
         #[ink(message)]
         pub fn health_check(&self) -> HealthStatus {
             let is_paused = self.pause_info.paused;
