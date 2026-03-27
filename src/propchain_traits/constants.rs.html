@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `contracts/traits/src/constants.rs`."><title>constants.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-77263533.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="propchain_traits" data-themes="" data-resource-suffix="" data-rustdoc-version="1.94.1 (e408947bf 2026-03-25)" data-channel="1.94.1" data-search-js="search-9e2438ea.js" data-stringdex-js="stringdex-b897f86f.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-7bab91a1.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-ffcac47a.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">propchain_traits/</div>constants.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-2"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">/// Centralized configuration constants for PropChain contracts.
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `contracts/traits/src/constants.rs`."><title>constants.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-77263533.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="propchain_traits" data-themes="" data-resource-suffix="" data-rustdoc-version="1.94.1 (e408947bf 2026-03-25)" data-channel="1.94.1" data-search-js="search-9e2438ea.js" data-stringdex-js="stringdex-b897f86f.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-7bab91a1.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-ffcac47a.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">propchain_traits/</div>constants.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">/// Centralized configuration constants for PropChain contracts.
 <a href=#2 id=2 data-nosnippet>2</a>///
 <a href=#3 id=3 data-nosnippet>3</a>/// All magic numbers are extracted here with documentation explaining
 <a href=#4 id=4 data-nosnippet>4</a>/// their purpose and valid ranges. Contracts import from this module
@@ -84,4 +84,54 @@
 <a href=#84 id=84 data-nosnippet>84</a>
 <a href=#85 id=85 data-nosnippet>85</a><span class="doccomment">/// Basis points denominator (100% = 10000 bps).
 <a href=#86 id=86 data-nosnippet>86</a></span><span class="kw">pub const </span>BASIS_POINTS_DENOMINATOR: u32 = <span class="number">10_000</span>;
+<a href=#87 id=87 data-nosnippet>87</a>
+<a href=#88 id=88 data-nosnippet>88</a><span class="comment">// ── Storage Constants ────────────────────────────────────────────────────────
+<a href=#89 id=89 data-nosnippet>89</a>
+<a href=#90 id=90 data-nosnippet>90</a></span><span class="doccomment">/// Number of reserved `u128` slots for future storage upgrades.
+<a href=#91 id=91 data-nosnippet>91</a>/// Each contract SHOULD include a `__storage_gap: [u128; STORAGE_GAP_SIZE]`
+<a href=#92 id=92 data-nosnippet>92</a>/// field at the end of its storage struct.
+<a href=#93 id=93 data-nosnippet>93</a></span><span class="kw">pub const </span>STORAGE_GAP_SIZE: usize = <span class="number">20</span>;
+<a href=#94 id=94 data-nosnippet>94</a>
+<a href=#95 id=95 data-nosnippet>95</a><span class="comment">// ── Governance Constants ─────────────────────────────────────────────────────
+<a href=#96 id=96 data-nosnippet>96</a>
+<a href=#97 id=97 data-nosnippet>97</a></span><span class="doccomment">/// Minimum number of signers required for a governance multisig.
+<a href=#98 id=98 data-nosnippet>98</a></span><span class="kw">pub const </span>GOVERNANCE_MIN_SIGNERS: u32 = <span class="number">2</span>;
+<a href=#99 id=99 data-nosnippet>99</a>
+<a href=#100 id=100 data-nosnippet>100</a><span class="doccomment">/// Maximum number of signers allowed in a governance multisig.
+<a href=#101 id=101 data-nosnippet>101</a></span><span class="kw">pub const </span>GOVERNANCE_MAX_SIGNERS: u32 = <span class="number">50</span>;
+<a href=#102 id=102 data-nosnippet>102</a>
+<a href=#103 id=103 data-nosnippet>103</a><span class="doccomment">/// Default timelock duration in blocks before a proposal can be executed.
+<a href=#104 id=104 data-nosnippet>104</a></span><span class="kw">pub const </span>GOVERNANCE_DEFAULT_TIMELOCK_BLOCKS: u64 = <span class="number">100</span>;
+<a href=#105 id=105 data-nosnippet>105</a>
+<a href=#106 id=106 data-nosnippet>106</a><span class="doccomment">/// Maximum number of active proposals at once.
+<a href=#107 id=107 data-nosnippet>107</a></span><span class="kw">pub const </span>GOVERNANCE_MAX_ACTIVE_PROPOSALS: u32 = <span class="number">100</span>;
+<a href=#108 id=108 data-nosnippet>108</a>
+<a href=#109 id=109 data-nosnippet>109</a><span class="comment">// ── Staking Constants ────────────────────────────────────────────────────────
+<a href=#110 id=110 data-nosnippet>110</a>
+<a href=#111 id=111 data-nosnippet>111</a></span><span class="doccomment">/// Minimum stake amount (in smallest token unit).
+<a href=#112 id=112 data-nosnippet>112</a></span><span class="kw">pub const </span>STAKING_MIN_AMOUNT: u128 = <span class="number">1_000_000_000_000</span>; <span class="comment">// 1 token at 1e12 precision
+<a href=#113 id=113 data-nosnippet>113</a>
+<a href=#114 id=114 data-nosnippet>114</a></span><span class="doccomment">/// Lock period: 30 days in blocks (assuming 6-second blocks).
+<a href=#115 id=115 data-nosnippet>115</a></span><span class="kw">pub const </span>LOCK_PERIOD_30_DAYS: u64 = <span class="number">432_000</span>;
+<a href=#116 id=116 data-nosnippet>116</a>
+<a href=#117 id=117 data-nosnippet>117</a><span class="doccomment">/// Lock period: 90 days in blocks.
+<a href=#118 id=118 data-nosnippet>118</a></span><span class="kw">pub const </span>LOCK_PERIOD_90_DAYS: u64 = <span class="number">1_296_000</span>;
+<a href=#119 id=119 data-nosnippet>119</a>
+<a href=#120 id=120 data-nosnippet>120</a><span class="doccomment">/// Lock period: 1 year in blocks.
+<a href=#121 id=121 data-nosnippet>121</a></span><span class="kw">pub const </span>LOCK_PERIOD_1_YEAR: u64 = <span class="number">5_256_000</span>;
+<a href=#122 id=122 data-nosnippet>122</a>
+<a href=#123 id=123 data-nosnippet>123</a><span class="doccomment">/// Reward rate precision (basis points, 10000 = 100%).
+<a href=#124 id=124 data-nosnippet>124</a></span><span class="kw">pub const </span>REWARD_RATE_PRECISION: u128 = <span class="number">10_000</span>;
+<a href=#125 id=125 data-nosnippet>125</a>
+<a href=#126 id=126 data-nosnippet>126</a><span class="doccomment">/// Lock-period reward multiplier: flexible = 1x (100 bps).
+<a href=#127 id=127 data-nosnippet>127</a></span><span class="kw">pub const </span>MULTIPLIER_FLEXIBLE: u128 = <span class="number">100</span>;
+<a href=#128 id=128 data-nosnippet>128</a>
+<a href=#129 id=129 data-nosnippet>129</a><span class="doccomment">/// Lock-period reward multiplier: 30 days = 1.25x.
+<a href=#130 id=130 data-nosnippet>130</a></span><span class="kw">pub const </span>MULTIPLIER_30_DAYS: u128 = <span class="number">125</span>;
+<a href=#131 id=131 data-nosnippet>131</a>
+<a href=#132 id=132 data-nosnippet>132</a><span class="doccomment">/// Lock-period reward multiplier: 90 days = 1.75x.
+<a href=#133 id=133 data-nosnippet>133</a></span><span class="kw">pub const </span>MULTIPLIER_90_DAYS: u128 = <span class="number">175</span>;
+<a href=#134 id=134 data-nosnippet>134</a>
+<a href=#135 id=135 data-nosnippet>135</a><span class="doccomment">/// Lock-period reward multiplier: 1 year = 3x.
+<a href=#136 id=136 data-nosnippet>136</a></span><span class="kw">pub const </span>MULTIPLIER_1_YEAR: u128 = <span class="number">300</span>;
 </code></pre></div></section></main></body></html>

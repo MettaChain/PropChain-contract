@@ -1,2 +1,2 @@
-window.ALL_CRATES = ["compliance_registry","fractional","ipfs_metadata","oracle","propchain_analytics","propchain_bridge","propchain_contracts","propchain_escrow","propchain_fees","propchain_insurance","propchain_prediction_market","propchain_proxy","propchain_traits","property_token","security_audit"];
-//{"start":21,"fragment_lengths":[21,13,16,9,22,19,22,19,17,22,30,18,19,17,17]}
+window.ALL_CRATES = ["compliance_registry","fractional","governance","ipfs_metadata","oracle","propchain_analytics","propchain_bridge","propchain_contracts","propchain_escrow","propchain_fees","propchain_insurance","propchain_prediction_market","propchain_proxy","propchain_traits","property_token","security_audit","staking"];
+//{"start":21,"fragment_lengths":[21,13,13,16,9,22,19,22,19,17,22,30,18,19,17,17,10]}
