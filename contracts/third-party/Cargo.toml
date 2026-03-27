@@ -1,0 +1,32 @@
+[package]
+name = "propchain-third-party"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Third-party service integrations for PropChain (KYC, Payments, Monitoring, Oracles)"
+
+[dependencies]
+ink = { workspace = true }
+scale = { workspace = true }
+scale-info = { workspace = true }
+propchain-traits = { path = "../traits" }
+
+[dev-dependencies]
+ink_e2e = "5.0.0"
+
+[lib]
+name = "propchain_third_party"
+path = "src/lib.rs"
+
+[features]
+default = ["std"]
+std = [
+    "ink/std",
+    "scale/std",
+    "scale-info/std",
+]
+ink-as-dependency = []
+e2e-tests = []

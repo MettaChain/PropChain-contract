@@ -15,6 +15,9 @@ members = [
     "contracts/compliance_registry",
     "contracts/fractional",
     "contracts/prediction-market",
+    "contracts/metadata",
+    "contracts/database",
+    "contracts/third-party",
 ]
 resolver = "2"
 
