@@ -70,6 +70,8 @@ mod property_token {
         ProposalClosed,
         /// Ask not found
         AskNotFound,
+        /// Input batch exceeds maximum allowed size
+        BatchSizeExceeded,
     }
 
     impl core::fmt::Display for Error {
@@ -101,6 +103,7 @@ mod property_token {
                 Error::ProposalNotFound => write!(f, "Proposal not found"),
                 Error::ProposalClosed => write!(f, "Proposal is closed"),
                 Error::AskNotFound => write!(f, "Ask not found"),
+                Error::BatchSizeExceeded => write!(f, "Input batch exceeds maximum allowed size"),
             }
         }
     }
@@ -132,6 +135,7 @@ mod property_token {
                 Error::ProposalNotFound => property_token_codes::PROPOSAL_NOT_FOUND,
                 Error::ProposalClosed => property_token_codes::PROPOSAL_CLOSED,
                 Error::AskNotFound => property_token_codes::ASK_NOT_FOUND,
+                Error::BatchSizeExceeded => property_token_codes::BATCH_SIZE_EXCEEDED,
             }
         }
 
@@ -167,6 +171,9 @@ mod property_token {
                 Error::ProposalNotFound => "The governance proposal does not exist",
                 Error::ProposalClosed => "The governance proposal is closed for voting",
                 Error::AskNotFound => "The sell ask does not exist",
+                Error::BatchSizeExceeded => {
+                    "The input batch exceeds the maximum allowed size"
+                }
             }
         }
 
@@ -230,6 +237,7 @@ mod property_token {
         last_trade_price: Mapping<TokenId, u128>,
         compliance_registry: Option<AccountId>,
         tax_records: Mapping<(AccountId, TokenId), TaxRecord>,
+        max_batch_size: u32,
         /// Optional property-management contract for operational workflows
         property_management_contract: Option<AccountId>,
         /// On-chain management agent per property token (tokenized property)
@@ -698,6 +706,7 @@ mod property_token {
                 last_trade_price: Mapping::default(),
                 compliance_registry: None,
                 tax_records: Mapping::default(),
+                max_batch_size: 50,
                 property_management_contract: None,
                 management_agent: Mapping::default(),
             }
@@ -859,6 +868,9 @@ mod property_token {
         /// ERC-1155: Returns the balance of tokens for an account
         #[ink(message)]
         pub fn balance_of_batch(&self, accounts: Vec<AccountId>, ids: Vec<TokenId>) -> Vec<u128> {
+            if accounts.len() > self.max_batch_size as usize {
+                return Vec::new();
+            }
             let mut balances = Vec::new();
             for i in 0..accounts.len() {
                 if i < ids.len() {
@@ -885,6 +897,10 @@ mod property_token {
 
             if from != caller && !self.is_approved_for_all(from, caller) {
                 return Err(Error::Unauthorized);
+            }
+
+            if ids.len() > self.max_batch_size as usize {
+                return Err(Error::BatchSizeExceeded);
             }
 
             // Verify lengths match
@@ -1718,6 +1734,9 @@ mod property_token {
             &mut self,
             metadata_list: Vec<PropertyMetadata>,
         ) -> Result<Vec<TokenId>, Error> {
+            if metadata_list.len() > self.max_batch_size as usize {
+                return Err(Error::BatchSizeExceeded);
+            }
             let caller = self.env().caller();
             let mut issued_tokens = Vec::new();
             let current_time = self.env().block_timestamp();
