@@ -111,12 +111,13 @@ mod tests {
             .register_property(metadata)
             .expect("Failed to register property");
 
-        // Verify that events were emitted (ContractInitialized + PropertyRegistered)
+        // Verify that events were emitted
+        // ContractInitialized + PropertyRegistered + SecurityAuditEvent
         let emitted_events = ink::env::test::recorded_events().collect::<Vec<_>>();
         assert_eq!(
             emitted_events.len(),
-            2,
-            "ContractInitialized and PropertyRegistered events should be emitted"
+            3,
+            "ContractInitialized, PropertyRegistered, and SecurityAuditEvent should be emitted"
         );
     }
 
@@ -2421,6 +2422,281 @@ mod tests {
         assert_eq!(stats.largest_batch_processed, 3);
     }
 
+    // ========================================================================
+    // Security Audit Trail Tests (Issue #82)
+    // ========================================================================
+
+    #[ink::test]
+    fn test_audit_trail_initialized_on_construction() {
+        let contract = PropertyRegistry::new();
+        // Constructor logs one initial event (AdminChanged)
+        assert_eq!(contract.audit_record_count(), 1);
+
+        let record = contract.get_audit_record(1).unwrap();
+        assert_eq!(record.event_type, SecurityEventType::AdminChanged);
+        assert_eq!(record.severity, SecuritySeverity::Critical);
+        assert_eq!(record.id, 1);
+    }
+
+    #[ink::test]
+    fn test_audit_chain_head_nonzero_after_init() {
+        let contract = PropertyRegistry::new();
+        let head = contract.audit_chain_head();
+        assert_ne!(head, [0u8; 32], "Chain head should not be genesis hash after init");
+    }
+
+    #[ink::test]
+    fn test_register_property_creates_audit_record() {
+        let mut contract = PropertyRegistry::new();
+        let metadata = create_sample_metadata();
+
+        let property_id = contract.register_property(metadata).unwrap();
+        // 1 from constructor + 1 from register_property
+        assert_eq!(contract.audit_record_count(), 2);
+
+        let record = contract.get_audit_record(2).unwrap();
+        assert_eq!(record.event_type, SecurityEventType::PropertyRegistered);
+        assert_eq!(record.severity, SecuritySeverity::Low);
+        assert_eq!(record.resource_id, property_id);
+    }
+
+    #[ink::test]
+    fn test_transfer_property_creates_audit_record() {
+        let accounts = default_accounts();
+        let mut contract = PropertyRegistry::new();
+        let metadata = create_sample_metadata();
+
+        let property_id = contract.register_property(metadata).unwrap();
+        contract.transfer_property(property_id, accounts.bob).unwrap();
+
+        // 1 init + 1 register + 1 transfer = 3
+        assert_eq!(contract.audit_record_count(), 3);
+
+        let record = contract.get_audit_record(3).unwrap();
+        assert_eq!(record.event_type, SecurityEventType::PropertyTransferred);
+        assert_eq!(record.severity, SecuritySeverity::Medium);
+        assert_eq!(record.resource_id, property_id);
+    }
+
+    #[ink::test]
+    fn test_unauthorized_access_logged() {
+        let accounts = default_accounts();
+        let mut contract = PropertyRegistry::new();
+        let metadata = create_sample_metadata();
+
+        let property_id = contract.register_property(metadata).unwrap();
+        let count_before = contract.audit_record_count();
+
+        // Try unauthorized transfer
+        set_caller(accounts.bob);
+        let result = contract.transfer_property(property_id, accounts.charlie);
+        assert_eq!(result, Err(Error::Unauthorized));
+
+        // Should have logged an UnauthorizedAccess event
+        let count_after = contract.audit_record_count();
+        assert_eq!(count_after, count_before + 1);
+
+        let record = contract.get_audit_record(count_after).unwrap();
+        assert_eq!(record.event_type, SecurityEventType::UnauthorizedAccess);
+        assert_eq!(record.severity, SecuritySeverity::Critical);
+        assert_eq!(record.actor, accounts.bob);
+    }
+
+    #[ink::test]
+    fn test_change_admin_creates_critical_audit() {
+        let accounts = default_accounts();
+        let mut contract = PropertyRegistry::new();
+
+        contract.change_admin(accounts.bob).unwrap();
+
+        let count = contract.audit_record_count();
+        let record = contract.get_audit_record(count).unwrap();
+        assert_eq!(record.event_type, SecurityEventType::AdminChanged);
+        assert_eq!(record.severity, SecuritySeverity::Critical);
+    }
+
+    #[ink::test]
+    fn test_pause_resume_audit_trail() {
+        let accounts = default_accounts();
+        let mut contract = PropertyRegistry::new();
+        let count_before = contract.audit_record_count();
+
+        // Pause
+        contract.pause_contract("test".into(), None).unwrap();
+        let pause_record = contract.get_audit_record(count_before + 1).unwrap();
+        assert_eq!(pause_record.event_type, SecurityEventType::ContractPaused);
+        assert_eq!(pause_record.severity, SecuritySeverity::Critical);
+
+        // Set up resume (need a second guardian for multi-sig)
+        set_caller(accounts.alice);
+        contract.request_resume().unwrap();
+
+        // Add bob as guardian and have him approve
+        let account2 = accounts.bob;
+        set_caller(contract.admin());
+        contract.set_pause_guardian(account2, true).unwrap();
+
+        set_caller(account2);
+        contract.approve_resume().unwrap();
+
+        // Find the ContractResumed audit record
+        let count_after = contract.audit_record_count();
+        let mut found_resume = false;
+        for i in (count_before + 1)..=count_after {
+            if let Some(r) = contract.get_audit_record(i) {
+                if r.event_type == SecurityEventType::ContractResumed {
+                    assert_eq!(r.severity, SecuritySeverity::Critical);
+                    found_resume = true;
+                    break;
+                }
+            }
+        }
+        assert!(found_resume, "ContractResumed audit record not found");
+    }
+
+    #[ink::test]
+    fn test_audit_integrity_verification() {
+        let mut contract = PropertyRegistry::new();
+        let metadata = create_sample_metadata();
+
+        // Create several audit records
+        contract.register_property(metadata.clone()).unwrap();
+        contract.register_property(metadata.clone()).unwrap();
+        contract.register_property(metadata).unwrap();
+
+        // Verify integrity of the full chain
+        let count = contract.audit_record_count();
+        assert!(count >= 4); // 1 init + 3 registers
+        let is_valid = contract.verify_audit_integrity(1, count);
+        assert!(is_valid, "Audit chain should be valid");
+    }
+
+    #[ink::test]
+    fn test_audit_integrity_invalid_range() {
+        let mut contract = PropertyRegistry::new();
+
+        // Invalid ranges should return false
+        assert!(!contract.verify_audit_integrity(0, 1));
+        assert!(!contract.verify_audit_integrity(3, 2));
+        assert!(!contract.verify_audit_integrity(1, 999));
+    }
+
+    #[ink::test]
+    fn test_audit_records_by_actor() {
+        let accounts = default_accounts();
+        let mut contract = PropertyRegistry::new();
+        let metadata = create_sample_metadata();
+
+        // Admin (alice) creates properties
+        contract.register_property(metadata.clone()).unwrap();
+        contract.register_property(metadata).unwrap();
+
+        // Query by actor
+        let records = contract.get_audit_records_by_actor(accounts.alice, 0, 50);
+        // Should have: 1 init + 2 registers = 3 records for alice
+        assert_eq!(records.len(), 3);
+    }
+
+    #[ink::test]
+    fn test_audit_records_by_type() {
+        let mut contract = PropertyRegistry::new();
+        let metadata = create_sample_metadata();
+
+        contract.register_property(metadata.clone()).unwrap();
+        contract.register_property(metadata).unwrap();
+
+        let records = contract.get_audit_records_by_type(SecurityEventType::PropertyRegistered, 0, 50);
+        assert_eq!(records.len(), 2);
+    }
+
+    #[ink::test]
+    fn test_audit_sequential_hash_chain() {
+        let mut contract = PropertyRegistry::new();
+        let metadata = create_sample_metadata();
+
+        contract.register_property(metadata.clone()).unwrap();
+        contract.register_property(metadata).unwrap();
+
+        let record1 = contract.get_audit_record(1).unwrap();
+        let record2 = contract.get_audit_record(2).unwrap();
+        let record3 = contract.get_audit_record(3).unwrap();
+
+        // Each record should have a unique hash
+        assert_ne!(record1.record_hash, record2.record_hash);
+        assert_ne!(record2.record_hash, record3.record_hash);
+        assert_ne!(record1.record_hash, record3.record_hash);
+
+        // Chain head should match the last record's hash
+        assert_eq!(contract.audit_chain_head(), record3.record_hash);
+    }
+
+    #[ink::test]
+    fn test_escrow_creates_audit_records() {
+        let accounts = default_accounts();
+        let mut contract = PropertyRegistry::new();
+        let metadata = create_sample_metadata();
+
+        let property_id = contract.register_property(metadata).unwrap();
+        let escrow_id = contract.create_escrow(property_id, accounts.bob, 1000).unwrap();
+
+        let count = contract.audit_record_count();
+        let record = contract.get_audit_record(count).unwrap();
+        assert_eq!(record.event_type, SecurityEventType::EscrowCreated);
+        assert_eq!(record.severity, SecuritySeverity::Medium);
+        assert_eq!(record.resource_id, escrow_id);
+    }
+
+    #[ink::test]
+    fn test_role_grant_creates_audit_record() {
+        let accounts = default_accounts();
+        let mut contract = PropertyRegistry::new();
+
+        contract.grant_role(accounts.bob, Role::Verifier).unwrap();
+
+        let count = contract.audit_record_count();
+        let record = contract.get_audit_record(count).unwrap();
+        assert_eq!(record.event_type, SecurityEventType::RoleGranted);
+        assert_eq!(record.severity, SecuritySeverity::Critical);
+        assert_eq!(record.extra_data, Role::Verifier as u32);
+    }
+
+    #[ink::test]
+    fn test_audit_pagination() {
+        let mut contract = PropertyRegistry::new();
+        let metadata = create_sample_metadata();
+
+        // Create 5 properties (+ 1 init = 6 total records)
+        for _ in 0..5 {
+            contract.register_property(metadata.clone()).unwrap();
+        }
+
+        let accounts = default_accounts();
+
+        // Page 1: offset=0, limit=3
+        let page1 = contract.get_audit_records_by_actor(accounts.alice, 0, 3);
+        assert_eq!(page1.len(), 3);
+
+        // Page 2: offset=3, limit=3
+        let page2 = contract.get_audit_records_by_actor(accounts.alice, 3, 3);
+        assert_eq!(page2.len(), 3);
+
+        // No overlap between pages
+        for id in &page1 {
+            assert!(!page2.contains(id));
+        }
+    }
+
+    #[ink::test]
+    fn test_config_change_creates_high_audit() {
+        let mut contract = PropertyRegistry::new();
+
+        contract.update_batch_config(50, 10).unwrap();
+
+        let count = contract.audit_record_count();
+        let record = contract.get_audit_record(count).unwrap();
+        assert_eq!(record.event_type, SecurityEventType::ConfigurationChanged);
+        assert_eq!(record.severity, SecuritySeverity::High);
+        assert_eq!(record.extra_data, 50); // max_batch_size
     // -- Issue #79 Numeric/Range/Transfer validation tests --
 
     #[ink::test]

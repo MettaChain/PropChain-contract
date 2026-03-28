@@ -14,9 +14,13 @@ pub use propchain_traits::*;
 #[cfg(feature = "std")]
 pub mod error_handling;
 
+// Audit trail module
+pub mod audit;
+
 #[ink::contract]
 mod propchain_contracts {
     use super::*;
+    use crate::audit::{AuditRecord, AuditTrail};
 
     /// Error types for contract
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -137,6 +141,8 @@ mod propchain_contracts {
         batch_config: BatchConfig,
         /// Batch operation statistics
         batch_operation_stats: BatchOperationStats,
+        /// Comprehensive security audit trail with tamper-evident hash chain
+        audit_trail: AuditTrail,
     }
 
     /// Escrow information
@@ -895,6 +901,36 @@ mod propchain_contracts {
         updated_by: AccountId,
     }
 
+    /// Emitted for every security audit record written.
+    /// Off-chain indexers can subscribe to this for real-time monitoring.
+    #[ink(event)]
+    pub struct SecurityAuditEvent {
+        #[ink(topic)]
+        record_id: u64,
+        #[ink(topic)]
+        actor: AccountId,
+        #[ink(topic)]
+        event_type: SecurityEventType,
+        #[ink(topic)]
+        severity: SecuritySeverity,
+        resource_id: u64,
+        extra_data: u32,
+        record_hash: [u8; 32],
+        timestamp: u64,
+        block_number: u32,
+    }
+
+    /// Emitted when audit log integrity verification is performed on-chain.
+    #[ink(event)]
+    pub struct AuditIntegrityVerified {
+        #[ink(topic)]
+        verifier: AccountId,
+        from_id: u64,
+        to_id: u64,
+        is_valid: bool,
+        timestamp: u64,
+    }
+
     impl PropertyRegistry {
         /// # Creates a new PropertyRegistry Contract Instance
         ///
@@ -1014,6 +1050,19 @@ mod propchain_contracts {
                 },
                 batch_config: BatchConfig::default(),
                 batch_operation_stats: BatchOperationStats::default(),
+                audit_trail: {
+                    let mut at = AuditTrail::new();
+                    at.log_event(
+                        caller,
+                        SecurityEventType::AdminChanged,
+                        SecuritySeverity::Critical,
+                        0,
+                        0,
+                        block_number,
+                        timestamp,
+                    );
+                    at
+                },
             };
 
             // Emit contract initialization event
@@ -1189,11 +1238,14 @@ mod propchain_contracts {
         /// Set the oracle contract address
         #[ink(message)]
         pub fn set_oracle(&mut self, oracle: AccountId) -> Result<(), Error> {
+            let caller = self.env().caller();
             Self::ensure_not_zero_address(oracle)?;
             if !self.ensure_admin_rbac() {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, 0, 0);
                 return Err(Error::Unauthorized);
             }
             self.oracle = Some(oracle);
+            self.log_audit_event(caller, SecurityEventType::OracleChanged, SecuritySeverity::High, 0, 0);
             Ok(())
         }
 
@@ -1206,13 +1258,16 @@ mod propchain_contracts {
         /// Set the fee manager contract address (admin only)
         #[ink(message)]
         pub fn set_fee_manager(&mut self, fee_manager: Option<AccountId>) -> Result<(), Error> {
+            let caller = self.env().caller();
             if let Some(fm) = fee_manager {
                 Self::ensure_not_zero_address(fm)?;
             }
             if !self.ensure_admin_rbac() {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, 0, 0);
                 return Err(Error::Unauthorized);
             }
             self.fee_manager = fee_manager;
+            self.log_audit_event(caller, SecurityEventType::FeeManagerChanged, SecuritySeverity::High, 0, 0);
             Ok(())
         }
 
@@ -1266,6 +1321,7 @@ mod propchain_contracts {
             Self::ensure_not_zero_address(new_admin)?;
             let caller = self.env().caller();
             if !self.ensure_admin_rbac() {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, 0, 0);
                 return Err(Error::Unauthorized);
             }
 
@@ -1292,6 +1348,8 @@ mod propchain_contracts {
                 changed_by: caller,
             });
 
+            self.log_audit_event(caller, SecurityEventType::AdminChanged, SecuritySeverity::Critical, 0, 0);
+
             Ok(())
         }
 
@@ -1301,13 +1359,16 @@ mod propchain_contracts {
             &mut self,
             registry: Option<AccountId>,
         ) -> Result<(), Error> {
+            let caller = self.env().caller();
             if let Some(r) = registry {
                 Self::ensure_not_zero_address(r)?;
             }
             if !self.ensure_admin_rbac() {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, 0, 0);
                 return Err(Error::Unauthorized);
             }
             self.compliance_registry = registry;
+            self.log_audit_event(caller, SecurityEventType::ComplianceRegistryChanged, SecuritySeverity::High, 0, 0);
             Ok(())
         }
 
@@ -1394,6 +1455,7 @@ mod propchain_contracts {
             let is_guardian = self.pause_guardians.get(caller).unwrap_or(false);
 
             if !is_admin && !is_guardian {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, 0, 0);
                 return Err(Error::NotAuthorizedToPause);
             }
 
@@ -1421,12 +1483,16 @@ mod propchain_contracts {
                 auto_resume_at,
             });
 
+            self.log_audit_event(caller, SecurityEventType::ContractPaused, SecuritySeverity::Critical, 0, 0);
+
             Ok(())
         }
 
         /// Emergency pause - same as pause but implies critical severity
         #[ink(message)]
         pub fn emergency_pause(&mut self, reason: String) -> Result<(), Error> {
+            let caller = self.env().caller();
+            self.log_audit_event(caller, SecurityEventType::EmergencyAction, SecuritySeverity::Critical, 0, 0);
             self.pause_contract(reason, None)
         }
 
@@ -1529,14 +1595,17 @@ mod propchain_contracts {
         }
 
         fn _execute_resume(&mut self) -> Result<(), Error> {
+            let caller = self.env().caller();
             self.pause_info.paused = false;
             self.pause_info.resume_request_active = false;
             self.pause_info.reason = None;
 
             self.env().emit_event(ContractResumed {
-                by: self.env().caller(),
+                by: caller,
                 timestamp: self.env().block_timestamp(),
             });
+
+            self.log_audit_event(caller, SecurityEventType::ContractResumed, SecuritySeverity::Critical, 0, 0);
             Ok(())
         }
 
@@ -1547,8 +1616,10 @@ mod propchain_contracts {
             guardian: AccountId,
             is_enabled: bool,
         ) -> Result<(), Error> {
+            let caller = self.env().caller();
             Self::ensure_not_zero_address(guardian)?;
             if !self.ensure_admin_rbac() {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, 0, 0);
                 return Err(Error::Unauthorized);
             }
             self.pause_guardians.insert(guardian, &is_enabled);
@@ -1556,8 +1627,10 @@ mod propchain_contracts {
             self.env().emit_event(PauseGuardianUpdated {
                 guardian,
                 is_guardian: is_enabled,
-                updated_by: self.env().caller(),
+                updated_by: caller,
             });
+
+            self.log_audit_event(caller, SecurityEventType::PauseGuardianUpdated, SecuritySeverity::High, 0, is_enabled as u32);
             Ok(())
         }
 
@@ -1579,7 +1652,12 @@ mod propchain_contracts {
                     self.env().block_number(),
                     self.env().block_timestamp(),
                 )
-                .map_err(|_| Error::Unauthorized)
+                .map_err(|_| {
+                    self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, 0, 0);
+                    Error::Unauthorized
+                })?;
+            self.log_audit_event(caller, SecurityEventType::RoleGranted, SecuritySeverity::Critical, 0, role as u32);
+            Ok(())
         }
 
         #[ink(message)]
@@ -1593,7 +1671,12 @@ mod propchain_contracts {
                     self.env().block_number(),
                     self.env().block_timestamp(),
                 )
-                .map_err(|_| Error::Unauthorized)
+                .map_err(|_| {
+                    self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, 0, 0);
+                    Error::Unauthorized
+                })?;
+            self.log_audit_event(caller, SecurityEventType::RoleRevoked, SecuritySeverity::Critical, 0, role as u32);
+            Ok(())
         }
 
         #[ink(message)]
@@ -1653,6 +1736,8 @@ mod propchain_contracts {
                 transaction_hash,
             });
 
+            self.log_audit_event(caller, SecurityEventType::PropertyRegistered, SecuritySeverity::Low, property_id, 0);
+
             Ok(property_id)
         }
 
@@ -1671,6 +1756,7 @@ mod propchain_contracts {
 
             let approved = self.approvals.get(property_id);
             if property.owner != caller && Some(caller) != approved {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, property_id, 0);
                 return Err(Error::Unauthorized);
             }
 
@@ -1715,6 +1801,8 @@ mod propchain_contracts {
                 transferred_by: caller,
             });
 
+            self.log_audit_event(caller, SecurityEventType::PropertyTransferred, SecuritySeverity::Medium, property_id, 0);
+
             Ok(())
         }
 
@@ -1751,6 +1839,7 @@ mod propchain_contracts {
                 .ok_or(Error::PropertyNotFound)?;
 
             if property.owner != caller {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, property_id, 0);
                 return Err(Error::Unauthorized);
             }
 
@@ -1778,6 +1867,8 @@ mod propchain_contracts {
                 block_number: self.env().block_number(),
                 transaction_hash,
             });
+
+            self.log_audit_event(caller, SecurityEventType::MetadataUpdated, SecuritySeverity::Low, property_id, 0);
 
             Ok(())
         }
@@ -1863,6 +1954,8 @@ mod propchain_contracts {
 
             self.record_batch_operation(0, &metrics);
             self.track_gas_usage("batch_register_properties".as_bytes());
+
+            self.log_audit_event(caller, SecurityEventType::BatchOperation, SecuritySeverity::Low, 0, total_items);
 
             Ok(BatchResult {
                 successes,
@@ -1956,6 +2049,8 @@ mod propchain_contracts {
             self.record_batch_operation(1, &metrics);
             self.track_gas_usage("batch_transfer_properties".as_bytes());
 
+            self.log_audit_event(caller, SecurityEventType::BatchOperation, SecuritySeverity::Low, 0, property_ids.len() as u32);
+
             Ok(())
         }
 
@@ -2046,6 +2141,8 @@ mod propchain_contracts {
 
             self.record_batch_operation(2, &metrics);
             self.track_gas_usage("batch_update_metadata".as_bytes());
+
+            self.log_audit_event(caller, SecurityEventType::BatchOperation, SecuritySeverity::Low, 0, total_items);
 
             Ok(BatchResult {
                 successes,
@@ -2144,6 +2241,8 @@ mod propchain_contracts {
             self.record_batch_operation(3, &metrics);
             self.track_gas_usage("batch_transfer_properties_to_multiple".as_bytes());
 
+            self.log_audit_event(caller, SecurityEventType::BatchOperation, SecuritySeverity::Low, 0, transfers.len() as u32);
+
             Ok(())
         }
 
@@ -2164,6 +2263,7 @@ mod propchain_contracts {
                 .ok_or(Error::PropertyNotFound)?;
 
             if property.owner != caller {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, property_id, 0);
                 return Err(Error::Unauthorized);
             }
 
@@ -2181,6 +2281,7 @@ mod propchain_contracts {
                     block_number: self.env().block_number(),
                     transaction_hash,
                 });
+                self.log_audit_event(caller, SecurityEventType::ApprovalGranted, SecuritySeverity::Medium, property_id, 0);
             } else {
                 self.approvals.remove(property_id);
                 // Emit enhanced approval cleared event
@@ -2192,6 +2293,7 @@ mod propchain_contracts {
                     block_number: self.env().block_number(),
                     transaction_hash,
                 });
+                self.log_audit_event(caller, SecurityEventType::ApprovalCleared, SecuritySeverity::Medium, property_id, 0);
             }
 
             Ok(())
@@ -2225,6 +2327,7 @@ mod propchain_contracts {
 
             // Only property owner (seller) can create escrow
             if property.owner != caller {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, property_id, 0);
                 return Err(Error::Unauthorized);
             }
 
@@ -2257,6 +2360,8 @@ mod propchain_contracts {
                 transaction_hash,
             });
 
+            self.log_audit_event(caller, SecurityEventType::EscrowCreated, SecuritySeverity::Medium, escrow_id, 0);
+
             Ok(escrow_id)
         }
 
@@ -2273,6 +2378,7 @@ mod propchain_contracts {
 
             // Only buyer can release
             if escrow.buyer != caller {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, escrow_id, 0);
                 return Err(Error::Unauthorized);
             }
 
@@ -2297,6 +2403,8 @@ mod propchain_contracts {
                 released_by: caller,
             });
 
+            self.log_audit_event(caller, SecurityEventType::EscrowReleased, SecuritySeverity::Medium, escrow_id, 0);
+
             Ok(())
         }
 
@@ -2313,6 +2421,7 @@ mod propchain_contracts {
 
             // Only seller can refund
             if escrow.seller != caller {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, escrow_id, 0);
                 return Err(Error::Unauthorized);
             }
 
@@ -2333,6 +2442,8 @@ mod propchain_contracts {
                 transaction_hash,
                 refunded_by: caller,
             });
+
+            self.log_audit_event(caller, SecurityEventType::EscrowRefunded, SecuritySeverity::Medium, escrow_id, 0);
 
             Ok(())
         }
@@ -2596,6 +2707,7 @@ mod propchain_contracts {
         ) -> Result<(), Error> {
             let caller = self.env().caller();
             if caller != self.admin {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, 0, 0);
                 return Err(Error::Unauthorized);
             }
             if max_batch_size == 0 || max_batch_size > 200 {
@@ -2608,6 +2720,7 @@ mod propchain_contracts {
                 max_batch_size,
                 max_failure_threshold,
             };
+            self.log_audit_event(caller, SecurityEventType::ConfigurationChanged, SecuritySeverity::High, 0, max_batch_size);
             Ok(())
         }
 
@@ -2767,6 +2880,8 @@ mod propchain_contracts {
                 transaction_hash: [0u8; 32].into(),
             });
 
+            self.log_audit_event(caller, SecurityEventType::BadgeIssued, SecuritySeverity::Low, property_id, badge_type as u32);
+
             Ok(())
         }
 
@@ -2815,6 +2930,8 @@ mod propchain_contracts {
                 block_number,
                 transaction_hash: [0u8; 32].into(),
             });
+
+            self.log_audit_event(caller, SecurityEventType::BadgeRevoked, SecuritySeverity::Low, property_id, badge_type as u32);
 
             Ok(())
         }
@@ -2883,6 +3000,8 @@ mod propchain_contracts {
                 block_number,
                 transaction_hash: [0u8; 32].into(),
             });
+
+            self.log_audit_event(caller, SecurityEventType::VerificationRequested, SecuritySeverity::Low, property_id, 0);
 
             Ok(request_id)
         }
@@ -2954,6 +3073,8 @@ mod propchain_contracts {
                 block_number,
                 transaction_hash: [0u8; 32].into(),
             });
+
+            self.log_audit_event(caller, SecurityEventType::VerificationReviewed, SecuritySeverity::Low, request.property_id, 0);
 
             Ok(())
         }
@@ -3032,6 +3153,8 @@ mod propchain_contracts {
                 transaction_hash: [0u8; 32].into(),
             });
 
+            self.log_audit_event(caller, SecurityEventType::AppealSubmitted, SecuritySeverity::Low, property_id, 0);
+
             Ok(appeal_id)
         }
 
@@ -3060,6 +3183,7 @@ mod propchain_contracts {
             let caller = self.env().caller();
 
             if !self.ensure_admin_rbac() {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, 0, 0);
                 return Err(Error::Unauthorized);
             }
 
@@ -3104,6 +3228,8 @@ mod propchain_contracts {
                 block_number,
                 transaction_hash: [0u8; 32].into(),
             });
+
+            self.log_audit_event(caller, SecurityEventType::AppealResolved, SecuritySeverity::Low, appeal.property_id, 0);
 
             Ok(())
         }
@@ -3272,6 +3398,7 @@ mod propchain_contracts {
                 .get(property_id)
                 .ok_or(Error::PropertyNotFound)?;
             if caller != self.admin && caller != property.owner {
+                self.log_audit_event(caller, SecurityEventType::UnauthorizedAccess, SecuritySeverity::Critical, property_id, 0);
                 return Err(Error::Unauthorized);
             }
             if total_shares == 0 {
@@ -3283,6 +3410,7 @@ mod propchain_contracts {
                 created_at: self.env().block_timestamp(),
             };
             self.fractional.insert(property_id, &info);
+            self.log_audit_event(caller, SecurityEventType::FractionalEnabled, SecuritySeverity::Medium, property_id, 0);
             Ok(())
         }
 
@@ -3330,6 +3458,103 @@ mod propchain_contracts {
         }
 
         // ====================================================================
+        // Security Audit Trail (Issue #82)
+        // ====================================================================
+
+        /// Log a security event and emit a monitoring event.
+        fn log_audit_event(
+            &mut self,
+            actor: AccountId,
+            event_type: SecurityEventType,
+            severity: SecuritySeverity,
+            resource_id: u64,
+            extra_data: u32,
+        ) {
+            let block_number = self.env().block_number();
+            let timestamp = self.env().block_timestamp();
+
+            let record_id = self.audit_trail.log_event(
+                actor,
+                event_type,
+                severity,
+                resource_id,
+                extra_data,
+                block_number,
+                timestamp,
+            );
+
+            self.env().emit_event(SecurityAuditEvent {
+                record_id,
+                actor,
+                event_type,
+                severity,
+                resource_id,
+                extra_data,
+                record_hash: self.audit_trail.latest_hash(),
+                timestamp,
+                block_number,
+            });
+        }
+
+        /// Get a specific security audit record by ID
+        #[ink(message)]
+        pub fn get_audit_record(&self, id: u64) -> Option<AuditRecord> {
+            self.audit_trail.get_record(id)
+        }
+
+        /// Get the total number of security audit records
+        #[ink(message)]
+        pub fn audit_record_count(&self) -> u64 {
+            self.audit_trail.record_count()
+        }
+
+        /// Get the current hash chain head for off-chain verification
+        #[ink(message)]
+        pub fn audit_chain_head(&self) -> [u8; 32] {
+            self.audit_trail.latest_hash()
+        }
+
+        /// Verify integrity of audit records in range [from_id, to_id].
+        /// Gas cost is proportional to (to_id - from_id).
+        #[ink(message)]
+        pub fn verify_audit_integrity(&mut self, from_id: u64, to_id: u64) -> bool {
+            let is_valid = self.audit_trail.verify_integrity(from_id, to_id);
+
+            self.env().emit_event(AuditIntegrityVerified {
+                verifier: self.env().caller(),
+                from_id,
+                to_id,
+                is_valid,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            is_valid
+        }
+
+        /// Get audit record IDs for a specific account (paginated, max 50)
+        #[ink(message)]
+        pub fn get_audit_records_by_actor(
+            &self,
+            actor: AccountId,
+            offset: u64,
+            limit: u64,
+        ) -> Vec<u64> {
+            let capped_limit = limit.min(50);
+            self.audit_trail
+                .get_actor_records(actor, offset, capped_limit)
+        }
+
+        /// Get audit record IDs for a specific event type (paginated, max 50)
+        #[ink(message)]
+        pub fn get_audit_records_by_type(
+            &self,
+            event_type: SecurityEventType,
+            offset: u64,
+            limit: u64,
+        ) -> Vec<u64> {
+            let capped_limit = limit.min(50);
+            self.audit_trail
+                .get_type_records(event_type, offset, capped_limit)
         // INPUT VALIDATION HELPERS (Issue #79)
         // ====================================================================
 

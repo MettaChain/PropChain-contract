@@ -860,3 +860,72 @@ pub enum EventCategory {
     /// Regulatory and compliance: verification, audit logs, consent
     Audit,
 }
+
+// =============================================================================
+// Security Audit Trail (Issue #82)
+// =============================================================================
+
+/// Security event severity for audit classification.
+/// Determines the urgency and attention level for each audit record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub enum SecuritySeverity {
+    /// Normal operations: property registered, metadata updated
+    Low,
+    /// Ownership/financial state changes: transfers, escrows
+    Medium,
+    /// Administrative changes: configuration, guardian updates
+    High,
+    /// Role changes, emergency pauses, admin transfers, access violations
+    Critical,
+}
+
+/// Classification of security-relevant operations for the audit trail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub enum SecurityEventType {
+    // --- Critical ---
+    AdminChanged,
+    RoleGranted,
+    RoleRevoked,
+    ContractPaused,
+    ContractResumed,
+    EmergencyAction,
+
+    // --- High ---
+    ConfigurationChanged,
+    PauseGuardianUpdated,
+    ComplianceRegistryChanged,
+    OracleChanged,
+    FeeManagerChanged,
+
+    // --- Medium ---
+    PropertyTransferred,
+    EscrowCreated,
+    EscrowReleased,
+    EscrowRefunded,
+    FractionalEnabled,
+    ApprovalGranted,
+    ApprovalCleared,
+
+    // --- Low ---
+    PropertyRegistered,
+    MetadataUpdated,
+    BatchOperation,
+    BadgeIssued,
+    BadgeRevoked,
+    VerificationRequested,
+    VerificationReviewed,
+    AppealSubmitted,
+    AppealResolved,
+
+    // --- Security violations ---
+    UnauthorizedAccess,
+    ComplianceViolation,
+}
