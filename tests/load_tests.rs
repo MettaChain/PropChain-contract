@@ -24,9 +24,9 @@
 //! cargo test --package propchain-tests --test load_tests endurance_test_sustained_load --release -- --test-threads=4
 //! ```
 
-use ink::env::test::DefaultEnvironment;
-use ink::env::test::{default_accounts, set_caller, get_caller};
-use propchain_contracts::PropertyRegistry;
+use ink_env::DefaultEnvironment;
+use ink::env::test::{default_accounts, set_caller};
+use propchain_contracts::propchain_contracts::PropertyRegistry as PropertyRegistryContract;
 use propchain_traits::*;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -189,10 +189,10 @@ impl LoadTestMetrics {
 }
 
 /// Helper function to generate test property metadata
-fn generate_property_metadata(user_id: usize, property_num: usize) -> PropertyMetadata {
+pub fn generate_property_metadata(user_id: usize, property_num: usize) -> PropertyMetadata {
     PropertyMetadata {
         location: format!("Property {} by User {}", property_num, user_id),
-        size: (1000 + (property_num * 100)) as u128,
+        size: (1000 + (property_num * 100)) as u64,
         legal_description: format!("Legal description for property {}", property_num),
         valuation: (100_000 + (property_num as u128 * 10_000)),
         documents_url: format!("ipfs://user{}/prop{}", user_id, property_num),
@@ -212,12 +212,12 @@ fn simulate_user_registration(
         0 => accounts.alice,
         1 => accounts.bob,
         2 => accounts.charlie,
-        3 => accounts.dave,
+        3 => accounts.django,
         _ => accounts.eve,
     };
     set_caller::<DefaultEnvironment>(user_account);
 
-    let mut registry = PropertyRegistry::new();
+    let mut registry = PropertyRegistryContract::new();
 
     for i in 0..num_properties {
         let start = Instant::now();
@@ -245,14 +245,14 @@ fn simulate_user_queries(
     num_queries: usize,
     config: &LoadTestConfig,
     metrics: &LoadTestMetrics,
-    registry: &PropertyRegistry,
+    registry: &PropertyRegistryContract,
 ) {
     let accounts = default_accounts::<DefaultEnvironment>();
     let user_account = match user_id % 5 {
         0 => accounts.alice,
         1 => accounts.bob,
         2 => accounts.charlie,
-        3 => accounts.dave,
+        3 => accounts.django,
         _ => accounts.eve,
     };
     set_caller::<DefaultEnvironment>(user_account);
@@ -262,7 +262,7 @@ fn simulate_user_queries(
         
         // Query different property IDs
         let property_id = i as u32;
-        let _result = registry.get_property_by_id(property_id);
+        let _result = registry.get_property(property_id as u64);
         
         let elapsed = start.elapsed().as_millis();
         metrics.record_success(elapsed as u128);
@@ -273,7 +273,6 @@ fn simulate_user_queries(
     }
 }
 
-/// Run a concurrent load test
 pub fn run_concurrent_load_test<F>(
     config: &LoadTestConfig,
     test_name: &str,

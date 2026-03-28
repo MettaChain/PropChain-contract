@@ -4,9 +4,9 @@
 //! operations under various concurrent load scenarios.
 
 use crate::load_tests::*;
-use ink::env::test::DefaultEnvironment;
+use ink_env::DefaultEnvironment;
 use ink::env::test::{default_accounts, set_caller};
-use propchain_contracts::PropertyRegistry;
+use propchain_contracts::propchain_contracts::PropertyRegistry as PropertyRegistryContract;
 use propchain_traits::*;
 
 /// Test concurrent property registration with light load
@@ -108,7 +108,7 @@ fn load_test_mixed_operations() {
     // First, register some properties
     let accounts = default_accounts::<DefaultEnvironment>();
     set_caller::<DefaultEnvironment>(accounts.alice);
-    let mut registry = PropertyRegistry::new();
+    let mut registry = PropertyRegistryContract::new();
     
     println!("📦 Pre-registering properties for mixed test...");
     for i in 0..100 {

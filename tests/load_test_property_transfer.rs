@@ -4,11 +4,12 @@
 //! under high-traffic scenarios.
 
 use crate::load_tests::*;
-use ink::env::test::DefaultEnvironment;
+use ink_env::DefaultEnvironment;
 use ink::env::test::{default_accounts, set_caller};
-use propchain_contracts::PropertyRegistry;
+use propchain_contracts::propchain_contracts::PropertyRegistry as PropertyRegistryContract;
 use propchain_traits::*;
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// Simulate concurrent property transfers
 fn simulate_user_transfers(
@@ -16,7 +17,7 @@ fn simulate_user_transfers(
     num_transfers: usize,
     config: &LoadTestConfig,
     metrics: &LoadTestMetrics,
-    registry: &mut PropertyRegistry,
+    registry: &mut PropertyRegistryContract,
     property_ids: &[u32],
 ) {
     let accounts = default_accounts::<DefaultEnvironment>();
@@ -42,7 +43,7 @@ fn simulate_user_transfers(
         let start = Instant::now();
         let property_id = property_ids[i];
         
-        let result = registry.transfer_property(property_id, recipient);
+        let result = registry.transfer_property(property_id as u64, recipient);
         let elapsed = start.elapsed().as_millis();
         
         match result {
@@ -62,7 +63,7 @@ fn load_test_concurrent_transfers_light() {
     // Setup: Register properties first
     let accounts = default_accounts::<DefaultEnvironment>();
     set_caller::<DefaultEnvironment>(accounts.alice);
-    let mut registry = PropertyRegistry::new();
+    let mut registry = PropertyRegistryContract::new();
     
     let mut property_ids = Vec::new();
     for i in 0..50 {
@@ -99,7 +100,7 @@ fn load_test_concurrent_transfers_medium() {
     // Setup
     let accounts = default_accounts::<DefaultEnvironment>();
     set_caller::<DefaultEnvironment>(accounts.alice);
-    let mut registry = PropertyRegistry::new();
+    let mut registry = PropertyRegistryContract::new();
     
     let mut property_ids = Vec::new();
     for i in 0..100 {
@@ -135,7 +136,7 @@ fn stress_test_mass_transfers() {
     // Setup
     let accounts = default_accounts::<DefaultEnvironment>();
     set_caller::<DefaultEnvironment>(accounts.alice);
-    let mut registry = PropertyRegistry::new();
+    let mut registry = PropertyRegistryContract::new();
     
     let mut property_ids = Vec::new();
     for i in 0..200 {

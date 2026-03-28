@@ -4,9 +4,9 @@
 //! scales with increasing data volume and user count.
 
 use crate::load_tests::*;
-use ink::env::test::DefaultEnvironment;
+use ink_env::DefaultEnvironment;
 use ink::env::test::{default_accounts, set_caller};
-use propchain_contracts::PropertyRegistry;
+use propchain_contracts::propchain_contracts::PropertyRegistry as PropertyRegistryContract;
 use propchain_traits::*;
 use std::time::Instant;
 
@@ -17,7 +17,7 @@ fn scalability_test_growing_database() {
     
     let accounts = default_accounts::<DefaultEnvironment>();
     set_caller::<DefaultEnvironment>(accounts.alice);
-    let mut registry = PropertyRegistry::new();
+    let mut registry = PropertyRegistryContract::new();
     
     let test_sizes = vec![100, 500, 1000, 2000];
     let mut results = Vec::new();
@@ -26,7 +26,7 @@ fn scalability_test_growing_database() {
         println!("\nTesting with {} properties...", size);
         
         // Register properties to reach target size
-        let current_count = *registry.total_properties.lock().unwrap();
+        let current_count = registry.property_count();
         for i in current_count..*size {
             let metadata = generate_property_metadata(0, i);
             let _ = registry.register_property(metadata);
@@ -37,7 +37,7 @@ fn scalability_test_growing_database() {
         let mut query_count = 0;
         
         for id in 0..*size {
-            let _ = registry.get_property_by_id(id as u32);
+            let _ = registry.get_property(id as u64);
             query_count += 1;
         }
         
@@ -148,7 +148,7 @@ fn scalability_test_memory_usage() {
     
     let accounts = default_accounts::<DefaultEnvironment>();
     set_caller::<DefaultEnvironment>(accounts.alice);
-    let mut registry = PropertyRegistry::new();
+    let mut registry = PropertyRegistryContract::new();
     
     let batch_sizes = vec![100, 500, 1000, 2000, 3000];
     let mut memory_data = Vec::new();
@@ -210,13 +210,13 @@ fn scalability_test_storage_costs() {
     
     let accounts = default_accounts::<DefaultEnvironment>();
     set_caller::<DefaultEnvironment>(accounts.alice);
-    let mut registry = PropertyRegistry::new();
+    let mut registry = PropertyRegistryContract::new();
     
     let sizes = vec![100, 500, 1000, 2000];
     let mut cost_data = Vec::new();
     
     for size in &sizes {
-        let start_count = *registry.total_properties.lock().unwrap();
+        let start_count = registry.property_count();
         
         for i in start_count..*size {
             let metadata = generate_property_metadata(0, i);

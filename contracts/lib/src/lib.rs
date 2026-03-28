@@ -15,7 +15,7 @@ pub use propchain_traits::*;
 pub mod error_handling;
 
 #[ink::contract]
-mod propchain_contracts {
+pub mod propchain_contracts {
     use super::*;
 
     /// Error types for contract

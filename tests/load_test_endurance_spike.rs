@@ -4,10 +4,11 @@
 //! (sudden load increases) to validate system stability.
 
 use crate::load_tests::*;
-use ink::env::test::DefaultEnvironment;
+use ink_env::DefaultEnvironment;
 use ink::env::test::{default_accounts, set_caller};
-use propchain_contracts::PropertyRegistry;
+use propchain_contracts::propchain_contracts::PropertyRegistry as PropertyRegistryContract;
 use propchain_traits::*;
+use std::thread;
 use std::time::{Duration, Instant};
 
 /// Simulate sustained load for extended period
@@ -27,12 +28,12 @@ fn simulate_sustained_load(
             0 => accounts.alice,
             1 => accounts.bob,
             2 => accounts.charlie,
-            3 => accounts.dave,
+            3 => accounts.django,
             _ => accounts.eve,
         };
         set_caller::<DefaultEnvironment>(user_account);
         
-        let registry = PropertyRegistry::new();
+        let mut registry = PropertyRegistryContract::new();
         let metadata = generate_property_metadata(user_id, ops_count);
         
         let op_start = Instant::now();

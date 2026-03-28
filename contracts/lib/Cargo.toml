@@ -31,7 +31,7 @@ ink_e2e = "5.0.0"
 [lib]
 name = "propchain_contracts"
 path = "src/lib.rs"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["std"]

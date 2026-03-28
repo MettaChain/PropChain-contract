@@ -20,6 +20,7 @@ members = [
     "contracts/third-party",
     "contracts/staking",
     "contracts/governance",
+    "tests",
 ]
 resolver = "2"
 
