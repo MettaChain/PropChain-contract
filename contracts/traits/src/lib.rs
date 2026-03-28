@@ -2,9 +2,12 @@
 
 pub mod access_control;
 pub mod constants;
+pub mod crypto;
 pub mod errors;
+pub mod randomness;
 
 pub use access_control::*;
+pub use crypto::*;
 pub use errors::*;
 use ink::prelude::string::String;
 use ink::primitives::AccountId;
@@ -859,4 +862,6 @@ pub enum EventCategory {
     Administrative,
     /// Regulatory and compliance: verification, audit logs, consent
     Audit,
+    /// Cryptographic operations: hashing, signature verification, key rotation
+    Cryptographic,
 }

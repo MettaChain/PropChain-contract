@@ -133,6 +133,12 @@ mod bridge {
 
         /// Admin account
         admin: AccountId,
+
+        /// Registered ECDSA public keys for optional cryptographic signature verification
+        operator_public_keys: Mapping<AccountId, [u8; 33]>,
+
+        /// Pending admin key rotation request
+        pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
     }
 
     /// Events for bridge operations
@@ -219,6 +225,8 @@ mod bridge {
                 request_counter: 0,
                 transaction_counter: 0,
                 admin: caller,
+                operator_public_keys: Mapping::default(),
+                pending_admin_rotation: None,
             };
 
             // Set up default chain information
@@ -354,6 +362,49 @@ mod bridge {
             });
 
             Ok(())
+        }
+
+        /// Register an ECDSA public key for cryptographic signature verification.
+        #[ink(message)]
+        pub fn register_operator_public_key(&mut self, public_key: [u8; 33]) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if !self.bridge_operators.contains(&caller) {
+                return Err(Error::Unauthorized);
+            }
+            self.operator_public_keys.insert(caller, &public_key);
+            Ok(())
+        }
+
+        /// Sign a bridge request with optional ECDSA cryptographic signature verification.
+        #[ink(message)]
+        pub fn sign_bridge_request_with_signature(
+            &mut self,
+            request_id: u64,
+            approve: bool,
+            signed_approval: Option<propchain_traits::SignedApproval>,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+            if let Some(ref approval) = signed_approval {
+                let expected_key = self
+                    .operator_public_keys
+                    .get(caller)
+                    .ok_or(Error::Unauthorized)?;
+                propchain_traits::crypto::verify_signed_approval(approval, &expected_key)
+                    .map_err(|_| Error::Unauthorized)?;
+
+                let expected_hash = propchain_traits::crypto::hash_encoded(&(
+                    request_id,
+                    approve,
+                    caller,
+                    self.env().block_number(),
+                ));
+                if approval.message_hash != <[u8; 32]>::from(expected_hash) {
+                    return Err(Error::Unauthorized);
+                }
+            }
+
+            self.sign_bridge_request(request_id, approve)
         }
 
         /// Executes a bridge request after collecting required signatures
@@ -624,6 +675,77 @@ mod bridge {
             Ok(())
         }
 
+        /// Request a two-step admin rotation with cooldown.
+        #[ink(message)]
+        pub fn request_admin_rotation(&mut self, new_admin: AccountId) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            let block = self.env().block_number();
+            let effective_at = block.saturating_add(
+                propchain_traits::constants::KEY_ROTATION_COOLDOWN_BLOCKS,
+            );
+
+            self.pending_admin_rotation = Some(propchain_traits::KeyRotationRequest {
+                old_account: caller,
+                new_account: new_admin,
+                requested_at: block,
+                effective_at,
+                confirmed: false,
+            });
+
+            Ok(())
+        }
+
+        /// Confirm a pending admin rotation after cooldown.
+        #[ink(message)]
+        pub fn confirm_admin_rotation(&mut self) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let block = self.env().block_number();
+
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(Error::InvalidRequest)?;
+
+            if request.new_account != caller {
+                return Err(Error::Unauthorized);
+            }
+            if block < request.effective_at {
+                return Err(Error::InvalidRequest);
+            }
+            let expiry = request.effective_at.saturating_add(
+                propchain_traits::constants::KEY_ROTATION_EXPIRY_BLOCKS,
+            );
+            if block > expiry {
+                self.pending_admin_rotation = None;
+                return Err(Error::RequestExpired);
+            }
+
+            self.admin = caller;
+            self.pending_admin_rotation = None;
+            Ok(())
+        }
+
+        /// Cancel a pending admin rotation.
+        #[ink(message)]
+        pub fn cancel_admin_rotation(&mut self) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(Error::InvalidRequest)?;
+
+            if caller != request.old_account && caller != request.new_account {
+                return Err(Error::Unauthorized);
+            }
+
+            self.pending_admin_rotation = None;
+            Ok(())
+        }
+
         // Helper functions
 
         fn is_authorized_for_token(&self, _account: AccountId, _token_id: TokenId) -> bool {
@@ -639,8 +761,6 @@ mod bridge {
         }
 
         fn generate_transaction_hash(&self, request: &MultisigBridgeRequest) -> Hash {
-            // Generate a unique transaction hash for the bridge request
-            use scale::Encode;
             let data = (
                 request.request_id,
                 request.token_id,
@@ -650,12 +770,7 @@ mod bridge {
                 request.recipient,
                 self.env().block_timestamp(),
             );
-            let encoded_data = data.encode();
-            // Simple hash: use first 32 bytes of encoded data
-            let mut hash_bytes = [0u8; 32];
-            let len = encoded_data.len().min(32);
-            hash_bytes[..len].copy_from_slice(&encoded_data[..len]);
-            Hash::from(hash_bytes)
+            propchain_traits::crypto::hash_encoded(&data)
         }
 
         fn estimate_gas_usage(&self, request: &MultisigBridgeRequest) -> u64 {

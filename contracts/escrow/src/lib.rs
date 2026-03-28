@@ -253,6 +253,10 @@ mod propchain_escrow {
         admin: AccountId,
         /// High-value threshold for mandatory multi-sig
         min_high_value_threshold: u128,
+        /// Registered ECDSA public keys for optional cryptographic signature verification
+        signer_public_keys: Mapping<AccountId, [u8; 33]>,
+        /// Pending admin key rotation request
+        pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
     }
 
     // Events
@@ -370,6 +374,8 @@ mod propchain_escrow {
                 audit_logs: Mapping::default(),
                 admin: Self::env().caller(),
                 min_high_value_threshold,
+                signer_public_keys: Mapping::default(),
+                pending_admin_rotation: None,
             }
         }
 
@@ -851,6 +857,54 @@ mod propchain_escrow {
             Ok(())
         }
 
+        /// Register an ECDSA public key for cryptographic signature verification.
+        /// Once registered, the caller can use `sign_approval_with_signature` for
+        /// defense-in-depth signature verification on top of Substrate's caller auth.
+        #[ink(message)]
+        pub fn register_public_key(&mut self, public_key: [u8; 33]) -> Result<(), Error> {
+            let caller = self.env().caller();
+            self.signer_public_keys.insert(caller, &public_key);
+            Ok(())
+        }
+
+        /// Sign approval with optional ECDSA cryptographic signature verification.
+        /// When `signed_approval` is `Some`, the contract verifies the ECDSA signature
+        /// and checks the recovered key matches the caller's registered public key.
+        /// When `None`, falls back to caller-identity-only (backward compatible).
+        #[ink(message)]
+        pub fn sign_approval_with_signature(
+            &mut self,
+            escrow_id: u64,
+            approval_type: ApprovalType,
+            signed_approval: Option<propchain_traits::SignedApproval>,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+            // Verify cryptographic signature if provided
+            if let Some(ref approval) = signed_approval {
+                let expected_key = self
+                    .signer_public_keys
+                    .get(caller)
+                    .ok_or(Error::Unauthorized)?;
+                propchain_traits::crypto::verify_signed_approval(approval, &expected_key)
+                    .map_err(|_| Error::Unauthorized)?;
+
+                // Verify the message hash matches the expected payload
+                let expected_hash = propchain_traits::crypto::hash_encoded(&(
+                    escrow_id,
+                    approval_type.clone(),
+                    caller,
+                    self.env().block_number(),
+                ));
+                if approval.message_hash != <[u8; 32]>::from(expected_hash) {
+                    return Err(Error::Unauthorized);
+                }
+            }
+
+            // Delegate to existing sign_approval logic
+            self.sign_approval(escrow_id, approval_type)
+        }
+
         /// Raise a dispute
         #[ink(message)]
         pub fn raise_dispute(&mut self, escrow_id: u64, reason: String) -> Result<(), Error> {
@@ -1054,7 +1108,7 @@ mod propchain_escrow {
             Ok(conditions.iter().all(|c| c.met))
         }
 
-        /// Set admin
+        /// Set admin (deprecated — prefer request_admin_rotation + confirm_admin_rotation)
         #[ink(message)]
         pub fn set_admin(&mut self, new_admin: AccountId) -> Result<(), Error> {
             let caller = self.env().caller();
@@ -1064,6 +1118,99 @@ mod propchain_escrow {
             }
 
             self.admin = new_admin;
+            Ok(())
+        }
+
+        /// Request a two-step admin rotation with cooldown.
+        /// The new admin must call `confirm_admin_rotation` after the cooldown period.
+        #[ink(message)]
+        pub fn request_admin_rotation(&mut self, new_admin: AccountId) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            let block = self.env().block_number();
+            let effective_at = block.saturating_add(
+                propchain_traits::constants::KEY_ROTATION_COOLDOWN_BLOCKS,
+            );
+
+            let request = propchain_traits::KeyRotationRequest {
+                old_account: caller,
+                new_account: new_admin,
+                requested_at: block,
+                effective_at,
+                confirmed: false,
+            };
+
+            self.pending_admin_rotation = Some(request);
+
+            self.add_audit_entry(
+                0,
+                caller,
+                "AdminRotationRequested".to_string(),
+                format!("New admin: {:?}", new_admin),
+            );
+
+            Ok(())
+        }
+
+        /// Confirm a pending admin rotation. Must be called by the new admin
+        /// after the cooldown period has elapsed.
+        #[ink(message)]
+        pub fn confirm_admin_rotation(&mut self) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let block = self.env().block_number();
+
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(Error::InvalidConfiguration)?;
+
+            if request.new_account != caller {
+                return Err(Error::Unauthorized);
+            }
+
+            if block < request.effective_at {
+                return Err(Error::TimeLockActive);
+            }
+
+            let expiry = request.effective_at.saturating_add(
+                propchain_traits::constants::KEY_ROTATION_EXPIRY_BLOCKS,
+            );
+            if block > expiry {
+                self.pending_admin_rotation = None;
+                return Err(Error::InvalidConfiguration);
+            }
+
+            self.admin = caller;
+            self.pending_admin_rotation = None;
+
+            self.add_audit_entry(
+                0,
+                caller,
+                "AdminRotationCompleted".to_string(),
+                "Admin rotation confirmed".to_string(),
+            );
+
+            Ok(())
+        }
+
+        /// Cancel a pending admin rotation.
+        #[ink(message)]
+        pub fn cancel_admin_rotation(&mut self) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(Error::InvalidConfiguration)?;
+
+            if caller != request.old_account && caller != request.new_account {
+                return Err(Error::Unauthorized);
+            }
+
+            self.pending_admin_rotation = None;
             Ok(())
         }
 

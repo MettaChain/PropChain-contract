@@ -241,6 +241,10 @@ mod governance {
         proposals: Mapping<u64, GovernanceProposal>,
         votes: Mapping<(u64, AccountId), bool>,
         timelock_blocks: u64,
+        /// Registered ECDSA public keys for optional cryptographic signature verification
+        signer_public_keys: Mapping<AccountId, [u8; 33]>,
+        /// Pending admin key rotation request
+        pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
     }
 
     // =========================================================================
@@ -275,6 +279,8 @@ mod governance {
                 proposals: Mapping::default(),
                 votes: Mapping::default(),
                 timelock_blocks,
+                signer_public_keys: Mapping::default(),
+                pending_admin_rotation: None,
             }
         }
 
@@ -412,6 +418,47 @@ mod governance {
             });
 
             Ok(())
+        }
+
+        /// Register an ECDSA public key for cryptographic signature verification.
+        #[ink(message)]
+        pub fn register_public_key(&mut self, public_key: [u8; 33]) -> Result<(), Error> {
+            let caller = self.env().caller();
+            self.ensure_signer(caller)?;
+            self.signer_public_keys.insert(caller, &public_key);
+            Ok(())
+        }
+
+        /// Vote with optional ECDSA cryptographic signature verification.
+        #[ink(message)]
+        pub fn vote_with_signature(
+            &mut self,
+            proposal_id: u64,
+            support: bool,
+            signed_approval: Option<propchain_traits::SignedApproval>,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+            if let Some(ref approval) = signed_approval {
+                let expected_key = self
+                    .signer_public_keys
+                    .get(caller)
+                    .ok_or(Error::Unauthorized)?;
+                propchain_traits::crypto::verify_signed_approval(approval, &expected_key)
+                    .map_err(|_| Error::Unauthorized)?;
+
+                let expected_hash = propchain_traits::crypto::hash_encoded(&(
+                    proposal_id,
+                    support,
+                    caller,
+                    self.env().block_number(),
+                ));
+                if approval.message_hash != <[u8; 32]>::from(expected_hash) {
+                    return Err(Error::Unauthorized);
+                }
+            }
+
+            self.vote(proposal_id, support)
         }
 
         /// Executes an approved proposal after the timelock has elapsed.
@@ -588,6 +635,74 @@ mod governance {
                 admin: self.env().caller(),
             });
 
+            Ok(())
+        }
+
+        /// Request a two-step admin rotation with cooldown.
+        #[ink(message)]
+        pub fn request_admin_rotation(&mut self, new_admin: AccountId) -> Result<(), Error> {
+            self.ensure_admin()?;
+            let caller = self.env().caller();
+            let block = self.env().block_number();
+            let effective_at = block.saturating_add(
+                propchain_traits::constants::KEY_ROTATION_COOLDOWN_BLOCKS,
+            );
+
+            self.pending_admin_rotation = Some(propchain_traits::KeyRotationRequest {
+                old_account: caller,
+                new_account: new_admin,
+                requested_at: block,
+                effective_at,
+                confirmed: false,
+            });
+
+            Ok(())
+        }
+
+        /// Confirm a pending admin rotation after cooldown.
+        #[ink(message)]
+        pub fn confirm_admin_rotation(&mut self) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let block = self.env().block_number();
+
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(Error::ProposalNotFound)?;
+
+            if request.new_account != caller {
+                return Err(Error::Unauthorized);
+            }
+            if block < request.effective_at {
+                return Err(Error::TimelockActive);
+            }
+            let expiry = request.effective_at.saturating_add(
+                propchain_traits::constants::KEY_ROTATION_EXPIRY_BLOCKS,
+            );
+            if block > expiry {
+                self.pending_admin_rotation = None;
+                return Err(Error::ProposalExpired);
+            }
+
+            self.admin = caller;
+            self.pending_admin_rotation = None;
+            Ok(())
+        }
+
+        /// Cancel a pending admin rotation.
+        #[ink(message)]
+        pub fn cancel_admin_rotation(&mut self) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(Error::ProposalNotFound)?;
+
+            if caller != request.old_account && caller != request.new_account {
+                return Err(Error::Unauthorized);
+            }
+
+            self.pending_admin_rotation = None;
             Ok(())
         }
 

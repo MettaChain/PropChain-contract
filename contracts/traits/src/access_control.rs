@@ -77,6 +77,9 @@ pub enum AuditAction {
     PermissionRevokedFromRole,
     PermissionGrantedToAccount,
     PermissionRevokedFromAccount,
+    KeyRotationRequested,
+    KeyRotationCompleted,
+    KeyRotationCancelled,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -99,6 +102,10 @@ pub struct PermissionAuditEntry {
 #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub enum AccessControlError {
     Unauthorized,
+    KeyRotationCooldown,
+    KeyRotationExpired,
+    NoPendingRotation,
+    RotationUnauthorized,
 }
 
 #[ink::storage_item]
@@ -112,6 +119,8 @@ pub struct AccessControl {
     audit_count: u64,
     cache_epoch: u64,
     cache_ttl_blocks: u32,
+    pending_rotations: Mapping<AccountId, crate::crypto::KeyRotationRequest>,
+    rotation_nonce: Mapping<AccountId, u64>,
 }
 
 impl core::fmt::Debug for AccessControl {
@@ -135,6 +144,8 @@ impl AccessControl {
             audit_count: 0,
             cache_epoch: 0,
             cache_ttl_blocks,
+            pending_rotations: Mapping::default(),
+            rotation_nonce: Mapping::default(),
         }
     }
 
@@ -295,6 +306,145 @@ impl AccessControl {
 
     pub fn audit_count(&self) -> u64 {
         self.audit_count
+    }
+
+    /// Request a key rotation. Only the account being rotated can initiate.
+    /// The rotation enters a cooldown period before it can be confirmed.
+    pub fn request_key_rotation(
+        &mut self,
+        actor: AccountId,
+        new_account: AccountId,
+        block_number: u32,
+        timestamp: u64,
+    ) -> Result<(), AccessControlError> {
+        // Only the account itself can request rotation of its own keys
+        if self.pending_rotations.contains(actor) {
+            return Err(AccessControlError::KeyRotationCooldown);
+        }
+
+        let effective_at = block_number
+            .saturating_add(crate::constants::KEY_ROTATION_COOLDOWN_BLOCKS);
+
+        let request = crate::crypto::KeyRotationRequest {
+            old_account: actor,
+            new_account,
+            requested_at: block_number,
+            effective_at,
+            confirmed: false,
+        };
+
+        self.pending_rotations.insert(actor, &request);
+
+        let nonce = self.rotation_nonce.get(actor).unwrap_or(0);
+        self.rotation_nonce.insert(actor, &nonce.saturating_add(1));
+
+        self.write_audit(
+            actor,
+            new_account,
+            AuditAction::KeyRotationRequested,
+            None,
+            None,
+            block_number,
+            timestamp,
+        );
+
+        Ok(())
+    }
+
+    /// Confirm a pending key rotation. Must be called by the new account
+    /// after the cooldown period has elapsed. Transfers all roles from old to new.
+    pub fn confirm_key_rotation(
+        &mut self,
+        old_account: AccountId,
+        caller: AccountId,
+        block_number: u32,
+        timestamp: u64,
+    ) -> Result<(), AccessControlError> {
+        let request = self
+            .pending_rotations
+            .get(old_account)
+            .ok_or(AccessControlError::NoPendingRotation)?;
+
+        // Only the designated new account can confirm
+        if request.new_account != caller {
+            return Err(AccessControlError::RotationUnauthorized);
+        }
+
+        // Check cooldown has elapsed
+        if block_number < request.effective_at {
+            return Err(AccessControlError::KeyRotationCooldown);
+        }
+
+        // Check expiry
+        let expiry = request.effective_at
+            .saturating_add(crate::constants::KEY_ROTATION_EXPIRY_BLOCKS);
+        if block_number > expiry {
+            self.pending_rotations.remove(old_account);
+            return Err(AccessControlError::KeyRotationExpired);
+        }
+
+        // Transfer all roles from old_account to new_account
+        for role in self.all_roles() {
+            if self.role_assignments.get((old_account, role)).unwrap_or(false) {
+                self.role_assignments.remove((old_account, role));
+                self.role_assignments.insert((request.new_account, role), &true);
+            }
+        }
+
+        self.pending_rotations.remove(old_account);
+        self.invalidate_cache();
+
+        self.write_audit(
+            caller,
+            old_account,
+            AuditAction::KeyRotationCompleted,
+            None,
+            None,
+            block_number,
+            timestamp,
+        );
+
+        Ok(())
+    }
+
+    /// Cancel a pending key rotation. Either the old or new account can cancel.
+    pub fn cancel_key_rotation(
+        &mut self,
+        old_account: AccountId,
+        caller: AccountId,
+        block_number: u32,
+        timestamp: u64,
+    ) -> Result<(), AccessControlError> {
+        let request = self
+            .pending_rotations
+            .get(old_account)
+            .ok_or(AccessControlError::NoPendingRotation)?;
+
+        if caller != request.old_account && caller != request.new_account {
+            return Err(AccessControlError::RotationUnauthorized);
+        }
+
+        self.pending_rotations.remove(old_account);
+
+        self.write_audit(
+            caller,
+            old_account,
+            AuditAction::KeyRotationCancelled,
+            None,
+            None,
+            block_number,
+            timestamp,
+        );
+
+        Ok(())
+    }
+
+    /// Get the pending key rotation for an account, if any.
+    pub fn get_pending_rotation(
+        &self,
+        account: AccountId,
+    ) -> Option<crate::crypto::KeyRotationRequest> {
+        self.pending_rotations.get(account)
     }
 
     fn invalidate_cache(&mut self) {

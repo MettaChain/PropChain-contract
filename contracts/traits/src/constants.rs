@@ -135,6 +135,18 @@ pub const MULTIPLIER_90_DAYS: u128 = 175;
 /// Lock-period reward multiplier: 1 year = 3x.
 pub const MULTIPLIER_1_YEAR: u128 = 300;
 
+// ── Cryptographic Constants ─────────────────────────────────────────────────
+
+/// Cooldown period (in blocks) before a key rotation can be confirmed.
+/// Default: 14,400 blocks (~24 hours at 6-second block time).
+pub const KEY_ROTATION_COOLDOWN_BLOCKS: u32 = 14_400;
+
+/// Expiry period (in blocks) after which a pending key rotation is voided.
+/// Default: 43,200 blocks (~3 days at 6-second block time).
+pub const KEY_ROTATION_EXPIRY_BLOCKS: u32 = 43_200;
+
+/// Minimum number of participants required for a valid commitment-reveal round.
+pub const MIN_RANDOMNESS_PARTICIPANTS: u32 = 2;
 // ── Validation Constants ────────────────────────────────────────────────────
 
 /// Maximum batch operation size to prevent DoS via gas exhaustion.
