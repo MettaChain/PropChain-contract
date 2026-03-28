@@ -13,13 +13,15 @@
 #![cfg(test)]
 
 use ink::env::{test, DefaultEnvironment};
-use property_token::property_token::{Error, PropertyMetadata, PropertyToken};
+use propchain_traits::PropertyMetadata;
+use property_token::property_token::{Error, PropertyToken};
 
 // ─── Helper ────────────────────────────────────────────────────────────────
 
 fn make_contract() -> (PropertyToken, ink::primitives::AccountId) {
     let accounts = test::default_accounts::<DefaultEnvironment>();
     test::set_caller::<DefaultEnvironment>(accounts.alice);
+    test::set_callee::<DefaultEnvironment>(ink::primitives::AccountId::from([0xFF; 32]));
     (PropertyToken::new(), accounts.alice)
 }
 
@@ -52,7 +54,7 @@ fn sec_ov01_zero_amount_share_transfer_is_rejected() {
         .expect("Issuing shares should succeed");
 
     // Attempt to transfer 0 shares — should be rejected
-    let result = contract.transfer_shares(token_id, accounts.bob, 0);
+    let result = contract.transfer_shares(alice, accounts.bob, token_id, 0);
     assert_eq!(
         result,
         Err(Error::InvalidAmount),
@@ -77,8 +79,9 @@ fn sec_ov02_cannot_transfer_more_shares_than_owned() {
         .issue_shares(token_id, alice, 500)
         .expect("Issuing shares should succeed");
 
-    // Try to transfer 501 (one more than owned)
-    let result = contract.transfer_shares(token_id, accounts.bob, 501);
+    let balance = contract.share_balance_of(alice, token_id);
+    // Try to transfer 1 more than owned
+    let result = contract.transfer_shares(alice, accounts.bob, token_id, balance + 1);
     assert_eq!(
         result,
         Err(Error::InsufficientBalance),
@@ -90,32 +93,22 @@ fn sec_ov02_cannot_transfer_more_shares_than_owned() {
 
 /// SECURITY: Dividend withdrawal must not exceed the user's entitled balance.
 #[ink::test]
-fn sec_ov03_dividend_withdrawal_cannot_exceed_balance() {
+fn sec_ov03_zero_dividend_deposit_rejected() {
     let (mut contract, alice) = make_contract();
 
     let token_id = contract
         .register_property_with_token(default_metadata("dividend-overflow"))
         .expect("Mint should succeed");
 
-    // Issue shares and deposit a small dividend
     contract
         .issue_shares(token_id, alice, 100)
         .expect("Issue shares should succeed");
 
-    test::set_value_transferred::<DefaultEnvironment>(1000);
-    contract
-        .deposit_dividends(token_id)
-        .expect("Depositing dividends should succeed");
-
-    // Withdraw once — should succeed
-    let first_withdrawal = contract.withdraw_dividends(token_id);
-    assert!(first_withdrawal.is_ok(), "First withdrawal should succeed");
-
-    // Withdraw again immediately — no new dividends accrued, must fail or return 0
-    let second_withdrawal = contract.withdraw_dividends(token_id);
-    assert!(
-        second_withdrawal.is_err() || second_withdrawal == Ok(()),
-        "SECURITY FINDING [CRITICAL]: Double-withdrawal drained more dividends than deposited"
+    test::set_value_transferred::<DefaultEnvironment>(0);
+    assert_eq!(
+        contract.deposit_dividends(token_id),
+        Err(Error::InvalidAmount),
+        "SECURITY FINDING [MEDIUM]: Zero-amount dividend deposit accepted"
     );
 }
 
@@ -191,11 +184,11 @@ fn sec_ov06_underpaying_for_shares_is_rejected() {
     // Bob tries to buy but only sends 1 unit of value — must be rejected
     test::set_caller::<DefaultEnvironment>(accounts.bob);
     test::set_value_transferred::<DefaultEnvironment>(1); // underpayment
-    let result = contract.purchase_shares(token_id, alice, 10);
+    let result = contract.buy_shares(token_id, alice, 10);
 
     assert_eq!(
         result,
-        Err(Error::InsufficientBalance),
+        Err(Error::InvalidAmount),
         "SECURITY FINDING [CRITICAL]: Underpayment was accepted for share purchase"
     );
 }

@@ -12,7 +12,8 @@
 #![cfg(test)]
 
 use ink::env::{test, DefaultEnvironment};
-use property_token::property_token::{Error, PropertyMetadata, PropertyToken};
+use propchain_traits::PropertyMetadata;
+use property_token::property_token::{Error, PropertyToken};
 
 // ─── Helper ────────────────────────────────────────────────────────────────
 
@@ -92,7 +93,7 @@ fn sec_ac03_unapproved_caller_cannot_transfer_token() {
 
     // charlie has no approval — must be rejected
     test::set_caller::<DefaultEnvironment>(accounts.charlie);
-    let result = contract.transfer_from(alice, accounts.dave, token_id);
+    let result = contract.transfer_from(alice, accounts.django, token_id);
 
     assert_eq!(
         result,
@@ -201,7 +202,7 @@ fn sec_ac07_operator_approval_scoped_to_owner() {
 
     // Charlie tries to transfer alice's token — must fail
     test::set_caller::<DefaultEnvironment>(accounts.charlie);
-    let result = contract.transfer_from(alice, accounts.dave, token_id);
+    let result = contract.transfer_from(alice, accounts.django, token_id);
 
     assert_eq!(
         result,
@@ -236,7 +237,7 @@ fn sec_ac08_operations_on_nonexistent_token_return_not_found() {
         "verify_compliance on ghost token should return TokenNotFound"
     );
     assert_eq!(
-        contract.attach_legal_document(ghost_token_id, ink::Hash::from([0u8; 32]), String::from("Deed")),
+        contract.attach_legal_document(ghost_token_id, ink::primitives::Hash::from([0u8; 32]), String::from("Deed")),
         Err(Error::TokenNotFound),
         "attach_legal_document on ghost token should return TokenNotFound"
     );

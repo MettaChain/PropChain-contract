@@ -5107,6 +5107,7 @@ dependencies = [
  "ink_env 5.1.1",
  "parity-scale-codec",
  "propchain-contracts",
+ "propchain-traits",
  "property-token",
  "proptest",
  "scale-info",

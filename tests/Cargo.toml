@@ -20,6 +20,7 @@ ink_e2e = "5.0.0"
 ink_env = { version = "5.0.0", default-features = false }
 
 # Contract dependencies
+propchain-traits = { path = "../contracts/traits", default-features = false }
 propchain-contracts = { path = "../contracts/lib", default-features = false }
 property-token = { path = "../contracts/property-token", default-features = false }
 

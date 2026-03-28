@@ -234,7 +234,7 @@ mod benchmarks {
             .expect("Property registration should succeed");
 
         // Transfer many times
-        let transfer_chain = vec![accounts.bob, accounts.charlie, accounts.dave, accounts.eve];
+        let transfer_chain = vec![accounts.bob, accounts.charlie, accounts.django, accounts.eve];
         for _ in 0..100 {
             for (i, &to_account) in transfer_chain.iter().enumerate() {
                 let from_account = if i == 0 {

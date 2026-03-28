@@ -13,7 +13,8 @@
 #![cfg(test)]
 
 use ink::env::{test, DefaultEnvironment};
-use property_token::property_token::{Error, PropertyMetadata, PropertyToken};
+use propchain_traits::PropertyMetadata;
+use property_token::property_token::{Error, PropertyToken};
 use proptest::prelude::*;
 
 // ─── Shared setup ──────────────────────────────────────────────────────────
@@ -45,6 +46,7 @@ proptest! {
     ) {
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
+        test::set_callee::<DefaultEnvironment>(ink::primitives::AccountId::from([0xFF; 32]));
         let mut contract = PropertyToken::new();
 
         prop_assert_eq!(
@@ -78,6 +80,7 @@ proptest! {
     ) {
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
+        test::set_callee::<DefaultEnvironment>(ink::primitives::AccountId::from([0xFF; 32]));
         let mut contract = PropertyToken::new();
 
         let location = "A".repeat(location_len);
@@ -101,6 +104,7 @@ proptest! {
     fn sec_fz03_non_admin_always_unauthorized(seed in 1u8..=254u8) {
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice); // alice = admin
+        test::set_callee::<DefaultEnvironment>(ink::primitives::AccountId::from([0xFF; 32]));
         let mut contract = PropertyToken::new();
 
         // Mint a token as admin
@@ -148,6 +152,7 @@ proptest! {
     ) {
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
+        test::set_callee::<DefaultEnvironment>(ink::primitives::AccountId::from([0xFF; 32]));
         let contract = PropertyToken::new();
 
         let accounts_vec: Vec<ink::primitives::AccountId> =
@@ -176,6 +181,7 @@ proptest! {
     fn sec_fz05_bulk_minting_keeps_accurate_supply(count in 1u32..20) {
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
+        test::set_callee::<DefaultEnvironment>(ink::primitives::AccountId::from([0xFF; 32]));
         let mut contract = PropertyToken::new();
 
         for i in 0..count {

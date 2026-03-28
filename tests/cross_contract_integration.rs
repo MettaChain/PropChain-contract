@@ -149,7 +149,7 @@ mod integration_tests {
             .expect("Property registration should succeed");
 
         // Transfer through multiple accounts
-        let transfer_chain = vec![accounts.bob, accounts.charlie, accounts.dave];
+        let transfer_chain = vec![accounts.bob, accounts.charlie, accounts.django];
 
         for (i, to_account) in transfer_chain.iter().enumerate() {
             let from_account = if i == 0 {

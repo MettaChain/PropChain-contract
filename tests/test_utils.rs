@@ -15,7 +15,7 @@ pub struct TestAccounts {
     pub alice: AccountId,
     pub bob: AccountId,
     pub charlie: AccountId,
-    pub dave: AccountId,
+    pub django: AccountId,
     pub eve: AccountId,
 }
 
@@ -27,14 +27,14 @@ impl TestAccounts {
             alice: accounts.alice,
             bob: accounts.bob,
             charlie: accounts.charlie,
-            dave: accounts.dave,
+            django: accounts.django,
             eve: accounts.eve,
         }
     }
 
     /// Get all accounts as a vector
     pub fn all(&self) -> Vec<AccountId> {
-        vec![self.alice, self.bob, self.charlie, self.dave, self.eve]
+        vec![self.alice, self.bob, self.charlie, self.django, self.eve]
     }
 }
 
@@ -144,7 +144,7 @@ impl TestEnv {
 
     /// Advance block timestamp by specified amount
     pub fn advance_time(seconds: u64) {
-        let current = ink::env::test::get_block_timestamp::<DefaultEnvironment>();
+        let current = ink::env::block_timestamp::<DefaultEnvironment>();
         ink::env::test::set_block_timestamp::<DefaultEnvironment>(current + seconds);
     }
 
@@ -233,9 +233,9 @@ pub mod performance {
     where
         F: FnOnce() -> T,
     {
-        let start = ink::env::test::get_block_timestamp::<DefaultEnvironment>();
+        let start = ink::env::block_timestamp::<DefaultEnvironment>();
         let result = f();
-        let end = ink::env::test::get_block_timestamp::<DefaultEnvironment>();
+        let end = ink::env::block_timestamp::<DefaultEnvironment>();
         (result, end.saturating_sub(start))
     }
 

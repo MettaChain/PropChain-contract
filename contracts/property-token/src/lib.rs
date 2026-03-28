@@ -12,7 +12,7 @@ use propchain_traits::*;
 use scale_info::prelude::vec::Vec;
 
 #[ink::contract]
-mod property_token {
+pub mod property_token {
     use super::*;
 
     /// Error types for the property token contract
