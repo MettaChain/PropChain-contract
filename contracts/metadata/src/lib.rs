@@ -212,6 +212,7 @@ mod propchain_metadata {
         feature = "std",
         derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
     )]
+    #[allow(clippy::upper_case_acronyms)]
     pub enum LegalDocType {
         Deed,
         Title,
@@ -835,10 +836,7 @@ mod propchain_metadata {
 
         /// Gets metadata version history for a property
         #[ink(message)]
-        pub fn get_version_history(
-            &self,
-            property_id: PropertyId,
-        ) -> Vec<MetadataVersionEntry> {
+        pub fn get_version_history(&self, property_id: PropertyId) -> Vec<MetadataVersionEntry> {
             let metadata = match self.metadata.get(property_id) {
                 Some(m) => m,
                 None => return Vec::new(),
@@ -1125,7 +1123,12 @@ mod propchain_metadata {
         fn update_metadata_increments_version() {
             let mut contract = AdvancedMetadataRegistry::new();
             contract
-                .create_metadata(1, default_core(), default_ipfs_resources(), Hash::from([0x01; 32]))
+                .create_metadata(
+                    1,
+                    default_core(),
+                    default_ipfs_resources(),
+                    Hash::from([0x01; 32]),
+                )
                 .unwrap();
 
             let mut updated_core = default_core();
@@ -1148,7 +1151,12 @@ mod propchain_metadata {
         fn finalized_metadata_cannot_be_updated() {
             let mut contract = AdvancedMetadataRegistry::new();
             contract
-                .create_metadata(1, default_core(), default_ipfs_resources(), Hash::from([0x01; 32]))
+                .create_metadata(
+                    1,
+                    default_core(),
+                    default_ipfs_resources(),
+                    Hash::from([0x01; 32]),
+                )
                 .unwrap();
             contract.finalize_metadata(1).unwrap();
 
@@ -1167,10 +1175,22 @@ mod propchain_metadata {
         fn version_history_tracking_works() {
             let mut contract = AdvancedMetadataRegistry::new();
             contract
-                .create_metadata(1, default_core(), default_ipfs_resources(), Hash::from([0x01; 32]))
+                .create_metadata(
+                    1,
+                    default_core(),
+                    default_ipfs_resources(),
+                    Hash::from([0x01; 32]),
+                )
                 .unwrap();
             contract
-                .update_metadata(1, default_core(), default_ipfs_resources(), Hash::from([0x02; 32]), String::from("Update 1"), None)
+                .update_metadata(
+                    1,
+                    default_core(),
+                    default_ipfs_resources(),
+                    Hash::from([0x02; 32]),
+                    String::from("Update 1"),
+                    None,
+                )
                 .unwrap();
 
             let history = contract.get_version_history(1);
@@ -1183,7 +1203,12 @@ mod propchain_metadata {
         fn add_legal_document_works() {
             let mut contract = AdvancedMetadataRegistry::new();
             contract
-                .create_metadata(1, default_core(), default_ipfs_resources(), Hash::from([0x01; 32]))
+                .create_metadata(
+                    1,
+                    default_core(),
+                    default_ipfs_resources(),
+                    Hash::from([0x01; 32]),
+                )
                 .unwrap();
 
             let result = contract.add_legal_document(
@@ -1206,7 +1231,12 @@ mod propchain_metadata {
         fn verify_legal_document_works() {
             let mut contract = AdvancedMetadataRegistry::new();
             contract
-                .create_metadata(1, default_core(), default_ipfs_resources(), Hash::from([0x01; 32]))
+                .create_metadata(
+                    1,
+                    default_core(),
+                    default_ipfs_resources(),
+                    Hash::from([0x01; 32]),
+                )
                 .unwrap();
 
             contract
@@ -1233,7 +1263,12 @@ mod propchain_metadata {
         fn add_media_item_works() {
             let mut contract = AdvancedMetadataRegistry::new();
             contract
-                .create_metadata(1, default_core(), default_ipfs_resources(), Hash::from([0x01; 32]))
+                .create_metadata(
+                    1,
+                    default_core(),
+                    default_ipfs_resources(),
+                    Hash::from([0x01; 32]),
+                )
                 .unwrap();
 
             let result = contract.add_media_item(
@@ -1255,7 +1290,12 @@ mod propchain_metadata {
         fn properties_by_type_query_works() {
             let mut contract = AdvancedMetadataRegistry::new();
             contract
-                .create_metadata(1, default_core(), default_ipfs_resources(), Hash::from([0x01; 32]))
+                .create_metadata(
+                    1,
+                    default_core(),
+                    default_ipfs_resources(),
+                    Hash::from([0x01; 32]),
+                )
                 .unwrap();
 
             let residential = contract.get_properties_by_type(MetadataPropertyType::Residential);
@@ -1270,7 +1310,12 @@ mod propchain_metadata {
         fn content_hash_verification_works() {
             let mut contract = AdvancedMetadataRegistry::new();
             contract
-                .create_metadata(1, default_core(), default_ipfs_resources(), Hash::from([0x01; 32]))
+                .create_metadata(
+                    1,
+                    default_core(),
+                    default_ipfs_resources(),
+                    Hash::from([0x01; 32]),
+                )
                 .unwrap();
 
             assert_eq!(

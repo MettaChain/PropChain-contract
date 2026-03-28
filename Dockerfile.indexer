@@ -1,0 +1,17 @@
+FROM rust:1.76 as builder
+WORKDIR /app
+COPY Cargo.toml ./
+COPY indexer/Cargo.toml indexer/Cargo.toml
+RUN mkdir -p contracts && mkdir -p security-audit && mkdir -p contracts/lib && mkdir -p contracts/traits && mkdir -p contracts/proxy && mkdir -p contracts/escrow && mkdir -p contracts/ipfs-metadata && mkdir -p contracts/oracle && mkdir -p contracts/bridge && mkdir -p contracts/property-token && mkdir -p contracts/insurance && mkdir -p contracts/analytics && mkdir -p contracts/fees && mkdir -p contracts/compliance_registry && mkdir -p contracts/fractional && mkdir -p contracts/prediction-market && mkdir -p contracts/metadata && mkdir -p contracts/database && mkdir -p contracts/third-party && mkdir -p contracts/staking && mkdir -p contracts/governance
+# Create empty Cargo.toml for workspace members to allow cargo to resolve workspace (avoid building them)
+RUN bash -lc 'for d in contracts/* security-audit; do echo -e "[package]\nname=\"dummy-${d//\//-}\"\nversion=\"0.0.0\"\nedition=\"2021\"\n[lib]\npath=\"lib.rs\"\n" > $d/Cargo.toml && echo "" > $d/lib.rs; done'
+COPY indexer /app/indexer
+RUN cargo build -p propchain-indexer --release --features ingest
+
+FROM gcr.io/distroless/cc-debian12
+WORKDIR /app
+COPY --from=builder /app/target/release/propchain-indexer /usr/local/bin/propchain-indexer
+ENV RUST_LOG=info
+EXPOSE 8088
+ENTRYPOINT ["/usr/local/bin/propchain-indexer"]
+

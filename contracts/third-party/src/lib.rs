@@ -265,15 +265,15 @@ mod propchain_third_party {
         service_counter: ServiceId,
         /// Provider account to service ID mapped
         provider_services: Mapping<AccountId, Vec<ServiceId>>,
-        
+
         /// KYC records (User -> Record)
         kyc_records: Mapping<AccountId, KycRecord>,
         /// KYC requests
         kyc_requests: Mapping<RequestId, KycRequest>,
-        
+
         /// Payment requests
         payment_requests: Mapping<RequestId, PaymentRequest>,
-        
+
         /// Request counter
         request_counter: RequestId,
     }
@@ -337,9 +337,13 @@ mod propchain_third_party {
 
             self.services.insert(service_id, &config);
 
-            let mut provider_list = self.provider_services.get(provider_account).unwrap_or_default();
+            let mut provider_list = self
+                .provider_services
+                .get(provider_account)
+                .unwrap_or_default();
             provider_list.push(service_id);
-            self.provider_services.insert(provider_account, &provider_list);
+            self.provider_services
+                .insert(provider_account, &provider_list);
 
             self.env().emit_event(ServiceRegistered {
                 service_id,
@@ -432,10 +436,13 @@ mod propchain_third_party {
             valid_for_days: u64,
         ) -> Result<(), Error> {
             let caller = self.env().caller();
-            
-            let mut req = self.kyc_requests.get(request_id).ok_or(Error::RequestNotFound)?;
+
+            let mut req = self
+                .kyc_requests
+                .get(request_id)
+                .ok_or(Error::RequestNotFound)?;
             let service = self.get_service(req.service_id)?;
-            
+
             if caller != service.provider_account {
                 return Err(Error::Unauthorized);
             }
@@ -480,9 +487,9 @@ mod propchain_third_party {
         #[ink(message)]
         pub fn is_kyc_verified(&self, user: AccountId, required_level: u8) -> bool {
             if let Some(record) = self.kyc_records.get(user) {
-                if record.is_active 
-                    && record.verification_level >= required_level 
-                    && record.expires_at > self.env().block_timestamp() 
+                if record.is_active
+                    && record.verification_level >= required_level
+                    && record.expires_at > self.env().block_timestamp()
                 {
                     return true;
                 }
@@ -548,10 +555,13 @@ mod propchain_third_party {
             equivalent_tokens: u128,
         ) -> Result<(), Error> {
             let caller = self.env().caller();
-            
-            let mut req = self.payment_requests.get(request_id).ok_or(Error::RequestNotFound)?;
+
+            let mut req = self
+                .payment_requests
+                .get(request_id)
+                .ok_or(Error::RequestNotFound)?;
             let service = self.get_service(req.service_id)?;
-            
+
             if caller != service.provider_account {
                 return Err(Error::Unauthorized);
             }
@@ -560,7 +570,11 @@ mod propchain_third_party {
                 return Err(Error::InvalidStatusTransition);
             }
 
-            req.status = if success { RequestStatus::Approved } else { RequestStatus::Failed };
+            req.status = if success {
+                RequestStatus::Approved
+            } else {
+                RequestStatus::Failed
+            };
             req.equivalent_tokens = equivalent_tokens;
             req.complete_time = Some(self.env().block_timestamp());
 
@@ -589,8 +603,9 @@ mod propchain_third_party {
         ) -> Result<(), Error> {
             let caller = self.env().caller();
             let service = self.get_service(service_id)?;
-            
-            if caller != service.provider_account && service.service_type == ServiceType::Monitoring {
+
+            if caller != service.provider_account && service.service_type == ServiceType::Monitoring
+            {
                 return Err(Error::Unauthorized);
             }
 
@@ -642,7 +657,11 @@ mod propchain_third_party {
             self.services.get(service_id).ok_or(Error::ServiceNotFound)
         }
 
-        fn ensure_service_active(&self, service_id: ServiceId, expected_type: ServiceType) -> Result<(), Error> {
+        fn ensure_service_active(
+            &self,
+            service_id: ServiceId,
+            expected_type: ServiceType,
+        ) -> Result<(), Error> {
             let service = self.get_service(service_id)?;
             if service.status != ServiceStatus::Active {
                 return Err(Error::ServiceInactive);
@@ -672,7 +691,7 @@ mod propchain_third_party {
         fn service_registration_works() {
             let mut contract = ThirdPartyIntegration::new();
             let provider = AccountId::from([0x01; 32]);
-            
+
             let result = contract.register_service(
                 ServiceType::KycProvider,
                 String::from("Test KYC"),
@@ -683,7 +702,7 @@ mod propchain_third_party {
             );
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), 1);
-            
+
             let service = contract.get_service_config(1).unwrap();
             assert_eq!(service.name, "Test KYC");
             assert_eq!(service.service_type, ServiceType::KycProvider);
@@ -694,23 +713,27 @@ mod propchain_third_party {
             let mut contract = ThirdPartyIntegration::new();
             let provider = AccountId::from([0x01; 32]);
             // Needs to use caller to manipulate test state properly without accounts emulation
-            let caller = contract.admin; 
-            
-            contract.register_service(
-                ServiceType::KycProvider,
-                String::from("Test KYC"),
-                caller, // Make caller the provider for test ease
-                String::from("https://api.testkyc.com"),
-                String::from("v1"),
-                0,
-            ).unwrap();
+            let caller = contract.admin;
 
-            let request_id = contract.initiate_kyc_request(1, caller, String::from("UID123")).unwrap();
-            
+            contract
+                .register_service(
+                    ServiceType::KycProvider,
+                    String::from("Test KYC"),
+                    caller, // Make caller the provider for test ease
+                    String::from("https://api.testkyc.com"),
+                    String::from("v1"),
+                    0,
+                )
+                .unwrap();
+
+            let request_id = contract
+                .initiate_kyc_request(1, caller, String::from("UID123"))
+                .unwrap();
+
             let result = contract.update_kyc_status(
                 request_id,
                 RequestStatus::Approved,
-                2, // level 2
+                2,   // level 2
                 365, // valid 1 year
             );
             assert!(result.is_ok());
@@ -723,26 +746,30 @@ mod propchain_third_party {
         #[ink::test]
         fn payment_flow_works() {
             let mut contract = ThirdPartyIntegration::new();
-            let caller = contract.admin; 
-            
-            contract.register_service(
-                ServiceType::PaymentGateway,
-                String::from("PayGate"),
-                caller, 
-                String::from("https://api.paygate.com"),
-                String::from("v1"),
-                0,
-            ).unwrap();
+            let caller = contract.admin;
+
+            contract
+                .register_service(
+                    ServiceType::PaymentGateway,
+                    String::from("PayGate"),
+                    caller,
+                    String::from("https://api.paygate.com"),
+                    String::from("v1"),
+                    0,
+                )
+                .unwrap();
 
             let target = AccountId::from([0x02; 32]);
-            let req_id = contract.initiate_fiat_payment(
-                1,
-                target,
-                1,
-                10000,
-                String::from("USD"),
-                String::from("REF123"),
-            ).unwrap();
+            let req_id = contract
+                .initiate_fiat_payment(
+                    1,
+                    target,
+                    1,
+                    10000,
+                    String::from("USD"),
+                    String::from("REF123"),
+                )
+                .unwrap();
 
             let req1 = contract.get_payment_request(req_id).unwrap();
             assert_eq!(req1.status, RequestStatus::Pending);

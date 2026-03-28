@@ -1,8 +1,8 @@
-/// Centralized configuration constants for PropChain contracts.
-///
-/// All magic numbers are extracted here with documentation explaining
-/// their purpose and valid ranges. Contracts import from this module
-/// instead of using inline literals.
+//! Centralized configuration constants for PropChain contracts.
+//!
+//! All magic numbers are extracted here with documentation explaining
+//! their purpose and valid ranges. Contracts import from this module
+//! instead of using inline literals.
 
 // ── Oracle Constants ─────────────────────────────────────────────────────────
 

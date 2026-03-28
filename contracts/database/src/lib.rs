@@ -404,10 +404,7 @@ mod propchain_database {
                 return Err(Error::IndexerNotFound);
             }
 
-            let mut record = self
-                .sync_records
-                .get(sync_id)
-                .ok_or(Error::SyncNotFound)?;
+            let mut record = self.sync_records.get(sync_id).ok_or(Error::SyncNotFound)?;
 
             record.status = SyncStatus::Confirmed;
             self.sync_records.insert(sync_id, &record);
@@ -435,10 +432,7 @@ mod propchain_database {
             sync_id: SyncId,
             verification_checksum: Hash,
         ) -> Result<bool, Error> {
-            let mut record = self
-                .sync_records
-                .get(sync_id)
-                .ok_or(Error::SyncNotFound)?;
+            let mut record = self.sync_records.get(sync_id).ok_or(Error::SyncNotFound)?;
 
             let is_valid = record.data_checksum == verification_checksum;
 
@@ -458,6 +452,7 @@ mod propchain_database {
 
         /// Records an analytics snapshot on-chain for later verification
         #[ink(message)]
+        #[allow(clippy::too_many_arguments)]
         pub fn record_analytics_snapshot(
             &mut self,
             total_properties: u64,
@@ -653,10 +648,7 @@ mod propchain_database {
                 return Err(Error::Unauthorized);
             }
 
-            let mut info = self
-                .indexers
-                .get(indexer)
-                .ok_or(Error::IndexerNotFound)?;
+            let mut info = self.indexers.get(indexer).ok_or(Error::IndexerNotFound)?;
 
             info.is_active = false;
             self.indexers.insert(indexer, &info);
@@ -773,11 +765,7 @@ mod propchain_database {
         #[ink::test]
         fn emit_sync_event_works() {
             let mut contract = DatabaseIntegration::new();
-            let result = contract.emit_sync_event(
-                DataType::Properties,
-                Hash::from([0x01; 32]),
-                10,
-            );
+            let result = contract.emit_sync_event(DataType::Properties, Hash::from([0x01; 32]), 10);
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), 1);
             assert_eq!(contract.total_syncs(), 1);
@@ -792,7 +780,13 @@ mod propchain_database {
         fn analytics_snapshot_works() {
             let mut contract = DatabaseIntegration::new();
             let result = contract.record_analytics_snapshot(
-                100, 50, 20, 10_000_000, 100_000, 30, Hash::from([0x02; 32]),
+                100,
+                50,
+                20,
+                10_000_000,
+                100_000,
+                30,
+                Hash::from([0x02; 32]),
             );
             assert!(result.is_ok());
 
@@ -804,16 +798,14 @@ mod propchain_database {
         #[ink::test]
         fn data_export_works() {
             let mut contract = DatabaseIntegration::new();
-            let result =
-                contract.request_data_export(DataType::Properties, 1, 100, 0, 1000);
+            let result = contract.request_data_export(DataType::Properties, 1, 100, 0, 1000);
             assert!(result.is_ok());
 
             let batch_id = result.unwrap();
             let request = contract.get_export_request(batch_id).unwrap();
             assert!(!request.completed);
 
-            let complete_result =
-                contract.complete_data_export(batch_id, Hash::from([0x03; 32]));
+            let complete_result = contract.complete_data_export(batch_id, Hash::from([0x03; 32]));
             assert!(complete_result.is_ok());
 
             let completed = contract.get_export_request(batch_id).unwrap();

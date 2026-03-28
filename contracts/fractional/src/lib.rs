@@ -64,7 +64,15 @@ mod fractional {
                 last_prices: Mapping::default(),
             }
         }
+    }
 
+    impl Default for Fractional {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl Fractional {
         #[ink(message)]
         pub fn set_last_price(&mut self, token_id: u64, price_per_share: u128) {
             self.last_prices.insert(token_id, &price_per_share);

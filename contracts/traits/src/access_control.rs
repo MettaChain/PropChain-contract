@@ -107,6 +107,7 @@ pub struct AccessControl {
     role_assignments: Mapping<(AccountId, Role), bool>,
     role_permissions: Mapping<(Role, Permission), bool>,
     account_permissions: Mapping<(AccountId, Permission), bool>,
+    #[allow(clippy::type_complexity)]
     permission_cache: Mapping<(AccountId, Permission, u64), bool>,
     audit_log: Mapping<u64, PermissionAuditEntry>,
     audit_count: u64,
@@ -329,6 +330,7 @@ impl AccessControl {
         ]
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn write_audit(
         &mut self,
         actor: AccountId,

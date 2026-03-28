@@ -193,7 +193,9 @@ mod staking {
 
     #[ink(event)]
     pub struct StakingConfigUpdated {
+        #[ink(topic)]
         pub min_stake: u128,
+        #[ink(topic)]
         pub reward_rate_bps: u128,
     }
 

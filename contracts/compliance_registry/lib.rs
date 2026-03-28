@@ -477,6 +477,12 @@ mod compliance_registry {
         pub lists_checked: Vec<u8>,
     }
 
+    impl Default for ComplianceRegistry {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl ComplianceRegistry {
         /// Constructor
         #[ink(constructor)]
