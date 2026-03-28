@@ -13,6 +13,7 @@ members = [
     "contracts/analytics",
     "contracts/fees",
     "contracts/compliance_registry",
+    "contracts/tax-compliance",
     "contracts/fractional",
     "contracts/prediction-market",
 ]
