@@ -1,0 +1,35 @@
+[package]
+name = "propchain-lending"
+version = "1.0.0"
+authors = ["PropChain Team <dev@propchain.io>"]
+edition = "2021"
+description = "Decentralized property lending platform with collateral, pools, margin trading, and yield farming"
+license = "MIT"
+homepage = "https://propchain.io"
+repository = "https://github.com/MettaChain/PropChain-contract"
+keywords = ["blockchain", "real-estate", "smart-contracts", "ink", "lending"]
+categories = ["cryptography::cryptocurrencies"]
+publish = false
+
+[dependencies]
+ink = { workspace = true }
+scale = { workspace = true }
+scale-info = { workspace = true }
+
+[dev-dependencies]
+ink_e2e = "5.0.0"
+
+[lib]
+name = "propchain_lending"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[features]
+default = ["std"]
+std = [
+    "ink/std",
+    "scale/std",
+    "scale-info/std",
+]
+ink-as-dependency = []
+e2e-tests = []

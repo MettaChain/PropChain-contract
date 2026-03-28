@@ -16,7 +16,7 @@ scale = { package = "parity-scale-codec", version = "3.6.9", default-features = 
 scale-info = { version = "2.10.0", default-features = false, features = ["derive"] }
 
 # Testing dependencies
-ink_e2e = "5.0.0"
+ink_e2e = { version = "5.0.0", optional = true }
 ink_env = { version = "5.0.0", default-features = false }
 
 # Contract dependencies
@@ -30,14 +30,7 @@ tokio = { version = "1.0", features = ["full"], optional = true }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false }
 
-
-# Coverage tools (optional)
-[dev-dependencies.cargo-tarpaulin]
-version = "0.27"
-optional = true
-
 [dev-dependencies]
-ink_e2e = "5.0.0"
 tokio = { version = "1.0", features = ["full"] }
 propchain-contracts = { path = "../contracts/lib", default-features = false }
 property-token = { path = "../contracts/property-token", default-features = false }
@@ -56,3 +49,5 @@ std = [
     "tokio",
 ]
 e2e-tests = ["std", "ink_e2e"]
+
+[workspace]
