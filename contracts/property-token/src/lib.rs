@@ -171,9 +171,7 @@ mod property_token {
                 Error::ProposalNotFound => "The governance proposal does not exist",
                 Error::ProposalClosed => "The governance proposal is closed for voting",
                 Error::AskNotFound => "The sell ask does not exist",
-                Error::BatchSizeExceeded => {
-                    "The input batch exceeds the maximum allowed size"
-                }
+                Error::BatchSizeExceeded => "The input batch exceeds the maximum allowed size",
             }
         }
 

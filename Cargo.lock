@@ -5005,6 +5005,7 @@ dependencies = [
  "ink_e2e",
  "openbrush",
  "parity-scale-codec",
+ "propchain-identity",
  "propchain-traits",
  "scale-info",
 ]
@@ -5038,6 +5039,20 @@ dependencies = [
  "parity-scale-codec",
  "propchain-traits",
  "scale-info",
+]
+
+[[package]]
+name = "propchain-identity"
+version = "0.1.0"
+dependencies = [
+ "blake2 0.10.6",
+ "ed25519-dalek",
+ "ink 5.1.1",
+ "parity-scale-codec",
+ "propchain-traits",
+ "rand_core 0.6.4",
+ "scale-info",
+ "sha2 0.10.9",
 ]
 
 [[package]]

@@ -13,6 +13,9 @@ use propchain_traits::access_control::{
 // Re-export traits
 pub use propchain_traits::*;
 
+// Import identity module
+use propchain_identity::propchain_identity::IdentityRegistryRef;
+
 // Export error handling utilities
 #[cfg(feature = "std")]
 pub mod error_handling;
@@ -71,6 +74,14 @@ mod propchain_contracts {
         AlreadyApproved,
         /// Caller is not authorized to pause the contract
         NotAuthorizedToPause,
+        /// Identity verification failed
+        IdentityVerificationFailed,
+        /// Insufficient reputation for operation
+        InsufficientReputation,
+        /// Identity not found
+        IdentityNotFound,
+        /// Identity registry not configured
+        IdentityRegistryNotSet,
         /// Provided address is the zero address (all zeros)
         ZeroAddress,
         /// Input string exceeds maximum allowed length
@@ -136,6 +147,10 @@ mod propchain_contracts {
         fractional: Mapping<u64, FractionalInfo>,
         /// Centralized RBAC and permission audit state
         access_control: AccessControl,
+        /// Identity registry contract address for identity verification
+        identity_registry: Option<AccountId>,
+        /// Minimum reputation threshold for property operations
+        min_reputation_threshold: u32,
         /// Batch operation configuration
         batch_config: BatchConfig,
         /// Batch operation statistics
@@ -1028,6 +1043,8 @@ mod propchain_contracts {
                         ac.grant_role(caller, caller, Role::PauseGuardian, block_number, timestamp);
                     ac
                 },
+                identity_registry: None,
+                min_reputation_threshold: 300, // Default minimum reputation
                 batch_config: BatchConfig::default(),
                 batch_operation_stats: BatchOperationStats::default(),
             };
@@ -1333,6 +1350,38 @@ mod propchain_contracts {
             self.compliance_registry
         }
 
+        /// Sets the identity registry contract address (admin only)
+        #[ink(message)]
+        pub fn set_identity_registry(&mut self, registry: Option<AccountId>) -> Result<(), Error> {
+            if !self.ensure_admin_rbac() {
+                return Err(Error::Unauthorized);
+            }
+            self.identity_registry = registry;
+            Ok(())
+        }
+
+        /// Gets the identity registry address
+        #[ink(message)]
+        pub fn get_identity_registry(&self) -> Option<AccountId> {
+            self.identity_registry
+        }
+
+        /// Sets the minimum reputation threshold for property operations (admin only)
+        #[ink(message)]
+        pub fn set_min_reputation_threshold(&mut self, threshold: u32) -> Result<(), Error> {
+            if !self.ensure_admin_rbac() {
+                return Err(Error::Unauthorized);
+            }
+            self.min_reputation_threshold = threshold;
+            Ok(())
+        }
+
+        /// Gets the minimum reputation threshold
+        #[ink(message)]
+        pub fn get_min_reputation_threshold(&self) -> u32 {
+            self.min_reputation_threshold
+        }
+
         /// Helper: Check compliance for an account via the compliance registry (Issue #45).
         /// Returns Ok if compliant or no registry set, Err(NotCompliant) or Err(ComplianceCheckFailed) otherwise.
         fn check_compliance(&self, account: AccountId) -> Result<(), Error> {
@@ -1350,6 +1399,35 @@ mod propchain_contracts {
             if !is_compliant {
                 return Err(Error::NotCompliant);
             }
+            Ok(())
+        }
+
+        /// Helper: Check identity verification and reputation requirements
+        /// Returns Ok if requirements are met or no identity registry set, Err otherwise.
+        fn check_identity_requirements(&self, account: AccountId) -> Result<(), Error> {
+            let registry_addr = match self.identity_registry {
+                Some(addr) => addr,
+                None => return Ok(()),
+            };
+
+            use ink::env::call::FromAccountId;
+            let registry: IdentityRegistryRef = FromAccountId::from_account_id(registry_addr);
+
+            // Check if identity exists
+            let identity = registry
+                .get_identity(account)
+                .ok_or(Error::IdentityNotFound)?;
+
+            // Check if identity is verified
+            if !identity.is_verified {
+                return Err(Error::IdentityVerificationFailed);
+            }
+
+            // Check reputation threshold
+            if identity.reputation_score < self.min_reputation_threshold {
+                return Err(Error::InsufficientReputation);
+            }
+
             Ok(())
         }
 
@@ -1624,11 +1702,15 @@ mod propchain_contracts {
 
         /// Registers a new property
         /// Optionally checks compliance if compliance registry is set
+        /// Checks identity verification and reputation requirements
         #[ink(message)]
         pub fn register_property(&mut self, metadata: PropertyMetadata) -> Result<u64, Error> {
             self.ensure_not_paused()?;
             Self::validate_metadata(&metadata)?;
             let caller = self.env().caller();
+
+            // Check identity verification and reputation
+            self.check_identity_requirements(caller)?;
 
             // Check compliance for property registration (optional but recommended)
             self.check_compliance(caller)?;
@@ -1674,6 +1756,7 @@ mod propchain_contracts {
 
         /// Transfers property ownership
         /// Requires recipient to be compliant if compliance registry is set
+        /// Requires recipient to meet identity verification and reputation requirements
         #[ink(message)]
         pub fn transfer_property(&mut self, property_id: u64, to: AccountId) -> Result<(), Error> {
             self.ensure_not_paused()?;
@@ -1692,6 +1775,9 @@ mod propchain_contracts {
 
             // Check compliance for recipient
             self.check_compliance(to)?;
+
+            // Check identity verification and reputation for recipient
+            self.check_identity_requirements(to)?;
 
             let from = property.owner;
 
@@ -1713,6 +1799,19 @@ mod propchain_contracts {
 
             // Clear approval
             self.approvals.remove(property_id);
+
+            // Update reputation scores for both parties if identity registry is set
+            if let Some(registry_addr) = self.identity_registry {
+                use ink::env::call::FromAccountId;
+                let mut registry: IdentityRegistryRef =
+                    FromAccountId::from_account_id(registry_addr);
+
+                let transaction_value = property.metadata.valuation;
+
+                // Update reputation for both sender and receiver
+                let _ = registry.update_reputation(from, true, transaction_value);
+                let _ = registry.update_reputation(to, true, transaction_value);
+            }
 
             // Track gas usage
             self.track_gas_usage("transfer_property".as_bytes());
@@ -2844,7 +2943,7 @@ mod propchain_contracts {
         /// # Returns
         ///
         /// Returns `Result<u64, Error>` with the new verification request ID on success
-        #[ink(message)]
+        #[ink(message, selector = 0x4C0F_B92C)]
         pub fn request_verification(
             &mut self,
             property_id: u64,

@@ -329,11 +329,12 @@ mod propchain_proxy {
                 timelock_blocks
             };
 
-            let effective_required = if required_approvals == 0 || required_approvals > governors.len() as u32 {
-                1
-            } else {
-                required_approvals
-            };
+            let effective_required =
+                if required_approvals == 0 || required_approvals > governors.len() as u32 {
+                    1
+                } else {
+                    required_approvals
+                };
 
             Self {
                 code_hash,
@@ -767,7 +768,10 @@ mod propchain_proxy {
         /// Returns the current version as (major, minor, patch)
         #[ink(message)]
         pub fn current_version(&self) -> (u32, u32, u32) {
-            if let Some(version) = self.version_history.get(self.current_version_index as usize) {
+            if let Some(version) = self
+                .version_history
+                .get(self.current_version_index as usize)
+            {
                 (version.major, version.minor, version.patch)
             } else {
                 (1, 0, 0)
@@ -813,7 +817,8 @@ mod propchain_proxy {
         /// Returns whether version compatibility checks pass for a target version
         #[ink(message)]
         pub fn check_compatibility(&self, major: u32, minor: u32, patch: u32) -> bool {
-            self.check_version_compatibility(major, minor, patch).is_ok()
+            self.check_version_compatibility(major, minor, patch)
+                .is_ok()
         }
 
         // ====================================================================
@@ -1009,14 +1014,7 @@ mod propchain_proxy {
 
             let new_hash = Hash::from([0x43; 32]);
             proxy
-                .propose_upgrade(
-                    new_hash,
-                    1,
-                    1,
-                    0,
-                    String::from("Test"),
-                    String::from(""),
-                )
+                .propose_upgrade(new_hash, 1, 1, 0, String::from("Test"), String::from(""))
                 .unwrap();
 
             let result = proxy.cancel_upgrade(1);

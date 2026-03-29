@@ -17,6 +17,8 @@ members = [
     "contracts/tax-compliance",
     "contracts/fractional",
     "contracts/prediction-market",
+    "contracts/identity",
+    "contracts/governance",
     "contracts/metadata",
     "contracts/database",
     "contracts/third-party",

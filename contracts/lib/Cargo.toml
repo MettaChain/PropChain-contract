@@ -17,6 +17,7 @@ ink = { workspace = true, features = ["std"] }
 scale = { workspace = true, features = ["std"] }
 scale-info = { workspace = true, features = ["std"] }
 propchain-traits = { path = "../traits" }
+propchain-identity = { path = "../identity", default-features = false }
 
 # Additional dependencies for oracle functionality
 # serde = { version = "1.0", default-features = false, features = ["derive"] }
@@ -40,6 +41,7 @@ std = [
     "scale/std",
     "scale-info/std",
     "openbrush?/std",
+    "propchain-identity/std",
 ]
 ink-as-dependency = []
 
