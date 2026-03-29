@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SupportedLocale"],"fn":["lookup","lookup_default"],"struct":["LocalizedMessage"]};

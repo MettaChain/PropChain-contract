@@ -159,41 +159,51 @@
 <a href=#159 id=159 data-nosnippet>159</a>    <span class="kw">fn </span>error_category(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; ErrorCategory {
 <a href=#160 id=160 data-nosnippet>160</a>        ErrorCategory::Monitoring
 <a href=#161 id=161 data-nosnippet>161</a>    }
-<a href=#162 id=162 data-nosnippet>162</a>}
-<a href=#163 id=163 data-nosnippet>163</a>
-<a href=#164 id=164 data-nosnippet>164</a><span class="doccomment">/// Cross-contract interface for the monitoring system.
-<a href=#165 id=165 data-nosnippet>165</a></span><span class="attr">#[ink::trait_definition]
-<a href=#166 id=166 data-nosnippet>166</a></span><span class="kw">pub trait </span>MonitoringSystem {
-<a href=#167 id=167 data-nosnippet>167</a>    <span class="doccomment">/// Record a single operation outcome. Callable by admin or authorized reporters.
-<a href=#168 id=168 data-nosnippet>168</a>    </span><span class="attr">#[ink(message)]
-<a href=#169 id=169 data-nosnippet>169</a>    </span><span class="kw">fn </span>record_operation(
-<a href=#170 id=170 data-nosnippet>170</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#171 id=171 data-nosnippet>171</a>        operation: OperationType,
-<a href=#172 id=172 data-nosnippet>172</a>        success: bool,
-<a href=#173 id=173 data-nosnippet>173</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), MonitoringError&gt;;
-<a href=#174 id=174 data-nosnippet>174</a>
-<a href=#175 id=175 data-nosnippet>175</a>    <span class="doccomment">/// Return accumulated metrics for a specific operation type.
-<a href=#176 id=176 data-nosnippet>176</a>    </span><span class="attr">#[ink(message)]
-<a href=#177 id=177 data-nosnippet>177</a>    </span><span class="kw">fn </span>get_performance_metrics(<span class="kw-2">&amp;</span><span class="self">self</span>, operation: OperationType) -&gt; PerformanceMetrics;
-<a href=#178 id=178 data-nosnippet>178</a>
-<a href=#179 id=179 data-nosnippet>179</a>    <span class="doccomment">/// Return metrics for all known operation types.
-<a href=#180 id=180 data-nosnippet>180</a>    </span><span class="attr">#[ink(message)]
-<a href=#181 id=181 data-nosnippet>181</a>    </span><span class="kw">fn </span>get_all_metrics(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;PerformanceMetrics&gt;;
-<a href=#182 id=182 data-nosnippet>182</a>
-<a href=#183 id=183 data-nosnippet>183</a>    <span class="doccomment">/// Compute and return a live health-check result based on current metrics.
-<a href=#184 id=184 data-nosnippet>184</a>    </span><span class="attr">#[ink(message)]
-<a href=#185 id=185 data-nosnippet>185</a>    </span><span class="kw">fn </span>health_check(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; HealthCheckResult;
-<a href=#186 id=186 data-nosnippet>186</a>
-<a href=#187 id=187 data-nosnippet>187</a>    <span class="doccomment">/// Return the currently stored health status (admin-controlled).
-<a href=#188 id=188 data-nosnippet>188</a>    </span><span class="attr">#[ink(message)]
-<a href=#189 id=189 data-nosnippet>189</a>    </span><span class="kw">fn </span>get_system_status(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; HealthStatus;
-<a href=#190 id=190 data-nosnippet>190</a>
-<a href=#191 id=191 data-nosnippet>191</a>    <span class="doccomment">/// Persist a point-in-time snapshot of aggregate metrics (circular buffer).
-<a href=#192 id=192 data-nosnippet>192</a>    </span><span class="attr">#[ink(message)]
-<a href=#193 id=193 data-nosnippet>193</a>    </span><span class="kw">fn </span>take_metrics_snapshot(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;(), MonitoringError&gt;;
-<a href=#194 id=194 data-nosnippet>194</a>
-<a href=#195 id=195 data-nosnippet>195</a>    <span class="doccomment">/// Retrieve a previously stored snapshot by its buffer slot index.
-<a href=#196 id=196 data-nosnippet>196</a>    </span><span class="attr">#[ink(message)]
-<a href=#197 id=197 data-nosnippet>197</a>    </span><span class="kw">fn </span>get_metrics_snapshot(<span class="kw-2">&amp;</span><span class="self">self</span>, slot: u64) -&gt; <span class="prelude-ty">Option</span>&lt;MetricsSnapshot&gt;;
-<a href=#198 id=198 data-nosnippet>198</a>}
+<a href=#162 id=162 data-nosnippet>162</a>
+<a href=#163 id=163 data-nosnippet>163</a>    <span class="kw">fn </span>error_i18n_key(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str {
+<a href=#164 id=164 data-nosnippet>164</a>        <span class="kw">match </span><span class="self">self </span>{
+<a href=#165 id=165 data-nosnippet>165</a>            MonitoringError::Unauthorized =&gt; <span class="string">"monitoring.unauthorized"</span>,
+<a href=#166 id=166 data-nosnippet>166</a>            MonitoringError::ContractPaused =&gt; <span class="string">"monitoring.contract_paused"</span>,
+<a href=#167 id=167 data-nosnippet>167</a>            MonitoringError::InvalidThreshold =&gt; <span class="string">"monitoring.invalid_threshold"</span>,
+<a href=#168 id=168 data-nosnippet>168</a>            MonitoringError::SubscriberLimitReached =&gt; <span class="string">"monitoring.subscriber_limit_reached"</span>,
+<a href=#169 id=169 data-nosnippet>169</a>            MonitoringError::SubscriberNotFound =&gt; <span class="string">"monitoring.subscriber_not_found"</span>,
+<a href=#170 id=170 data-nosnippet>170</a>        }
+<a href=#171 id=171 data-nosnippet>171</a>    }
+<a href=#172 id=172 data-nosnippet>172</a>}
+<a href=#173 id=173 data-nosnippet>173</a>
+<a href=#174 id=174 data-nosnippet>174</a><span class="doccomment">/// Cross-contract interface for the monitoring system.
+<a href=#175 id=175 data-nosnippet>175</a></span><span class="attr">#[ink::trait_definition]
+<a href=#176 id=176 data-nosnippet>176</a></span><span class="kw">pub trait </span>MonitoringSystem {
+<a href=#177 id=177 data-nosnippet>177</a>    <span class="doccomment">/// Record a single operation outcome. Callable by admin or authorized reporters.
+<a href=#178 id=178 data-nosnippet>178</a>    </span><span class="attr">#[ink(message)]
+<a href=#179 id=179 data-nosnippet>179</a>    </span><span class="kw">fn </span>record_operation(
+<a href=#180 id=180 data-nosnippet>180</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#181 id=181 data-nosnippet>181</a>        operation: OperationType,
+<a href=#182 id=182 data-nosnippet>182</a>        success: bool,
+<a href=#183 id=183 data-nosnippet>183</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), MonitoringError&gt;;
+<a href=#184 id=184 data-nosnippet>184</a>
+<a href=#185 id=185 data-nosnippet>185</a>    <span class="doccomment">/// Return accumulated metrics for a specific operation type.
+<a href=#186 id=186 data-nosnippet>186</a>    </span><span class="attr">#[ink(message)]
+<a href=#187 id=187 data-nosnippet>187</a>    </span><span class="kw">fn </span>get_performance_metrics(<span class="kw-2">&amp;</span><span class="self">self</span>, operation: OperationType) -&gt; PerformanceMetrics;
+<a href=#188 id=188 data-nosnippet>188</a>
+<a href=#189 id=189 data-nosnippet>189</a>    <span class="doccomment">/// Return metrics for all known operation types.
+<a href=#190 id=190 data-nosnippet>190</a>    </span><span class="attr">#[ink(message)]
+<a href=#191 id=191 data-nosnippet>191</a>    </span><span class="kw">fn </span>get_all_metrics(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;PerformanceMetrics&gt;;
+<a href=#192 id=192 data-nosnippet>192</a>
+<a href=#193 id=193 data-nosnippet>193</a>    <span class="doccomment">/// Compute and return a live health-check result based on current metrics.
+<a href=#194 id=194 data-nosnippet>194</a>    </span><span class="attr">#[ink(message)]
+<a href=#195 id=195 data-nosnippet>195</a>    </span><span class="kw">fn </span>health_check(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; HealthCheckResult;
+<a href=#196 id=196 data-nosnippet>196</a>
+<a href=#197 id=197 data-nosnippet>197</a>    <span class="doccomment">/// Return the currently stored health status (admin-controlled).
+<a href=#198 id=198 data-nosnippet>198</a>    </span><span class="attr">#[ink(message)]
+<a href=#199 id=199 data-nosnippet>199</a>    </span><span class="kw">fn </span>get_system_status(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; HealthStatus;
+<a href=#200 id=200 data-nosnippet>200</a>
+<a href=#201 id=201 data-nosnippet>201</a>    <span class="doccomment">/// Persist a point-in-time snapshot of aggregate metrics (circular buffer).
+<a href=#202 id=202 data-nosnippet>202</a>    </span><span class="attr">#[ink(message)]
+<a href=#203 id=203 data-nosnippet>203</a>    </span><span class="kw">fn </span>take_metrics_snapshot(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;(), MonitoringError&gt;;
+<a href=#204 id=204 data-nosnippet>204</a>
+<a href=#205 id=205 data-nosnippet>205</a>    <span class="doccomment">/// Retrieve a previously stored snapshot by its buffer slot index.
+<a href=#206 id=206 data-nosnippet>206</a>    </span><span class="attr">#[ink(message)]
+<a href=#207 id=207 data-nosnippet>207</a>    </span><span class="kw">fn </span>get_metrics_snapshot(<span class="kw-2">&amp;</span><span class="self">self</span>, slot: u64) -&gt; <span class="prelude-ty">Option</span>&lt;MetricsSnapshot&gt;;
+<a href=#208 id=208 data-nosnippet>208</a>}
 </code></pre></div></section></main></body></html>
