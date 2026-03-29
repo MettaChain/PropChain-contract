@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["CommonError","ErrorCategory"],"mod":["bridge_codes","common_codes","compliance_codes","escrow_codes","fee_codes","governance_codes","oracle_codes","property_token_codes","staking_codes"],"trait":["ContractError"]};
+window.SIDEBAR_ITEMS = {"enum":["CommonError","ErrorCategory"],"mod":["bridge_codes","common_codes","compliance_codes","escrow_codes","fee_codes","governance_codes","monitoring_codes","oracle_codes","property_token_codes","staking_codes"],"trait":["ContractError"]};
