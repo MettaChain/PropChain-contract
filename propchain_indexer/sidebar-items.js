@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["main","shutdown_signal"],"mod":["api","db","ingest"],"struct":["Config"]};
