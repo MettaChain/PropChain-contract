@@ -36,14 +36,19 @@ pub use monitoring::*;
 // Re-export all new module contents at the crate root so that
 // existing `use propchain_traits::*` continues to resolve every type.
 pub use bridge::*;
-pub use compliance::*;
 pub use dex::*;
-pub use fee::*;
 pub use oracle::*;
 pub use property::*;
 
+// Re-export compliance and fee module contents (types are defined in those modules)
+pub use compliance::*;
+pub use fee::*;
+
 #[cfg(not(feature = "std"))]
 use scale_info::prelude::vec::Vec;
+
+/// AccountId type alias for convenience
+pub type AccountId = ink::primitives::AccountId;
 
 /// Advanced escrow trait with multi-signature and document custody
 pub trait AdvancedEscrow {
@@ -377,64 +382,6 @@ pub struct ChainBridgeInfo {
     pub gas_multiplier: u32,      // Gas cost multiplier for this chain
     pub confirmation_blocks: u32, // Blocks to wait for confirmation
     pub supported_tokens: Vec<TokenId>,
-}
-
-// =============================================================================
-// Dynamic Fee and Market Mechanism (Issue #38)
-// =============================================================================
-
-/// Operation types for dynamic fee calculation
-#[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub enum FeeOperation {
-    RegisterProperty,
-    TransferProperty,
-    UpdateMetadata,
-    CreateEscrow,
-    ReleaseEscrow,
-    PremiumListingBid,
-    IssueBadge,
-    OracleUpdate,
-}
-
-/// Trait for dynamic fee provider (implemented by fee manager contract)
-#[ink::trait_definition]
-pub trait DynamicFeeProvider {
-    /// Get recommended fee for an operation (market-based price discovery)
-    #[ink(message)]
-    fn get_recommended_fee(&self, operation: FeeOperation) -> u128;
-}
-
-// =============================================================================
-// Compliance and Regulatory Framework (Issue #45)
-// =============================================================================
-
-/// Transaction type for compliance rules engine
-#[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub enum ComplianceOperation {
-    RegisterProperty,
-    TransferProperty,
-    UpdateMetadata,
-    CreateEscrow,
-    ReleaseEscrow,
-    ListForSale,
-    Purchase,
-    BridgeTransfer,
-}
-
-/// Trait for compliance registry (used by PropertyRegistry for automated checks)
-#[ink::trait_definition]
-pub trait ComplianceChecker {
-    /// Returns true if the account meets current compliance requirements
-    #[ink(message)]
-    fn is_compliant(&self, account: ink::primitives::AccountId) -> bool;
 }
 
 // =============================================================================

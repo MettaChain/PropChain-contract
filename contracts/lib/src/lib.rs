@@ -6,9 +6,6 @@
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
 use ink::storage::Mapping;
-use propchain_traits::access_control::{
-    AccessControl, Action, Permission, PermissionAuditEntry, Resource, Role,
-};
 
 // Re-export traits
 pub use propchain_traits::*;
@@ -3668,6 +3665,8 @@ pub mod propchain_contracts {
             let capped_limit = limit.min(50);
             self.audit_trail
                 .get_type_records(event_type, offset, capped_limit)
+        }
+
         // INPUT VALIDATION HELPERS (Issue #79)
         // ====================================================================
 
