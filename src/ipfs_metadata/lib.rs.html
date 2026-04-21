@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `contracts/ipfs-metadata/src/lib.rs`."><title>lib.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-77263533.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="ipfs_metadata" data-themes="" data-resource-suffix="" data-rustdoc-version="1.94.1 (e408947bf 2026-03-25)" data-channel="1.94.1" data-search-js="search-9e2438ea.js" data-stringdex-js="stringdex-b897f86f.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-7bab91a1.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-ffcac47a.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">ipfs_metadata/</div>lib.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="attr">#![cfg_attr(not(feature = <span class="string">"std"</span>), no_std)]
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `contracts/ipfs-metadata/src/lib.rs`."><title>lib.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-b7b9f40b.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="ipfs_metadata" data-themes="" data-resource-suffix="" data-rustdoc-version="1.95.0 (59807616e 2026-04-14)" data-channel="1.95.0" data-search-js="search-63369b7b.js" data-stringdex-js="stringdex-b897f86f.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-5013f961.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">ipfs_metadata/</div>lib.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="attr">#![cfg_attr(not(feature = <span class="string">"std"</span>), no_std)]
 <a href=#2 id=2 data-nosnippet>2</a>#![allow(unexpected_cfgs)]
 <a href=#3 id=3 data-nosnippet>3</a>
 <a href=#4 id=4 data-nosnippet>4</a></span><span class="kw">use </span>ink::prelude::string::String;
@@ -700,7 +700,7 @@
 <a href=#700 id=700 data-nosnippet>700</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
 <a href=#701 id=701 data-nosnippet>701</a>
 <a href=#702 id=702 data-nosnippet>702</a>            <span class="comment">// Only admin or property owner can grant access
-<a href=#703 id=703 data-nosnippet>703</a>            </span><span class="kw">if </span><span class="macro">caller !</span>= <span class="self">self</span>.admin {
+<a href=#703 id=703 data-nosnippet>703</a>            </span><span class="kw">if </span>caller != <span class="self">self</span>.admin {
 <a href=#704 id=704 data-nosnippet>704</a>                <span class="self">self</span>.check_admin_access(property_id, caller)<span class="question-mark">?</span>;
 <a href=#705 id=705 data-nosnippet>705</a>            }
 <a href=#706 id=706 data-nosnippet>706</a>
@@ -716,7 +716,7 @@
 <a href=#716 id=716 data-nosnippet>716</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
 <a href=#717 id=717 data-nosnippet>717</a>
 <a href=#718 id=718 data-nosnippet>718</a>            <span class="comment">// Only admin or property owner can revoke access
-<a href=#719 id=719 data-nosnippet>719</a>            </span><span class="kw">if </span><span class="macro">caller !</span>= <span class="self">self</span>.admin {
+<a href=#719 id=719 data-nosnippet>719</a>            </span><span class="kw">if </span>caller != <span class="self">self</span>.admin {
 <a href=#720 id=720 data-nosnippet>720</a>                <span class="self">self</span>.check_admin_access(property_id, caller)<span class="question-mark">?</span>;
 <a href=#721 id=721 data-nosnippet>721</a>            }
 <a href=#722 id=722 data-nosnippet>722</a>
@@ -822,7 +822,7 @@
 <a href=#822 id=822 data-nosnippet>822</a>        </span><span class="kw">pub fn </span>update_validation_rules(<span class="kw-2">&amp;mut </span><span class="self">self</span>, rules: ValidationRules) -&gt; <span class="prelude-ty">Result</span>&lt;(), Error&gt; {
 <a href=#823 id=823 data-nosnippet>823</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
 <a href=#824 id=824 data-nosnippet>824</a>
-<a href=#825 id=825 data-nosnippet>825</a>            <span class="kw">if </span><span class="macro">caller !</span>= <span class="self">self</span>.admin {
+<a href=#825 id=825 data-nosnippet>825</a>            <span class="kw">if </span>caller != <span class="self">self</span>.admin {
 <a href=#826 id=826 data-nosnippet>826</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(Error::Unauthorized);
 <a href=#827 id=827 data-nosnippet>827</a>            }
 <a href=#828 id=828 data-nosnippet>828</a>
@@ -836,7 +836,7 @@
 <a href=#836 id=836 data-nosnippet>836</a>        </span><span class="kw">pub fn </span>add_allowed_mime_type(<span class="kw-2">&amp;mut </span><span class="self">self</span>, mime_type: String) -&gt; <span class="prelude-ty">Result</span>&lt;(), Error&gt; {
 <a href=#837 id=837 data-nosnippet>837</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
 <a href=#838 id=838 data-nosnippet>838</a>
-<a href=#839 id=839 data-nosnippet>839</a>            <span class="kw">if </span><span class="macro">caller !</span>= <span class="self">self</span>.admin {
+<a href=#839 id=839 data-nosnippet>839</a>            <span class="kw">if </span>caller != <span class="self">self</span>.admin {
 <a href=#840 id=840 data-nosnippet>840</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(Error::Unauthorized);
 <a href=#841 id=841 data-nosnippet>841</a>            }
 <a href=#842 id=842 data-nosnippet>842</a>
@@ -860,7 +860,7 @@
 <a href=#860 id=860 data-nosnippet>860</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), Error&gt; {
 <a href=#861 id=861 data-nosnippet>861</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
 <a href=#862 id=862 data-nosnippet>862</a>
-<a href=#863 id=863 data-nosnippet>863</a>            <span class="kw">if </span><span class="macro">caller !</span>= <span class="self">self</span>.admin {
+<a href=#863 id=863 data-nosnippet>863</a>            <span class="kw">if </span>caller != <span class="self">self</span>.admin {
 <a href=#864 id=864 data-nosnippet>864</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(Error::Unauthorized);
 <a href=#865 id=865 data-nosnippet>865</a>            }
 <a href=#866 id=866 data-nosnippet>866</a>
@@ -886,7 +886,7 @@
 <a href=#886 id=886 data-nosnippet>886</a>                </span>.property_documents
 <a href=#887 id=887 data-nosnippet>887</a>                .get(document.property_id)
 <a href=#888 id=888 data-nosnippet>888</a>                .unwrap_or_default();
-<a href=#889 id=889 data-nosnippet>889</a>            doc_ids.retain(|<span class="kw-2">&amp;</span>id| <span class="macro">id !</span>= document_id);
+<a href=#889 id=889 data-nosnippet>889</a>            doc_ids.retain(|<span class="kw-2">&amp;</span>id| id != document_id);
 <a href=#890 id=890 data-nosnippet>890</a>            <span class="self">self</span>.property_documents
 <a href=#891 id=891 data-nosnippet>891</a>                .insert(document.property_id, <span class="kw-2">&amp;</span>doc_ids);
 <a href=#892 id=892 data-nosnippet>892</a>
