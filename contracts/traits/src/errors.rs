@@ -67,6 +67,7 @@ pub trait ContractError: fmt::Debug + fmt::Display + Encode + Decode {
             8000..=8999 => ErrorCategory::Governance,
             9000..=9999 => ErrorCategory::Staking,
             10000..=10999 => ErrorCategory::Monitoring,
+            11000..=11999 => ErrorCategory::EventBus,
             _ => ErrorCategory::Unknown,
         }
     }
@@ -107,6 +108,7 @@ pub enum ErrorCategory {
     Governance,
     Staking,
     Monitoring,
+    EventBus,
     Unknown,
 }
 
@@ -124,6 +126,7 @@ impl fmt::Display for ErrorCategory {
             ErrorCategory::Governance => write!(f, "Governance"),
             ErrorCategory::Staking => write!(f, "Staking"),
             ErrorCategory::Monitoring => write!(f, "Monitoring"),
+            ErrorCategory::EventBus => write!(f, "EventBus"),
             ErrorCategory::Unknown => write!(f, "Unknown"),
         }
     }
@@ -403,6 +406,16 @@ pub mod monitoring_codes {
     pub const MONITORING_INVALID_THRESHOLD: u32 = 10003;
     pub const MONITORING_SUBSCRIBER_LIMIT_REACHED: u32 = 10004;
     pub const MONITORING_SUBSCRIBER_NOT_FOUND: u32 = 10005;
+}
+
+/// EventBus error codes (11000-11999)
+pub mod event_bus_codes {
+    pub const EVENT_BUS_UNAUTHORIZED: u32 = 11001;
+    pub const EVENT_BUS_TOPIC_NOT_FOUND: u32 = 11002;
+    pub const EVENT_BUS_ALREADY_SUBSCRIBED: u32 = 11003;
+    pub const EVENT_BUS_NOT_SUBSCRIBED: u32 = 11004;
+    pub const EVENT_BUS_MAX_SUBSCRIBERS_REACHED: u32 = 11005;
+    pub const EVENT_BUS_SUBSCRIBER_CALL_FAILED: u32 = 11006;
 }
 
 #[cfg(test)]
