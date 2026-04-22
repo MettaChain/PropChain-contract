@@ -298,6 +298,7 @@ pub mod bridge_codes {
     pub const BRIDGE_INVALID_METADATA: u32 = 3010;
     pub const BRIDGE_DUPLICATE_REQUEST: u32 = 3011;
     pub const BRIDGE_GAS_LIMIT_EXCEEDED: u32 = 3012;
+    pub const BRIDGE_RATE_LIMIT_EXCEEDED: u32 = 3013;
 }
 
 /// Oracle error codes (4000-4999)
