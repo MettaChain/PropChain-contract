@@ -43,6 +43,30 @@ pub async fn list_events(
     let from_ts = parse_ts(params.from_ts).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let to_ts = parse_ts(params.to_ts).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
+    if let (Some(f), Some(t)) = (from_ts, to_ts) {
+        if f > t {
+            return Err((StatusCode::BAD_REQUEST, "from_ts must be <= to_ts".to_string()));
+        }
+    }
+
+    if let (Some(f), Some(t)) = (params.from_block, params.to_block) {
+        if f > t {
+            return Err((StatusCode::BAD_REQUEST, "from_block must be <= to_block".to_string()));
+        }
+    }
+
+    if let Some(limit) = params.limit {
+        if limit <= 0 || limit > 1000 {
+            return Err((StatusCode::BAD_REQUEST, "limit must be between 1 and 1000".to_string()));
+        }
+    }
+
+    if let Some(offset) = params.offset {
+        if offset < 0 {
+            return Err((StatusCode::BAD_REQUEST, "offset must be >= 0".to_string()));
+        }
+    }
+
     let q = EventQuery {
         contract: params.contract,
         event_type: params.event_type,
