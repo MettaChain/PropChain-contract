@@ -357,10 +357,10 @@
 <a href=#357 id=357 data-nosnippet>357</a>                investor_count: <span class="number">0</span>,
 <a href=#358 id=358 data-nosnippet>358</a>            });
 <a href=#359 id=359 data-nosnippet>359</a>            <span class="kw">let </span>investment = <span class="self">self</span>.investments.get((campaign_id, investor)).unwrap_or(<span class="number">0</span>);
-<a href=#360 id=360 data-nosnippet>360</a>            <span class="kw">if </span>campaign.raised_amount == <span class="number">0 </span>{
+<a href=#360 id=360 data-nosnippet>360</a>            <span class="kw">if </span>campaign.target_amount == <span class="number">0 </span>{
 <a href=#361 id=361 data-nosnippet>361</a>                <span class="kw">return </span><span class="number">0</span>;
 <a href=#362 id=362 data-nosnippet>362</a>            }
-<a href=#363 id=363 data-nosnippet>363</a>            (total_profit * investment) / campaign.raised_amount
+<a href=#363 id=363 data-nosnippet>363</a>            (total_profit * investment) / campaign.target_amount
 <a href=#364 id=364 data-nosnippet>364</a>        }
 <a href=#365 id=365 data-nosnippet>365</a>
 <a href=#366 id=366 data-nosnippet>366</a>        <span class="attr">#[ink(message)]
