@@ -78,6 +78,8 @@ pub mod property_token {
         property_management_contract: Option<AccountId>,
         /// On-chain management agent per property token (tokenized property)
         management_agent: Mapping<TokenId, AccountId>,
+        /// Vesting schedules for locked tokens (account, token_id) -> unlock_timestamp
+        vesting_schedules: Mapping<(AccountId, TokenId), u64>,
     }
 
     // Data types extracted to types.rs (Issue #101)
@@ -406,7 +408,29 @@ pub mod property_token {
                 max_batch_size: 50,
                 property_management_contract: None,
                 management_agent: Mapping::default(),
+                vesting_schedules: Mapping::default(),
             }
+        }
+
+        /// Sets a vesting schedule for a specific account and token
+        #[ink(message)]
+        pub fn set_vesting_schedule(
+            &mut self,
+            account: AccountId,
+            token_id: TokenId,
+            unlock_time: u64,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            self.vesting_schedules.insert((account, token_id), &unlock_time);
+            self.env().emit_event(VestingScheduleSet {
+                token_id,
+                account,
+                unlock_time,
+            });
+            Ok(())
         }
 
         /// ERC-721: Returns the balance of tokens owned by an account
@@ -465,6 +489,12 @@ pub mod property_token {
                 && !self.is_approved_for_all(from, caller)
             {
                 return Err(Error::Unauthorized);
+            }
+
+            // Check vesting schedule
+            let unlock_time = self.vesting_schedules.get((from, token_id)).unwrap_or(0);
+            if self.env().block_timestamp() < unlock_time {
+                return Err(Error::TokenLocked);
             }
 
             // Perform the transfer
@@ -614,6 +644,12 @@ pub mod property_token {
                 let from_balance = self.balances.get((&from, &token_id)).unwrap_or(0);
                 if from_balance < amount {
                     return Err(Error::Unauthorized);
+                }
+
+                // Check vesting schedule
+                let unlock_time = self.vesting_schedules.get((from, token_id)).unwrap_or(0);
+                if self.env().block_timestamp() < unlock_time {
+                    return Err(Error::TokenLocked);
                 }
 
                 // Update balances

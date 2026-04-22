@@ -57,6 +57,8 @@ pub enum Error {
     AskNotFound,
     /// Input batch exceeds maximum allowed size
     BatchSizeExceeded,
+    /// Token is locked by a vesting schedule
+    TokenLocked,
 }
 
 impl core::fmt::Display for Error {
@@ -89,6 +91,7 @@ impl core::fmt::Display for Error {
             Error::ProposalClosed => write!(f, "Proposal is closed"),
             Error::AskNotFound => write!(f, "Ask not found"),
             Error::BatchSizeExceeded => write!(f, "Input batch exceeds maximum allowed size"),
+            Error::TokenLocked => write!(f, "Token is locked by a vesting schedule"),
         }
     }
 }
@@ -121,6 +124,7 @@ impl ContractError for Error {
             Error::ProposalClosed => property_token_codes::PROPOSAL_CLOSED,
             Error::AskNotFound => property_token_codes::ASK_NOT_FOUND,
             Error::BatchSizeExceeded => property_token_codes::BATCH_SIZE_EXCEEDED,
+            Error::TokenLocked => property_token_codes::TOKEN_LOCKED,
         }
     }
 
@@ -159,6 +163,7 @@ impl ContractError for Error {
             Error::BatchSizeExceeded => {
                 "The input batch exceeds the maximum allowed size"
             }
+            Error::TokenLocked => "Token is locked by a vesting schedule",
         }
     }
 

@@ -143,6 +143,43 @@ export async function connectToNetwork(networkName: string): Promise<ApiPromise>
 }
 
 /**
+ * Executes a Promise-returning operation with exponential backoff retry logic.
+ *
+ * @param operation - The function to execute
+ * @param maxRetries - Maximum number of retries (default: 3)
+ * @param baseDelayMs - Base delay between retries in ms (default: 1000)
+ * @returns The result of the operation
+ * @throws The last error encountered after exhausting all retries
+ */
+export async function withExponentialBackoff<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelayMs: number = 1000,
+): Promise<T> {
+  let attempt = 0;
+  let lastError: Error | undefined;
+
+  while (attempt <= maxRetries) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      // Do not retry if we've reached maxRetries
+      if (attempt === maxRetries) {
+        break;
+      }
+      
+      const delay = baseDelayMs * Math.pow(2, attempt);
+      await sleep(delay);
+      attempt++;
+    }
+  }
+
+  throw lastError;
+}
+
+/**
  * Gets the network configuration for a preset name.
  *
  * @param networkName - Name of the network preset

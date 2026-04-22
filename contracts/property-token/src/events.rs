@@ -177,6 +177,15 @@ pub struct DividendsWithdrawn {
 // =========================================================================
 
 #[ink(event)]
+pub struct VestingScheduleSet {
+    #[ink(topic)]
+    pub token_id: TokenId,
+    #[ink(topic)]
+    pub account: AccountId,
+    pub unlock_time: u64,
+}
+
+#[ink(event)]
 pub struct ProposalCreated {
     #[ink(topic)]
     pub token_id: TokenId,
