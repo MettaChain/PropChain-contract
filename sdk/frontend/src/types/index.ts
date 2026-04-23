@@ -52,13 +52,13 @@ export interface PropertyInfo {
  * Maps to Rust: `propchain_traits::PropertyType`
  */
 export enum PropertyType {
-  Residential = 'Residential',
-  Commercial = 'Commercial',
-  Industrial = 'Industrial',
-  Land = 'Land',
-  MultiFamily = 'MultiFamily',
-  Retail = 'Retail',
-  Office = 'Office',
+  Residential = "Residential",
+  Commercial = "Commercial",
+  Industrial = "Industrial",
+  Land = "Land",
+  MultiFamily = "MultiFamily",
+  Retail = "Retail",
+  Office = "Office",
 }
 
 /**
@@ -122,9 +122,9 @@ export interface EscrowInfo {
  * Maps to Rust: `propchain_traits::ApprovalType`
  */
 export enum ApprovalType {
-  Release = 'Release',
-  Refund = 'Refund',
-  EmergencyOverride = 'EmergencyOverride',
+  Release = "Release",
+  Refund = "Refund",
+  EmergencyOverride = "EmergencyOverride",
 }
 
 // ============================================================================
@@ -137,11 +137,11 @@ export enum ApprovalType {
  * Maps to Rust: `propchain_traits::ValuationMethod`
  */
 export enum ValuationMethod {
-  Automated = 'Automated',
-  Manual = 'Manual',
-  MarketData = 'MarketData',
-  Hybrid = 'Hybrid',
-  AIValuation = 'AIValuation',
+  Automated = "Automated",
+  Manual = "Manual",
+  MarketData = "MarketData",
+  Hybrid = "Hybrid",
+  AIValuation = "AIValuation",
 }
 
 /**
@@ -209,12 +209,12 @@ export interface PriceData {
  * Maps to Rust: `propchain_traits::OracleSourceType`
  */
 export enum OracleSourceType {
-  Chainlink = 'Chainlink',
-  Pyth = 'Pyth',
-  Substrate = 'Substrate',
-  Custom = 'Custom',
-  Manual = 'Manual',
-  AIModel = 'AIModel',
+  Chainlink = "Chainlink",
+  Pyth = "Pyth",
+  Substrate = "Substrate",
+  Custom = "Custom",
+  Manual = "Manual",
+  AIModel = "AIModel",
 }
 
 /**
@@ -293,10 +293,10 @@ export interface MarketTrend {
  * Maps to Rust: `propchain_contracts::BadgeType`
  */
 export enum BadgeType {
-  OwnerVerification = 'OwnerVerification',
-  DocumentVerification = 'DocumentVerification',
-  LegalCompliance = 'LegalCompliance',
-  PremiumListing = 'PremiumListing',
+  OwnerVerification = "OwnerVerification",
+  DocumentVerification = "DocumentVerification",
+  LegalCompliance = "LegalCompliance",
+  PremiumListing = "PremiumListing",
 }
 
 /**
@@ -321,9 +321,9 @@ export interface Badge {
  * Maps to Rust: `propchain_contracts::VerificationStatus`
  */
 export enum VerificationStatus {
-  Pending = 'Pending',
-  Approved = 'Approved',
-  Rejected = 'Rejected',
+  Pending = "Pending",
+  Approved = "Approved",
+  Rejected = "Rejected",
 }
 
 /**
@@ -349,9 +349,9 @@ export interface VerificationRequest {
  * Maps to Rust: `propchain_contracts::AppealStatus`
  */
 export enum AppealStatus {
-  Pending = 'Pending',
-  Approved = 'Approved',
-  Rejected = 'Rejected',
+  Pending = "Pending",
+  Approved = "Approved",
+  Rejected = "Rejected",
 }
 
 /**
@@ -382,14 +382,14 @@ export interface Appeal {
  * Maps to Rust: `propchain_traits::BridgeOperationStatus`
  */
 export enum BridgeOperationStatus {
-  None = 'None',
-  Pending = 'Pending',
-  Locked = 'Locked',
-  InTransit = 'InTransit',
-  Completed = 'Completed',
-  Failed = 'Failed',
-  Recovering = 'Recovering',
-  Expired = 'Expired',
+  None = "None",
+  Pending = "Pending",
+  Locked = "Locked",
+  InTransit = "InTransit",
+  Completed = "Completed",
+  Failed = "Failed",
+  Recovering = "Recovering",
+  Expired = "Expired",
 }
 
 /**
@@ -499,10 +499,10 @@ export interface ChainBridgeInfo {
  * Maps to Rust: `propchain_traits::RecoveryAction`
  */
 export enum RecoveryAction {
-  UnlockToken = 'UnlockToken',
-  RefundGas = 'RefundGas',
-  RetryBridge = 'RetryBridge',
-  CancelBridge = 'CancelBridge',
+  UnlockToken = "UnlockToken",
+  RefundGas = "RefundGas",
+  RetryBridge = "RetryBridge",
+  CancelBridge = "CancelBridge",
 }
 
 // ============================================================================
@@ -515,12 +515,12 @@ export enum RecoveryAction {
  * Maps to Rust: `propchain_traits::FeeOperation`
  */
 export enum FeeOperation {
-  RegisterProperty = 'RegisterProperty',
-  TransferProperty = 'TransferProperty',
-  UpdateMetadata = 'UpdateMetadata',
-  CreateEscrow = 'CreateEscrow',
-  ReleaseEscrow = 'ReleaseEscrow',
-  PremiumListingBid = 'PremiumListingBid',
+  RegisterProperty = "RegisterProperty",
+  TransferProperty = "TransferProperty",
+  UpdateMetadata = "UpdateMetadata",
+  CreateEscrow = "CreateEscrow",
+  ReleaseEscrow = "ReleaseEscrow",
+  PremiumListingBid = "PremiumListingBid",
 }
 
 // ============================================================================
@@ -569,10 +569,10 @@ export interface DocumentInfo {
  * Maps to Rust: `property_token::ProposalStatus`
  */
 export enum ProposalStatus {
-  Open = 'Open',
-  Executed = 'Executed',
-  Rejected = 'Rejected',
-  Closed = 'Closed',
+  Open = "Open",
+  Executed = "Executed",
+  Rejected = "Rejected",
+  Closed = "Closed",
 }
 
 /**
@@ -767,36 +767,36 @@ export interface FractionalInfo {
  * Maps to Rust: `propchain_contracts::Error`
  */
 export enum PropertyRegistryError {
-  PropertyNotFound = 'PropertyNotFound',
-  Unauthorized = 'Unauthorized',
-  InvalidMetadata = 'InvalidMetadata',
-  NotCompliant = 'NotCompliant',
-  ComplianceCheckFailed = 'ComplianceCheckFailed',
-  EscrowNotFound = 'EscrowNotFound',
-  EscrowAlreadyReleased = 'EscrowAlreadyReleased',
-  BadgeNotFound = 'BadgeNotFound',
-  InvalidBadgeType = 'InvalidBadgeType',
-  BadgeAlreadyIssued = 'BadgeAlreadyIssued',
-  NotVerifier = 'NotVerifier',
-  AppealNotFound = 'AppealNotFound',
-  InvalidAppealStatus = 'InvalidAppealStatus',
-  ComplianceRegistryNotSet = 'ComplianceRegistryNotSet',
-  OracleError = 'OracleError',
-  ContractPaused = 'ContractPaused',
-  AlreadyPaused = 'AlreadyPaused',
-  NotPaused = 'NotPaused',
-  ResumeRequestAlreadyActive = 'ResumeRequestAlreadyActive',
-  ResumeRequestNotFound = 'ResumeRequestNotFound',
-  InsufficientApprovals = 'InsufficientApprovals',
-  AlreadyApproved = 'AlreadyApproved',
-  NotAuthorizedToPause = 'NotAuthorizedToPause',
-  ZeroAddress = 'ZeroAddress',
-  StringTooLong = 'StringTooLong',
-  StringEmpty = 'StringEmpty',
-  ValueOutOfBounds = 'ValueOutOfBounds',
-  BatchSizeExceeded = 'BatchSizeExceeded',
-  SelfTransferNotAllowed = 'SelfTransferNotAllowed',
-  InvalidRange = 'InvalidRange',
+  PropertyNotFound = "PropertyNotFound",
+  Unauthorized = "Unauthorized",
+  InvalidMetadata = "InvalidMetadata",
+  NotCompliant = "NotCompliant",
+  ComplianceCheckFailed = "ComplianceCheckFailed",
+  EscrowNotFound = "EscrowNotFound",
+  EscrowAlreadyReleased = "EscrowAlreadyReleased",
+  BadgeNotFound = "BadgeNotFound",
+  InvalidBadgeType = "InvalidBadgeType",
+  BadgeAlreadyIssued = "BadgeAlreadyIssued",
+  NotVerifier = "NotVerifier",
+  AppealNotFound = "AppealNotFound",
+  InvalidAppealStatus = "InvalidAppealStatus",
+  ComplianceRegistryNotSet = "ComplianceRegistryNotSet",
+  OracleError = "OracleError",
+  ContractPaused = "ContractPaused",
+  AlreadyPaused = "AlreadyPaused",
+  NotPaused = "NotPaused",
+  ResumeRequestAlreadyActive = "ResumeRequestAlreadyActive",
+  ResumeRequestNotFound = "ResumeRequestNotFound",
+  InsufficientApprovals = "InsufficientApprovals",
+  AlreadyApproved = "AlreadyApproved",
+  NotAuthorizedToPause = "NotAuthorizedToPause",
+  ZeroAddress = "ZeroAddress",
+  StringTooLong = "StringTooLong",
+  StringEmpty = "StringEmpty",
+  ValueOutOfBounds = "ValueOutOfBounds",
+  BatchSizeExceeded = "BatchSizeExceeded",
+  SelfTransferNotAllowed = "SelfTransferNotAllowed",
+  InvalidRange = "InvalidRange",
 }
 
 /**
@@ -805,31 +805,31 @@ export enum PropertyRegistryError {
  * Maps to Rust: `property_token::Error`
  */
 export enum PropertyTokenError {
-  TokenNotFound = 'TokenNotFound',
-  Unauthorized = 'Unauthorized',
-  PropertyNotFound = 'PropertyNotFound',
-  InvalidMetadata = 'InvalidMetadata',
-  DocumentNotFound = 'DocumentNotFound',
-  ComplianceFailed = 'ComplianceFailed',
-  BridgeNotSupported = 'BridgeNotSupported',
-  InvalidChain = 'InvalidChain',
-  BridgeLocked = 'BridgeLocked',
-  InsufficientSignatures = 'InsufficientSignatures',
-  RequestExpired = 'RequestExpired',
-  InvalidRequest = 'InvalidRequest',
-  BridgePaused = 'BridgePaused',
-  GasLimitExceeded = 'GasLimitExceeded',
-  MetadataCorruption = 'MetadataCorruption',
-  InvalidBridgeOperator = 'InvalidBridgeOperator',
-  DuplicateBridgeRequest = 'DuplicateBridgeRequest',
-  BridgeTimeout = 'BridgeTimeout',
-  AlreadySigned = 'AlreadySigned',
-  InsufficientBalance = 'InsufficientBalance',
-  InvalidAmount = 'InvalidAmount',
-  ProposalNotFound = 'ProposalNotFound',
-  ProposalClosed = 'ProposalClosed',
-  AskNotFound = 'AskNotFound',
-  BatchSizeExceeded = 'BatchSizeExceeded',
+  TokenNotFound = "TokenNotFound",
+  Unauthorized = "Unauthorized",
+  PropertyNotFound = "PropertyNotFound",
+  InvalidMetadata = "InvalidMetadata",
+  DocumentNotFound = "DocumentNotFound",
+  ComplianceFailed = "ComplianceFailed",
+  BridgeNotSupported = "BridgeNotSupported",
+  InvalidChain = "InvalidChain",
+  BridgeLocked = "BridgeLocked",
+  InsufficientSignatures = "InsufficientSignatures",
+  RequestExpired = "RequestExpired",
+  InvalidRequest = "InvalidRequest",
+  BridgePaused = "BridgePaused",
+  GasLimitExceeded = "GasLimitExceeded",
+  MetadataCorruption = "MetadataCorruption",
+  InvalidBridgeOperator = "InvalidBridgeOperator",
+  DuplicateBridgeRequest = "DuplicateBridgeRequest",
+  BridgeTimeout = "BridgeTimeout",
+  AlreadySigned = "AlreadySigned",
+  InsufficientBalance = "InsufficientBalance",
+  InvalidAmount = "InvalidAmount",
+  ProposalNotFound = "ProposalNotFound",
+  ProposalClosed = "ProposalClosed",
+  AskNotFound = "AskNotFound",
+  BatchSizeExceeded = "BatchSizeExceeded",
 }
 
 /**
@@ -838,18 +838,18 @@ export enum PropertyTokenError {
  * Maps to Rust: `propchain_traits::OracleError`
  */
 export enum OracleErrorCode {
-  PropertyNotFound = 'PropertyNotFound',
-  InsufficientSources = 'InsufficientSources',
-  InvalidValuation = 'InvalidValuation',
-  Unauthorized = 'Unauthorized',
-  OracleSourceNotFound = 'OracleSourceNotFound',
-  InvalidParameters = 'InvalidParameters',
-  PriceFeedError = 'PriceFeedError',
-  AlertNotFound = 'AlertNotFound',
-  InsufficientReputation = 'InsufficientReputation',
-  SourceAlreadyExists = 'SourceAlreadyExists',
-  RequestPending = 'RequestPending',
-  BatchSizeExceeded = 'BatchSizeExceeded',
+  PropertyNotFound = "PropertyNotFound",
+  InsufficientSources = "InsufficientSources",
+  InvalidValuation = "InvalidValuation",
+  Unauthorized = "Unauthorized",
+  OracleSourceNotFound = "OracleSourceNotFound",
+  InvalidParameters = "InvalidParameters",
+  PriceFeedError = "PriceFeedError",
+  AlertNotFound = "AlertNotFound",
+  InsufficientReputation = "InsufficientReputation",
+  SourceAlreadyExists = "SourceAlreadyExists",
+  RequestPending = "RequestPending",
+  BatchSizeExceeded = "BatchSizeExceeded",
 }
 
 // ============================================================================
@@ -941,3 +941,221 @@ export interface Subscription {
   /** Unsubscribe from the event stream */
   unsubscribe: () => void;
 }
+
+// ============================================================================
+// Re-export comprehensive contract types
+// ============================================================================
+
+// Export all comprehensive contract types from contracts.ts
+export type {
+  // DEX Types
+  LiquidityPool,
+  LiquidityPosition,
+  TradingOrder,
+  SwapExecution,
+  PairAnalytics,
+  CrossChainTradeIntent,
+  BridgeFeeQuote,
+  OrderStatus,
+  CrossChainTradeStatus,
+
+  // Lending Types
+  LendingPool,
+  LendingPosition,
+  BorrowingPosition,
+  LiquidationEvent,
+  InterestRateModel,
+  FlashLoanRequest,
+  BorrowingStatus,
+
+  // Governance Types
+  GovernanceProposal,
+  GovernanceTokenConfig,
+  VoteDelegation,
+  ProposalStatus,
+
+  // Insurance Types
+  InsurancePolicy,
+  InsuranceClaim,
+  InsurancePool,
+  ReinsuranceAgreement,
+  InsuranceCoverageType,
+  ClaimStatus,
+
+  // Staking Types
+  StakingPosition,
+  StakingPool,
+  StakingDelegation,
+  ValidatorInfo,
+  UnstakingRequest,
+
+  // Fractional Ownership Types
+  FractionalOffering,
+  Shareholder,
+  ShareTradingOrder,
+  DividendDistribution,
+  OfferingStatus,
+  ShareOrderStatus,
+
+  // Prediction Market Types
+  PredictionMarket,
+  PredictionOutcome,
+  PredictionPosition,
+  MarketStatus,
+
+  // Crowdfunding Types
+  CrowdfundingCampaign,
+  CrowdfundingContribution,
+  CampaignMilestone,
+  CampaignStatus,
+
+  // Analytics Types
+  PropertyMetrics,
+  MarketIndex,
+  RiskAssessment,
+  RiskFactor,
+  RiskLevel,
+
+  // Fees & Taxation Types
+  DynamicFeeConfig,
+  FeeCalculation,
+  TaxRecord,
+  TaxPaymentStatus,
+
+  // Property Management Types
+  ManagementAgreement,
+  MaintenanceRequest,
+  OccupancyStatus,
+  MaintenancePriority,
+  MaintenanceStatus,
+
+  // AI Valuation Types
+  ModelVersion,
+  ModelMetrics,
+  DriftDetectionResult,
+  AIValuationResult,
+  DeploymentStatus,
+  DriftDetectionMethod,
+  DriftRecommendation,
+
+  // ZK Compliance Types
+  ZKProofSubmission,
+  PrivacyPreferences,
+  ComplianceCertificate,
+  ZKProofType,
+
+  // Database & Storage Types
+  StorageRecord,
+  EncryptionStatus,
+
+  // IPFS & Metadata Types
+  IPFSResource,
+  IPFSDocument,
+
+  // Third-Party Types
+  ThirdPartyIntegration,
+  ExternalDataFeed,
+  AuthMethod,
+
+  // Identity & Compliance Types
+  IdentityVerification,
+  KYCInfo,
+  ComplianceRegistryEntry,
+  ComplianceStatus,
+  VerificationStatus,
+} from "./contracts";
+
+// Export all comprehensive event types from contract-events.ts
+export type {
+  // DEX Events
+  PoolCreatedEvent,
+  LiquidityAddedEvent,
+  SwapExecutedEvent,
+
+  // Lending Events
+  DepositedEvent,
+  BorrowedEvent,
+  RepaidEvent,
+  LiquidatedEvent,
+
+  // Governance Events
+  ProposalCreatedEvent,
+  VoteCastEvent,
+  ProposalExecutedEvent,
+
+  // Insurance Events
+  InsurancePolicyCreatedEvent,
+  ClaimSubmittedEvent,
+  ClaimApprovedEvent,
+  ClaimPaidEvent,
+
+  // Staking Events
+  StakedEvent,
+  UnstakedEvent,
+  RewardsClaimedEvent,
+
+  // Fractional Ownership Events
+  SharesPurchasedEvent,
+  DividendDistributedEvent,
+
+  // Prediction Market Events
+  PredictionBetPlacedEvent,
+  MarketResolvedEvent,
+
+  // Crowdfunding Events
+  ContributionMadeEvent,
+  CampaignFundedEvent,
+
+  // ZK Compliance Events
+  ZKProofSubmittedEvent,
+  ZKProofVerifiedEvent,
+
+  // Identity Events
+  IdentityVerifiedEvent,
+
+  // Generic Events
+  AdminChangedEvent,
+  PausedEvent,
+  ResumedEvent,
+
+  // Union Type
+  PropChainEvent,
+} from "./contract-events";
+
+// Export all contract call types from contract-calls.ts
+export type {
+  // DEX Calls
+  CreatePoolParams,
+  AddLiquidityParams,
+  SwapParams,
+  PlaceOrderParams,
+
+  // Lending Calls
+  DepositParams,
+  BorrowParams,
+  RepayParams,
+
+  // Governance Calls
+  CreateProposalParams,
+  CastVoteParams,
+
+  // Insurance Calls
+  CreatePolicyParams,
+  SubmitClaimParams,
+
+  // Staking Calls
+  StakeParams,
+  DelegateToValidatorParams,
+
+  // ZK Compliance Calls
+  SubmitZKProofParams,
+  VerifyZKProofParams,
+  UpdatePrivacyPreferencesParams,
+
+  // Generic Result Types
+  TransactionResult,
+  ContractCallResult,
+  ContractError,
+  ValidationError,
+  TransactionError,
+} from "./contract-calls";
