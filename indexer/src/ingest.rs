@@ -1,4 +1,4 @@
-#![cfg(all(feature = "ingest", not(test)))]
+#![cfg(feature = "ingest")]
 use crate::db::Db;
 use anyhow::Context;
 use chrono::Utc;
@@ -52,11 +52,13 @@ pub async fn run_ingestor(db: Arc<Db>, ws_endpoint: String) -> anyhow::Result<()
                     continue;
                 }
                 let contract = values[0]
-                    .as_value()
+                    .as_composite()
+                    .and_then(|c| c.field(0))
                     .and_then(|v| v.as_bytes())
                     .map(|b| format!("0x{}", hex::encode(b)));
                 let data_hex = values[1]
-                    .as_value()
+                    .as_composite()
+                    .and_then(|c| c.field(0))
                     .and_then(|v| v.as_bytes())
                     .map(|b| format!("0x{}", hex::encode(b)));
 

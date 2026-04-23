@@ -57,6 +57,8 @@ pub enum Error {
     AskNotFound,
     /// Input batch exceeds maximum allowed size
     BatchSizeExceeded,
+    /// Token IDs and amounts vectors have different lengths
+    LengthMismatch,
 }
 
 impl core::fmt::Display for Error {
@@ -89,6 +91,7 @@ impl core::fmt::Display for Error {
             Error::ProposalClosed => write!(f, "Proposal is closed"),
             Error::AskNotFound => write!(f, "Ask not found"),
             Error::BatchSizeExceeded => write!(f, "Input batch exceeds maximum allowed size"),
+            Error::LengthMismatch => write!(f, "Token IDs and amounts length mismatch"),
         }
     }
 }
@@ -121,6 +124,7 @@ impl ContractError for Error {
             Error::ProposalClosed => property_token_codes::PROPOSAL_CLOSED,
             Error::AskNotFound => property_token_codes::ASK_NOT_FOUND,
             Error::BatchSizeExceeded => property_token_codes::BATCH_SIZE_EXCEEDED,
+            Error::LengthMismatch => property_token_codes::BATCH_SIZE_EXCEEDED,
         }
     }
 
@@ -156,6 +160,7 @@ impl ContractError for Error {
             Error::ProposalNotFound => "The governance proposal does not exist",
             Error::ProposalClosed => "The governance proposal is closed for voting",
             Error::AskNotFound => "The sell ask does not exist",
+            Error::LengthMismatch => "Token IDs and amounts vectors have different lengths",
             Error::BatchSizeExceeded => {
                 "The input batch exceeds the maximum allowed size"
             }

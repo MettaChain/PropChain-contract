@@ -6,11 +6,13 @@
 pub mod access_control;
 pub mod constants;
 pub mod crypto;
+pub mod di;
 pub mod errors;
 pub mod randomness;
 
 pub use access_control::*;
 pub use crypto::*;
+pub use di::*;
 pub mod i18n;
 pub mod monitoring;
 
@@ -20,6 +22,7 @@ pub mod monitoring;
 pub mod bridge;
 pub mod compliance;
 pub mod dex;
+pub mod event_bus;
 pub mod fee;
 pub mod oracle;
 pub mod property;
@@ -42,6 +45,7 @@ pub use property::*;
 
 // Re-export compliance and fee module contents (types are defined in those modules)
 pub use compliance::*;
+pub use event_bus::*;
 pub use fee::*;
 
 #[cfg(not(feature = "std"))]
@@ -366,6 +370,9 @@ pub struct BridgeConfig {
     pub gas_limit_per_bridge: u64,
     pub emergency_pause: bool,
     pub metadata_preservation: bool,
+    pub rate_limit_enabled: bool,
+    pub max_requests_per_day: u64,
+    pub max_value_per_day: u128,
 }
 
 /// Chain-specific bridge information
@@ -379,9 +386,10 @@ pub struct ChainBridgeInfo {
     pub chain_name: String,
     pub bridge_contract_address: Option<ink::primitives::AccountId>,
     pub is_active: bool,
-    pub gas_multiplier: u32,      // Gas cost multiplier for this chain
-    pub confirmation_blocks: u32, // Blocks to wait for confirmation
+    pub gas_multiplier: u32,
+    pub confirmation_blocks: u32,
     pub supported_tokens: Vec<TokenId>,
+    pub chain_daily_limit: u128,
 }
 
 // =============================================================================

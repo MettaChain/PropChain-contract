@@ -163,6 +163,12 @@ pub mod propchain_contracts {
         batch_operation_stats: BatchOperationStats,
         /// Comprehensive security audit trail with tamper-evident hash chain
         audit_trail: AuditTrail,
+        /// Dependency injection container — single source of truth for all
+        /// injectable service addresses. Supersedes the individual
+        /// `compliance_registry`, `oracle`, `fee_manager`, and
+        /// `identity_registry` fields for new code; those fields are kept for
+        /// backward-compatibility with existing callers.
+        deps: ContainerConfig,
     }
 
     /// Escrow information
@@ -1098,6 +1104,7 @@ pub mod propchain_contracts {
                     );
                     at
                 },
+                deps: ContainerConfig::new(),
             };
 
             // Emit contract initialization event
@@ -4019,6 +4026,107 @@ pub mod propchain_contracts {
                 return Err(Error::StringTooLong);
             }
             Ok(())
+        }
+    }
+
+    // =========================================================================
+    // Dependency Injection — ServiceRegistry trait implementation
+    // =========================================================================
+
+    /// Emitted whenever a service is registered or unregistered via the DI
+    /// container. Off-chain indexers can use this to track the live service
+    /// topology without reading storage directly.
+    #[ink(event)]
+    pub struct ServiceRegistered {
+        /// The service that was updated.
+        #[ink(topic)]
+        pub key: ServiceKey,
+        /// New address, or `None` when the service was unregistered.
+        pub address: Option<AccountId>,
+        /// Admin account that made the change.
+        #[ink(topic)]
+        pub by: AccountId,
+        pub timestamp: u64,
+    }
+
+    impl ServiceRegistry for PropertyRegistry {
+        /// Register a service address in the DI container (admin only).
+        ///
+        /// Also keeps the legacy individual fields in sync so that existing
+        /// callers that read `oracle()`, `get_compliance_registry()`, etc.
+        /// continue to work without modification.
+        #[ink(message)]
+        fn register_service(
+            &mut self,
+            key: ServiceKey,
+            address: AccountId,
+        ) -> Result<(), DependencyError> {
+            if !self.ensure_admin_rbac() {
+                return Err(DependencyError::Unauthorized);
+            }
+
+            // Delegate validation + storage to ContainerConfig
+            self.deps.register(key, address)?;
+
+            // Keep legacy fields in sync for backward compatibility
+            match key {
+                ServiceKey::Oracle => self.oracle = Some(address),
+                ServiceKey::ComplianceRegistry => self.compliance_registry = Some(address),
+                ServiceKey::FeeManager => self.fee_manager = Some(address),
+                ServiceKey::IdentityRegistry => self.identity_registry = Some(address),
+                _ => {}
+            }
+
+            let caller = self.env().caller();
+            self.env().emit_event(ServiceRegistered {
+                key,
+                address: Some(address),
+                by: caller,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Unregister a service from the DI container (admin only).
+        #[ink(message)]
+        fn unregister_service(&mut self, key: ServiceKey) -> Result<(), DependencyError> {
+            if !self.ensure_admin_rbac() {
+                return Err(DependencyError::Unauthorized);
+            }
+
+            self.deps.unregister(key);
+
+            // Keep legacy fields in sync
+            match key {
+                ServiceKey::Oracle => self.oracle = None,
+                ServiceKey::ComplianceRegistry => self.compliance_registry = None,
+                ServiceKey::FeeManager => self.fee_manager = None,
+                ServiceKey::IdentityRegistry => self.identity_registry = None,
+                _ => {}
+            }
+
+            let caller = self.env().caller();
+            self.env().emit_event(ServiceRegistered {
+                key,
+                address: None,
+                by: caller,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Resolve a service address by key.
+        #[ink(message)]
+        fn resolve_service(&self, key: ServiceKey) -> Result<AccountId, DependencyError> {
+            self.deps.resolve(key)
+        }
+
+        /// Returns `true` if the service is currently registered.
+        #[ink(message)]
+        fn is_service_registered(&self, key: ServiceKey) -> bool {
+            self.deps.is_registered(key)
         }
     }
 }

@@ -1,0 +1,9 @@
+   Compiling propchain-traits v1.0.0 (/workspaces/PropChain-contract/contracts/traits)
+   Compiling governance v0.1.0 (/workspaces/PropChain-contract/contracts/governance)
+    Finished `test` profile [optimized + debuginfo] target(s) in 29.19s
+     Running unittests src/lib.rs (/workspaces/PropChain-contract/target/debug/deps/governance-6967fa268daca7db)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

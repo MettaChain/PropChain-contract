@@ -1,0 +1,459 @@
+    Checking sp-weights v31.1.0
+    Checking scale-bits v0.5.0
+    Checking scale-encode v0.6.0
+    Checking scale-decode v0.11.1
+    Checking getrandom v0.3.4
+    Checking thiserror v1.0.69
+    Checking staging-xcm v11.0.0
+    Checking ink_primitives v5.1.1
+    Checking pallet-contracts-uapi v9.0.0
+    Checking linkme v0.3.35
+   Compiling itertools v0.12.1
+   Compiling ink_ir v5.1.1
+    Checking ink_metadata v5.1.1
+    Checking digest v0.9.0
+    Checking ahash v0.8.12
+    Checking ink_storage_traits v5.1.1
+    Checking ink_engine v5.1.1
+   Compiling ink_codegen v5.1.1
+    Checking ink_env v5.1.1
+    Checking ink_storage v5.1.1
+    Checking block-buffer v0.9.0
+    Checking opaque-debug v0.3.1
+    Checking either v1.15.0
+    Checking futures-executor v0.3.32
+   Compiling ink_macro v5.1.1
+    Checking futures v0.3.32
+    Checking hmac v0.12.1
+    Checking constant_time_eq v0.4.2
+    Checking blake2b_simd v1.0.4
+    Checking twox-hash v1.6.3
+    Checking signature v2.2.0
+    Checking powerfmt v0.2.0
+    Checking ink v5.1.1
+    Checking deranged v0.5.6
+    Checking propchain-traits v1.0.0 (/workspaces/PropChain-contract/contracts/traits)
+    Checking der v0.7.10
+    Checking mio v1.1.1
+    Checking time-core v0.1.8
+    Checking num-conv v0.2.0
+    Checking time v0.3.47
+   Compiling libsecp256k1-core v0.3.0
+    Checking base16ct v0.2.0
+    Checking tracing-subscriber v0.3.22
+    Checking serdect v0.2.0
+    Checking spki v0.7.3
+    Checking ff v0.13.1
+    Checking base64ct v1.8.3
+    Checking password-hash v0.5.0
+    Checking ref-cast v1.0.25
+    Checking tokio v1.49.0
+    Checking group v0.13.0
+    Checking pkcs8 v0.10.2
+    Checking sec1 v0.7.3
+   Compiling libsecp256k1-gen-ecmult v0.3.0
+   Compiling libsecp256k1-gen-genmult v0.3.0
+    Checking sp-crypto-hashing v0.1.0
+    Checking zerofrom v0.1.6
+    Checking crypto-bigint v0.5.5
+    Checking crypto-mac v0.8.0
+    Checking hash-db v0.16.0
+    Checking base64 v0.22.1
+    Checking yoke v0.8.1
+    Checking hmac v0.8.1
+    Checking elliptic-curve v0.13.8
+   Compiling libsecp256k1 v0.7.2
+    Checking sp-storage v21.0.0
+    Checking ahash v0.7.8
+    Checking pbkdf2 v0.12.2
+    Checking bitcoin-internals v0.2.0
+    Checking rfc6979 v0.4.0
+    Checking sha2 v0.9.9
+   Compiling ss58-registry v1.51.0
+    Checking rand_core v0.5.1
+    Checking hex-conservative v0.1.2
+    Checking bitcoin_hashes v0.13.0
+    Checking curve25519-dalek v3.2.0
+    Checking ecdsa v0.16.9
+    Checking hashbrown v0.12.3
+    Checking sp-externalities v0.28.0
+    Checking hmac-drbg v0.3.0
+    Checking sp-tracing v17.1.0
+    Checking ed25519 v2.2.3
+    Checking sp-wasm-interface v21.0.1
+    Checking num-format v0.4.4
+    Checking secrecy v0.8.0
+    Checking sp-std v14.0.0
+    Checking sp-runtime-interface v27.0.0
+    Checking dyn-clonable v0.9.2
+    Checking ed25519-dalek v2.2.0
+    Checking ed25519-zebra v3.1.0
+    Checking k256 v0.13.4
+    Checking parity-bip39 v2.0.1
+    Checking substrate-bip39 v0.6.0
+    Checking zerovec v0.11.5
+    Checking itertools v0.10.5
+    Checking hashbrown v0.13.2
+    Checking hash256-std-hasher v0.15.2
+    Checking bs58 v0.5.1
+    Checking adler2 v2.0.1
+    Checking gimli v0.32.3
+    Checking miniz_oxide v0.8.9
+    Checking sp-core v32.0.0
+    Checking addr2line v0.25.1
+    Checking object v0.37.3
+    Checking rustc-demangle v0.1.27
+    Checking trie-db v0.28.0
+    Checking schnellru v0.2.4
+    Checking memory-db v0.32.0
+    Checking trie-root v0.18.0
+    Checking nohash-hasher v0.2.0
+    Checking sp-trie v33.0.0
+    Checking backtrace v0.3.76
+    Checking tinystr v0.8.2
+    Checking sp-panic-handler v13.0.2
+    Checking sp-state-machine v0.39.0
+    Checking icu_locale_core v2.1.1
+    Checking sp-keystore v0.38.0
+    Checking potential_utf v0.1.4
+    Checking zerotrie v0.2.3
+    Checking bitflags v2.11.0
+    Checking sp-io v34.0.0
+    Checking icu_provider v2.1.1
+    Checking icu_collections v2.1.1
+    Checking ring v0.17.14
+    Checking sp-application-crypto v34.0.0
+    Checking frame-metadata v16.0.0
+    Checking simple-mermaid v0.1.1
+    Checking sp-runtime v35.0.0
+    Checking icu_properties v2.1.2
+    Checking icu_normalizer v2.1.1
+   Compiling beef v0.5.2
+    Checking idna_adapter v1.2.1
+    Checking idna v1.1.0
+    Checking url v2.5.8
+    Checking hashbrown v0.14.5
+   Compiling tokio-rustls v0.24.1
+   Compiling sha-1 v0.9.8
+    Checking http v0.2.12
+   Compiling scale-encode-derive v0.5.0
+    Checking parity-wasm v0.45.0
+    Checking indexmap v2.13.0
+   Compiling soketto v0.7.1
+   Compiling hyper-rustls v0.24.2
+   Compiling sp-version-proc-macro v14.0.0
+    Checking http v1.4.0
+    Checking sp-version v33.0.0
+    Checking http-body v1.0.1
+    Checking sp-metadata-ir v0.7.0
+    Checking pin-project v1.1.10
+    Checking tokio-util v0.7.18
+    Checking tokio-stream v0.1.18
+    Checking openssl-probe v0.1.6
+    Checking rustc-hash v1.1.0
+    Checking futures-timer v3.0.3
+    Checking sp-api v30.0.0
+    Checking sp-inherents v30.0.0
+    Checking base64 v0.13.1
+   Compiling frame-support-procedural v27.0.0
+    Checking sp-genesis-builder v0.11.0
+   Compiling aquamarine v0.5.0
+    Checking macro_magic v0.5.1
+    Checking sp-staking v30.0.0
+   Compiling scale-decode-derive v0.9.0
+    Checking scale-bits v0.4.0
+    Checking rustls-pki-types v1.14.0
+    Checking tt-call v1.0.9
+    Checking bytemuck v1.25.0
+    Checking safe_arch v0.7.4
+    Checking http-body-util v0.1.3
+   Compiling num-traits v0.2.19
+    Checking hyper v1.8.1
+    Checking wide v0.7.33
+   Compiling jsonrpsee-types v0.22.5
+    Checking num-complex v0.4.6
+    Checking num-integer v0.1.46
+    Checking approx v0.5.1
+    Checking rawpointer v0.2.1
+    Checking matrixmultiply v0.3.10
+    Checking simba v0.9.1
+    Checking frame-support v32.0.0
+    Checking num-rational v0.4.2
+   Compiling jsonrpsee-core v0.22.5
+    Checking hyper-util v0.1.20
+    Checking rustls-webpki v0.102.8
+    Checking scale-encode v0.5.0
+    Checking frame-metadata v15.1.0
+    Checking semver v1.0.27
+    Checking yap v0.11.0
+    Checking linux-raw-sys v0.11.0
+    Checking base58 v0.2.0
+    Checking rustix v1.1.3
+    Checking serde_urlencoded v0.7.1
+    Checking rustls v0.22.4
+    Checking nalgebra v0.33.2
+    Checking frame-system v32.0.0
+    Checking signal-hook v0.3.18
+    Checking rustls-pemfile v2.2.0
+    Checking clap v4.5.60
+    Checking rustls-native-certs v0.7.3
+   Compiling wasm-opt-sys v0.116.0
+    Checking linregress v0.5.4
+   Compiling jsonrpsee-client-transport v0.22.5
+    Checking tokio-rustls v0.25.0
+   Compiling jsonrpsee-http-client v0.22.5
+    Checking link-cplusplus v1.0.12
+    Checking foldhash v0.2.0
+    Checking fastrand v2.3.0
+    Checking tempfile v3.25.0
+    Checking cxx v1.0.194
+    Checking thiserror v2.0.18
+   Compiling jsonrpsee v0.22.5
+    Checking frame-benchmarking v32.0.0
+    Checking libm v0.2.16
+   Compiling subxt-metadata v0.35.3
+    Checking polkadot-core-primitives v11.0.0
+   Compiling scale-typegen v0.2.1
+    Checking os_pipe v1.2.3
+    Checking linux-raw-sys v0.4.15
+    Checking downcast-rs v1.2.1
+    Checking indexmap-nostd v0.4.0
+    Checking leb128fmt v0.1.0
+    Checking wasm-encoder v0.245.1
+    Checking wasmparser-nostd v0.100.2
+    Checking wasmi_core v0.13.0
+    Checking rustix v0.38.44
+    Checking sigchld v0.2.4
+   Compiling subxt-codegen v0.35.3
+    Checking polkadot-parachain-primitives v10.0.0
+    Checking camino v1.2.2
+    Checking staging-xcm-executor v11.0.0
+    Checking jsonrpsee-ws-client v0.22.5
+    Checking pallet-transaction-payment v32.0.0
+    Checking scale-decode v0.9.0
+    Checking hex-conservative v0.2.2
+   Compiling secp256k1-sys v0.8.2
+    Checking serde_spanned v0.6.9
+    Checking toml_datetime v0.6.11
+    Checking cargo-platform v0.1.9
+    Checking serde_with v3.16.1
+    Checking ink_prelude v4.3.0
+    Checking wasmi_arena v0.4.1
+    Checking spin v0.9.8
+    Checking winnow v0.7.14
+    Checking toml_write v0.1.2
+    Checking bumpalo v3.20.2
+    Checking unicode-width v0.2.2
+    Checking wast v245.0.1
+    Checking toml_edit v0.22.27
+    Checking wasmi v0.31.2
+    Checking bollard-stubs v1.47.1-rc.27.3.1
+    Checking ink_primitives v4.3.0
+    Checking bitcoin_hashes v0.14.1
+    Checking strum v0.26.3
+    Checking crc32fast v1.5.0
+    Checking staging-xcm-builder v11.0.0
+   Compiling subxt-macro v0.35.3
+    Checking shared_child v1.1.1
+    Checking signal-hook-mio v0.2.5
+    Checking scale-value v0.14.1
+    Checking wasmparser v0.220.1
+    Checking hyperlocal v0.9.1
+    Checking sp-timestamp v30.0.0
+    Checking impl-serde v0.5.0
+    Checking instant v0.1.13
+    Checking strum v0.24.1
+    Checking leb128 v0.2.5
+    Checking env_home v0.1.0
+    Checking which v7.0.3
+    Checking wasm-encoder v0.220.1
+    Checking pallet-contracts v31.0.0
+    Checking subxt v0.35.3
+    Checking contract-metadata v5.0.3
+    Checking pallet-timestamp v31.0.0
+    Checking bollard v0.18.1
+    Checking zip v2.4.2
+    Checking crossterm v0.28.1
+    Checking duct v0.13.7
+   Compiling contract-build v5.0.3
+    Checking bip39 v2.2.2
+    Checking toml v0.8.23
+    Checking wat v1.245.1
+    Checking cargo_metadata v0.19.2
+    Checking pallet-balances v33.0.0
+    Checking rustc_version v0.4.1
+   Compiling ink_ir v4.3.0
+    Checking uzers v0.12.2
+    Checking term_size v0.3.2
+    Checking heck v0.5.0
+    Checking ink_sandbox v5.1.1
+    Checking secp256k1 v0.27.0
+    Checking subxt-signer v0.35.3
+   Compiling ink_e2e_macro v5.1.1
+    Checking sp-keyring v35.0.0
+    Checking ink_metadata v4.3.0
+    Checking cargo_metadata v0.18.1
+    Checking which v6.0.3
+    Checking wasm-instrument v0.4.0
+   Compiling is-terminal v0.4.17
+   Compiling humantime v2.3.0
+   Compiling ucd-trie v0.1.7
+   Compiling pest v2.8.6
+   Compiling env_logger v0.10.2
+    Checking ink_storage_traits v4.3.0
+    Checking ink_engine v4.3.0
+    Checking ink_allocator v4.3.0
+    Checking ink_env v4.3.0
+   Compiling ink_codegen v4.3.0
+   Compiling semver-parser v0.10.3
+   Compiling semver v0.11.0
+   Compiling ink_macro v4.3.0
+    Checking ink_storage v4.3.0
+   Compiling tuple v0.5.2
+    Checking rustls-webpki v0.101.7
+    Checking sct v0.7.1
+   Compiling rustls v0.21.12
+   Compiling cargo_metadata v0.13.1
+   Compiling blake2 v0.9.2
+   Compiling obce-codegen v0.1.0
+    Checking ink v4.3.0
+   Compiling async-lock v2.8.0
+   Compiling jsonrpsee-types v0.20.4
+   Compiling heck v0.3.3
+   Compiling synstructure v0.12.6
+   Compiling fs2 v0.4.3
+   Compiling unwrap v1.2.1
+   Compiling openbrush_lang_codegen v4.0.0-beta
+   Compiling jsonrpsee-core v0.20.4
+   Compiling obce-macro v0.1.0
+    Checking chrono v0.4.43
+   Compiling futures-intrusive v0.5.0
+    Checking obce v0.1.0
+   Compiling openbrush_lang_macro v4.0.0-beta
+   Compiling atoi v2.0.0
+   Compiling sqlx-core v0.7.4
+   Compiling hkdf v0.12.4
+    Checking openbrush_lang v4.0.0-beta
+    Checking pallet-assets-chain-extension v0.1.1
+   Compiling jsonrpsee-client-transport v0.20.4
+   Compiling jsonrpsee-http-client v0.20.4
+    Checking raw-cpuid v11.6.0
+   Compiling sp-core-hashing v13.0.0
+   Compiling md-5 v0.10.6
+   Compiling sqlx-postgres v0.7.4
+   Compiling subxt-metadata v0.33.0
+    Checking quanta v0.12.6
+   Compiling jsonrpsee v0.20.4
+    Checking openbrush_contracts v4.0.0-beta
+    Checking rustls-native-certs v0.6.3
+    Checking uuid v1.23.0
+    Checking http-body v0.4.6
+    Checking hashlink v0.8.4
+    Checking propchain-identity v0.1.0 (/workspaces/PropChain-contract/contracts/identity)
+error: you should consider adding a `Default` implementation for `IdentityRegistry`
+   --> contracts/identity/lib.rs:334:9
+    |
+334 | /         /// Creates a new IdentityRegistry contract
+335 | |         #[ink(constructor)]
+336 | |         pub fn new() -> Self {
+    | |___________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#new_without_default
+    = note: `-D clippy::new-without-default` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::new_without_default)]`
+help: try adding this
+    |
+333 ~     /// Creates a new IdentityRegistry contract
+334 +     impl Default for IdentityRegistry {
+335 +         fn default() -> Self {
+336 +             Self::new()
+337 +         }
+338 +     }
+339 + 
+340 ~     impl IdentityRegistry {
+    |
+
+error: unnecessary closure used to substitute value for `Option::None`
+   --> contracts/identity/lib.rs:517:31
+    |
+517 |               let mut metrics = self
+    |  _______________________________^
+518 | |                 .reputation_metrics
+519 | |                 .get(&target_account)
+520 | |                 .unwrap_or_else(|| ReputationMetrics {
+...   |
+529 | |                     reputation_score: 500,
+530 | |                 });
+    | |__________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#unnecessary_lazy_evaluations
+    = note: `-D clippy::unnecessary-lazy-evaluations` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_lazy_evaluations)]`
+help: use `unwrap_or` instead
+    |
+520 ~                 .unwrap_or(ReputationMetrics {
+521 +                     total_transactions: 0,
+522 +                     successful_transactions: 0,
+523 +                     failed_transactions: 0,
+524 +                     dispute_count: 0,
+525 +                     dispute_resolved_count: 0,
+526 +                     average_transaction_value: 0,
+527 +                     total_value_transacted: 0,
+528 +                     last_updated: timestamp,
+529 +                     reputation_score: 500,
+530 ~                 });
+    |
+
+error: unnecessary closure used to substitute value for `Option::None`
+   --> contracts/identity/lib.rs:586:17
+    |
+586 | / ...   self.reputation_metrics
+587 | | ...       .get(&target_account)
+588 | | ...       .unwrap_or_else(|| ReputationMetrics {
+589 | | ...           total_transactions: 0,
+...   |
+597 | | ...           reputation_score: target_identity.reputation_score,
+598 | | ...       });
+    | |____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#unnecessary_lazy_evaluations
+help: use `unwrap_or` instead
+    |
+588 ~                     .unwrap_or(ReputationMetrics {
+589 +                         total_transactions: 0,
+590 +                         successful_transactions: 0,
+591 +                         failed_transactions: 0,
+592 +                         dispute_count: 0,
+593 +                         dispute_resolved_count: 0,
+594 +                         average_transaction_value: 0,
+595 +                         total_value_transacted: 0,
+596 +                         last_updated: timestamp,
+597 +                         reputation_score: target_identity.reputation_score,
+598 ~                     });
+    |
+
+error: manual checked division
+   --> contracts/identity/lib.rs:931:35
+    |
+931 | ...et success_rate = if metrics.total_transactions > 0 {
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ check performed here
+932 | ...   (metrics.successful_transactions * 100) / metrics.total_transactions
+    |       -------------------------------------------------------------------- division performed here
+    |
+    = help: consider using `checked_div`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_checked_ops
+    = note: `-D clippy::manual-checked-ops` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::manual_checked_ops)]`
+
+error: casting to the same type is unnecessary (`u64` -> `u64`)
+   --> contracts/identity/lib.rs:941:20
+    |
+941 |                 + (success_rate as u64 * 10)) as u32
+    |                    ^^^^^^^^^^^^^^^^^^^ help: try: `success_rate`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#unnecessary_cast
+    = note: `-D clippy::unnecessary-cast` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_cast)]`
+
+error: could not compile `propchain-identity` (lib) due to 5 previous errors
+warning: build failed, waiting for other jobs to finish...
