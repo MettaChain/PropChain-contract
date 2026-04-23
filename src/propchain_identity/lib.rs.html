@@ -330,685 +330,705 @@
 <a href=#330 id=330 data-nosnippet>330</a>        timestamp: u64,
 <a href=#331 id=331 data-nosnippet>331</a>    }
 <a href=#332 id=332 data-nosnippet>332</a>
-<a href=#333 id=333 data-nosnippet>333</a>    <span class="kw">impl </span>IdentityRegistry {
-<a href=#334 id=334 data-nosnippet>334</a>        <span class="doccomment">/// Creates a new IdentityRegistry contract
-<a href=#335 id=335 data-nosnippet>335</a>        </span><span class="attr">#[ink(constructor)]
-<a href=#336 id=336 data-nosnippet>336</a>        </span><span class="kw">pub fn </span>new() -&gt; <span class="self">Self </span>{
-<a href=#337 id=337 data-nosnippet>337</a>            <span class="kw">let </span>caller = <span class="self">Self</span>::env().caller();
-<a href=#338 id=338 data-nosnippet>338</a>            <span class="self">Self </span>{
-<a href=#339 id=339 data-nosnippet>339</a>                identities: Mapping::default(),
-<a href=#340 id=340 data-nosnippet>340</a>                did_to_account: Mapping::default(),
-<a href=#341 id=341 data-nosnippet>341</a>                reputation_metrics: Mapping::default(),
-<a href=#342 id=342 data-nosnippet>342</a>                trust_assessments: Mapping::default(),
-<a href=#343 id=343 data-nosnippet>343</a>                verification_requests: Mapping::default(),
-<a href=#344 id=344 data-nosnippet>344</a>                verification_count: <span class="number">0</span>,
-<a href=#345 id=345 data-nosnippet>345</a>                cross_chain_verifications: Mapping::default(),
-<a href=#346 id=346 data-nosnippet>346</a>                supported_chains: <span class="macro">vec!</span>[
-<a href=#347 id=347 data-nosnippet>347</a>                    <span class="number">1</span>, <span class="comment">// Ethereum
-<a href=#348 id=348 data-nosnippet>348</a>                    </span><span class="number">2</span>, <span class="comment">// Polkadot
-<a href=#349 id=349 data-nosnippet>349</a>                    </span><span class="number">3</span>, <span class="comment">// Avalanche
-<a href=#350 id=350 data-nosnippet>350</a>                    </span><span class="number">4</span>, <span class="comment">// BSC
-<a href=#351 id=351 data-nosnippet>351</a>                    </span><span class="number">5</span>, <span class="comment">// Polygon
-<a href=#352 id=352 data-nosnippet>352</a>                </span>],
-<a href=#353 id=353 data-nosnippet>353</a>                admin: caller,
-<a href=#354 id=354 data-nosnippet>354</a>                authorized_verifiers: Mapping::default(),
-<a href=#355 id=355 data-nosnippet>355</a>                version: <span class="number">1</span>,
-<a href=#356 id=356 data-nosnippet>356</a>                privacy_nonces: Mapping::default(),
-<a href=#357 id=357 data-nosnippet>357</a>            }
-<a href=#358 id=358 data-nosnippet>358</a>        }
-<a href=#359 id=359 data-nosnippet>359</a>
-<a href=#360 id=360 data-nosnippet>360</a>        <span class="doccomment">/// Create a new identity with DID
-<a href=#361 id=361 data-nosnippet>361</a>        </span><span class="attr">#[ink(message)]
-<a href=#362 id=362 data-nosnippet>362</a>        </span><span class="kw">pub fn </span>create_identity(
-<a href=#363 id=363 data-nosnippet>363</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#364 id=364 data-nosnippet>364</a>            did: String,
-<a href=#365 id=365 data-nosnippet>365</a>            public_key: Vec&lt;u8&gt;,
-<a href=#366 id=366 data-nosnippet>366</a>            verification_method: String,
-<a href=#367 id=367 data-nosnippet>367</a>            service_endpoint: <span class="prelude-ty">Option</span>&lt;String&gt;,
-<a href=#368 id=368 data-nosnippet>368</a>            privacy_settings: PrivacySettings,
-<a href=#369 id=369 data-nosnippet>369</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
-<a href=#370 id=370 data-nosnippet>370</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
-<a href=#371 id=371 data-nosnippet>371</a>            <span class="kw">let </span>timestamp = <span class="self">self</span>.env().block_timestamp();
-<a href=#372 id=372 data-nosnippet>372</a>
-<a href=#373 id=373 data-nosnippet>373</a>            <span class="comment">// Check if identity already exists
-<a href=#374 id=374 data-nosnippet>374</a>            </span><span class="kw">if </span><span class="self">self</span>.identities.contains(<span class="kw-2">&amp;</span>caller) {
-<a href=#375 id=375 data-nosnippet>375</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::IdentityAlreadyExists);
+<a href=#333 id=333 data-nosnippet>333</a>    <span class="kw">impl </span>Default <span class="kw">for </span>IdentityRegistry {
+<a href=#334 id=334 data-nosnippet>334</a>        <span class="kw">fn </span>default() -&gt; <span class="self">Self </span>{
+<a href=#335 id=335 data-nosnippet>335</a>            <span class="self">Self </span>{
+<a href=#336 id=336 data-nosnippet>336</a>                identities: Mapping::default(),
+<a href=#337 id=337 data-nosnippet>337</a>                did_to_account: Mapping::default(),
+<a href=#338 id=338 data-nosnippet>338</a>                reputation_metrics: Mapping::default(),
+<a href=#339 id=339 data-nosnippet>339</a>                trust_assessments: Mapping::default(),
+<a href=#340 id=340 data-nosnippet>340</a>                verification_requests: Mapping::default(),
+<a href=#341 id=341 data-nosnippet>341</a>                verification_count: <span class="number">0</span>,
+<a href=#342 id=342 data-nosnippet>342</a>                cross_chain_verifications: Mapping::default(),
+<a href=#343 id=343 data-nosnippet>343</a>                supported_chains: <span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">4</span>, <span class="number">5</span>],
+<a href=#344 id=344 data-nosnippet>344</a>                admin: AccountId::from([<span class="number">0u8</span>; <span class="number">32</span>]),
+<a href=#345 id=345 data-nosnippet>345</a>                authorized_verifiers: Mapping::default(),
+<a href=#346 id=346 data-nosnippet>346</a>                version: <span class="number">0</span>,
+<a href=#347 id=347 data-nosnippet>347</a>                privacy_nonces: Mapping::default(),
+<a href=#348 id=348 data-nosnippet>348</a>            }
+<a href=#349 id=349 data-nosnippet>349</a>        }
+<a href=#350 id=350 data-nosnippet>350</a>    }
+<a href=#351 id=351 data-nosnippet>351</a>
+<a href=#352 id=352 data-nosnippet>352</a>    <span class="kw">impl </span>IdentityRegistry {
+<a href=#353 id=353 data-nosnippet>353</a>        <span class="doccomment">/// Creates a new IdentityRegistry contract
+<a href=#354 id=354 data-nosnippet>354</a>        </span><span class="attr">#[ink(constructor)]
+<a href=#355 id=355 data-nosnippet>355</a>        </span><span class="kw">pub fn </span>new() -&gt; <span class="self">Self </span>{
+<a href=#356 id=356 data-nosnippet>356</a>            <span class="kw">let </span>caller = <span class="self">Self</span>::env().caller();
+<a href=#357 id=357 data-nosnippet>357</a>            <span class="self">Self </span>{
+<a href=#358 id=358 data-nosnippet>358</a>                identities: Mapping::default(),
+<a href=#359 id=359 data-nosnippet>359</a>                did_to_account: Mapping::default(),
+<a href=#360 id=360 data-nosnippet>360</a>                reputation_metrics: Mapping::default(),
+<a href=#361 id=361 data-nosnippet>361</a>                trust_assessments: Mapping::default(),
+<a href=#362 id=362 data-nosnippet>362</a>                verification_requests: Mapping::default(),
+<a href=#363 id=363 data-nosnippet>363</a>                verification_count: <span class="number">0</span>,
+<a href=#364 id=364 data-nosnippet>364</a>                cross_chain_verifications: Mapping::default(),
+<a href=#365 id=365 data-nosnippet>365</a>                supported_chains: <span class="macro">vec!</span>[
+<a href=#366 id=366 data-nosnippet>366</a>                    <span class="number">1</span>, <span class="comment">// Ethereum
+<a href=#367 id=367 data-nosnippet>367</a>                    </span><span class="number">2</span>, <span class="comment">// Polkadot
+<a href=#368 id=368 data-nosnippet>368</a>                    </span><span class="number">3</span>, <span class="comment">// Avalanche
+<a href=#369 id=369 data-nosnippet>369</a>                    </span><span class="number">4</span>, <span class="comment">// BSC
+<a href=#370 id=370 data-nosnippet>370</a>                    </span><span class="number">5</span>, <span class="comment">// Polygon
+<a href=#371 id=371 data-nosnippet>371</a>                </span>],
+<a href=#372 id=372 data-nosnippet>372</a>                admin: caller,
+<a href=#373 id=373 data-nosnippet>373</a>                authorized_verifiers: Mapping::default(),
+<a href=#374 id=374 data-nosnippet>374</a>                version: <span class="number">1</span>,
+<a href=#375 id=375 data-nosnippet>375</a>                privacy_nonces: Mapping::default(),
 <a href=#376 id=376 data-nosnippet>376</a>            }
-<a href=#377 id=377 data-nosnippet>377</a>
-<a href=#378 id=378 data-nosnippet>378</a>            <span class="comment">// Validate DID format
-<a href=#379 id=379 data-nosnippet>379</a>            </span><span class="kw">if </span>!<span class="self">self</span>.validate_did_format(<span class="kw-2">&amp;</span>did) {
-<a href=#380 id=380 data-nosnippet>380</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::InvalidDid);
-<a href=#381 id=381 data-nosnippet>381</a>            }
-<a href=#382 id=382 data-nosnippet>382</a>
-<a href=#383 id=383 data-nosnippet>383</a>            <span class="comment">// Create DID document
-<a href=#384 id=384 data-nosnippet>384</a>            </span><span class="kw">let </span>did_document = DIDDocument {
-<a href=#385 id=385 data-nosnippet>385</a>                did: did.clone(),
-<a href=#386 id=386 data-nosnippet>386</a>                public_key,
-<a href=#387 id=387 data-nosnippet>387</a>                verification_method,
-<a href=#388 id=388 data-nosnippet>388</a>                service_endpoint,
-<a href=#389 id=389 data-nosnippet>389</a>                created_at: timestamp,
-<a href=#390 id=390 data-nosnippet>390</a>                updated_at: timestamp,
-<a href=#391 id=391 data-nosnippet>391</a>                version: <span class="number">1</span>,
-<a href=#392 id=392 data-nosnippet>392</a>            };
-<a href=#393 id=393 data-nosnippet>393</a>
-<a href=#394 id=394 data-nosnippet>394</a>            <span class="comment">// Create social recovery config with default settings
-<a href=#395 id=395 data-nosnippet>395</a>            </span><span class="kw">let </span>social_recovery = SocialRecoveryConfig {
-<a href=#396 id=396 data-nosnippet>396</a>                guardians: Vec::new(),
-<a href=#397 id=397 data-nosnippet>397</a>                threshold: <span class="number">3</span>,
-<a href=#398 id=398 data-nosnippet>398</a>                recovery_period: <span class="number">100800</span>, <span class="comment">// ~2 weeks in blocks (assuming 6s block time)
-<a href=#399 id=399 data-nosnippet>399</a>                </span>last_recovery_attempt: <span class="prelude-val">None</span>,
-<a href=#400 id=400 data-nosnippet>400</a>                is_recovery_active: <span class="bool-val">false</span>,
-<a href=#401 id=401 data-nosnippet>401</a>                recovery_approvals: Vec::new(),
-<a href=#402 id=402 data-nosnippet>402</a>            };
-<a href=#403 id=403 data-nosnippet>403</a>
-<a href=#404 id=404 data-nosnippet>404</a>            <span class="comment">// Create identity
-<a href=#405 id=405 data-nosnippet>405</a>            </span><span class="kw">let </span>identity = Identity {
-<a href=#406 id=406 data-nosnippet>406</a>                account_id: caller,
-<a href=#407 id=407 data-nosnippet>407</a>                did_document,
-<a href=#408 id=408 data-nosnippet>408</a>                reputation_score: <span class="number">500</span>, <span class="comment">// Start with neutral reputation
-<a href=#409 id=409 data-nosnippet>409</a>                </span>verification_level: VerificationLevel::None,
-<a href=#410 id=410 data-nosnippet>410</a>                trust_score: <span class="number">50</span>,
-<a href=#411 id=411 data-nosnippet>411</a>                is_verified: <span class="bool-val">false</span>,
-<a href=#412 id=412 data-nosnippet>412</a>                verified_at: <span class="prelude-val">None</span>,
-<a href=#413 id=413 data-nosnippet>413</a>                verification_expires: <span class="prelude-val">None</span>,
-<a href=#414 id=414 data-nosnippet>414</a>                social_recovery,
-<a href=#415 id=415 data-nosnippet>415</a>                privacy_settings,
-<a href=#416 id=416 data-nosnippet>416</a>                created_at: timestamp,
-<a href=#417 id=417 data-nosnippet>417</a>                last_activity: timestamp,
-<a href=#418 id=418 data-nosnippet>418</a>            };
-<a href=#419 id=419 data-nosnippet>419</a>
-<a href=#420 id=420 data-nosnippet>420</a>            <span class="comment">// Store identity
-<a href=#421 id=421 data-nosnippet>421</a>            </span><span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>caller, <span class="kw-2">&amp;</span>identity);
-<a href=#422 id=422 data-nosnippet>422</a>            <span class="self">self</span>.did_to_account.insert(<span class="kw-2">&amp;</span>did, <span class="kw-2">&amp;</span>caller);
-<a href=#423 id=423 data-nosnippet>423</a>
-<a href=#424 id=424 data-nosnippet>424</a>            <span class="comment">// Initialize reputation metrics
-<a href=#425 id=425 data-nosnippet>425</a>            </span><span class="kw">let </span>reputation_metrics = ReputationMetrics {
-<a href=#426 id=426 data-nosnippet>426</a>                total_transactions: <span class="number">0</span>,
-<a href=#427 id=427 data-nosnippet>427</a>                successful_transactions: <span class="number">0</span>,
-<a href=#428 id=428 data-nosnippet>428</a>                failed_transactions: <span class="number">0</span>,
-<a href=#429 id=429 data-nosnippet>429</a>                dispute_count: <span class="number">0</span>,
-<a href=#430 id=430 data-nosnippet>430</a>                dispute_resolved_count: <span class="number">0</span>,
-<a href=#431 id=431 data-nosnippet>431</a>                average_transaction_value: <span class="number">0</span>,
-<a href=#432 id=432 data-nosnippet>432</a>                total_value_transacted: <span class="number">0</span>,
-<a href=#433 id=433 data-nosnippet>433</a>                last_updated: timestamp,
-<a href=#434 id=434 data-nosnippet>434</a>                reputation_score: <span class="number">500</span>,
-<a href=#435 id=435 data-nosnippet>435</a>            };
-<a href=#436 id=436 data-nosnippet>436</a>            <span class="self">self</span>.reputation_metrics.insert(<span class="kw-2">&amp;</span>caller, <span class="kw-2">&amp;</span>reputation_metrics);
-<a href=#437 id=437 data-nosnippet>437</a>
-<a href=#438 id=438 data-nosnippet>438</a>            <span class="comment">// Emit event
-<a href=#439 id=439 data-nosnippet>439</a>            </span><span class="self">self</span>.env().emit_event(IdentityCreated {
-<a href=#440 id=440 data-nosnippet>440</a>                account: caller,
-<a href=#441 id=441 data-nosnippet>441</a>                did,
-<a href=#442 id=442 data-nosnippet>442</a>                timestamp,
-<a href=#443 id=443 data-nosnippet>443</a>            });
-<a href=#444 id=444 data-nosnippet>444</a>
-<a href=#445 id=445 data-nosnippet>445</a>            <span class="prelude-val">Ok</span>(())
-<a href=#446 id=446 data-nosnippet>446</a>        }
-<a href=#447 id=447 data-nosnippet>447</a>
-<a href=#448 id=448 data-nosnippet>448</a>        <span class="doccomment">/// Verify identity (verifier only)
-<a href=#449 id=449 data-nosnippet>449</a>        </span><span class="attr">#[ink(message)]
-<a href=#450 id=450 data-nosnippet>450</a>        </span><span class="kw">pub fn </span>verify_identity(
-<a href=#451 id=451 data-nosnippet>451</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#452 id=452 data-nosnippet>452</a>            target_account: AccountId,
-<a href=#453 id=453 data-nosnippet>453</a>            verification_level: VerificationLevel,
-<a href=#454 id=454 data-nosnippet>454</a>            expires_in_days: <span class="prelude-ty">Option</span>&lt;u64&gt;,
-<a href=#455 id=455 data-nosnippet>455</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
-<a href=#456 id=456 data-nosnippet>456</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
-<a href=#457 id=457 data-nosnippet>457</a>            <span class="kw">let </span>timestamp = <span class="self">self</span>.env().block_timestamp();
-<a href=#458 id=458 data-nosnippet>458</a>
-<a href=#459 id=459 data-nosnippet>459</a>            <span class="comment">// Check if caller is authorized verifier
-<a href=#460 id=460 data-nosnippet>460</a>            </span><span class="kw">if </span>!<span class="self">self</span>.is_authorized_verifier(caller) {
-<a href=#461 id=461 data-nosnippet>461</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::Unauthorized);
-<a href=#462 id=462 data-nosnippet>462</a>            }
+<a href=#377 id=377 data-nosnippet>377</a>        }
+<a href=#378 id=378 data-nosnippet>378</a>
+<a href=#379 id=379 data-nosnippet>379</a>        <span class="doccomment">/// Create a new identity with DID
+<a href=#380 id=380 data-nosnippet>380</a>        </span><span class="attr">#[ink(message)]
+<a href=#381 id=381 data-nosnippet>381</a>        </span><span class="kw">pub fn </span>create_identity(
+<a href=#382 id=382 data-nosnippet>382</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#383 id=383 data-nosnippet>383</a>            did: String,
+<a href=#384 id=384 data-nosnippet>384</a>            public_key: Vec&lt;u8&gt;,
+<a href=#385 id=385 data-nosnippet>385</a>            verification_method: String,
+<a href=#386 id=386 data-nosnippet>386</a>            service_endpoint: <span class="prelude-ty">Option</span>&lt;String&gt;,
+<a href=#387 id=387 data-nosnippet>387</a>            privacy_settings: PrivacySettings,
+<a href=#388 id=388 data-nosnippet>388</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
+<a href=#389 id=389 data-nosnippet>389</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
+<a href=#390 id=390 data-nosnippet>390</a>            <span class="kw">let </span>timestamp = <span class="self">self</span>.env().block_timestamp();
+<a href=#391 id=391 data-nosnippet>391</a>
+<a href=#392 id=392 data-nosnippet>392</a>            <span class="comment">// Check if identity already exists
+<a href=#393 id=393 data-nosnippet>393</a>            </span><span class="kw">if </span><span class="self">self</span>.identities.contains(<span class="kw-2">&amp;</span>caller) {
+<a href=#394 id=394 data-nosnippet>394</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::IdentityAlreadyExists);
+<a href=#395 id=395 data-nosnippet>395</a>            }
+<a href=#396 id=396 data-nosnippet>396</a>
+<a href=#397 id=397 data-nosnippet>397</a>            <span class="comment">// Validate DID format
+<a href=#398 id=398 data-nosnippet>398</a>            </span><span class="kw">if </span>!<span class="self">self</span>.validate_did_format(<span class="kw-2">&amp;</span>did) {
+<a href=#399 id=399 data-nosnippet>399</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::InvalidDid);
+<a href=#400 id=400 data-nosnippet>400</a>            }
+<a href=#401 id=401 data-nosnippet>401</a>
+<a href=#402 id=402 data-nosnippet>402</a>            <span class="comment">// Create DID document
+<a href=#403 id=403 data-nosnippet>403</a>            </span><span class="kw">let </span>did_document = DIDDocument {
+<a href=#404 id=404 data-nosnippet>404</a>                did: did.clone(),
+<a href=#405 id=405 data-nosnippet>405</a>                public_key,
+<a href=#406 id=406 data-nosnippet>406</a>                verification_method,
+<a href=#407 id=407 data-nosnippet>407</a>                service_endpoint,
+<a href=#408 id=408 data-nosnippet>408</a>                created_at: timestamp,
+<a href=#409 id=409 data-nosnippet>409</a>                updated_at: timestamp,
+<a href=#410 id=410 data-nosnippet>410</a>                version: <span class="number">1</span>,
+<a href=#411 id=411 data-nosnippet>411</a>            };
+<a href=#412 id=412 data-nosnippet>412</a>
+<a href=#413 id=413 data-nosnippet>413</a>            <span class="comment">// Create social recovery config with default settings
+<a href=#414 id=414 data-nosnippet>414</a>            </span><span class="kw">let </span>social_recovery = SocialRecoveryConfig {
+<a href=#415 id=415 data-nosnippet>415</a>                guardians: Vec::new(),
+<a href=#416 id=416 data-nosnippet>416</a>                threshold: <span class="number">3</span>,
+<a href=#417 id=417 data-nosnippet>417</a>                recovery_period: <span class="number">100800</span>, <span class="comment">// ~2 weeks in blocks (assuming 6s block time)
+<a href=#418 id=418 data-nosnippet>418</a>                </span>last_recovery_attempt: <span class="prelude-val">None</span>,
+<a href=#419 id=419 data-nosnippet>419</a>                is_recovery_active: <span class="bool-val">false</span>,
+<a href=#420 id=420 data-nosnippet>420</a>                recovery_approvals: Vec::new(),
+<a href=#421 id=421 data-nosnippet>421</a>            };
+<a href=#422 id=422 data-nosnippet>422</a>
+<a href=#423 id=423 data-nosnippet>423</a>            <span class="comment">// Create identity
+<a href=#424 id=424 data-nosnippet>424</a>            </span><span class="kw">let </span>identity = Identity {
+<a href=#425 id=425 data-nosnippet>425</a>                account_id: caller,
+<a href=#426 id=426 data-nosnippet>426</a>                did_document,
+<a href=#427 id=427 data-nosnippet>427</a>                reputation_score: <span class="number">500</span>, <span class="comment">// Start with neutral reputation
+<a href=#428 id=428 data-nosnippet>428</a>                </span>verification_level: VerificationLevel::None,
+<a href=#429 id=429 data-nosnippet>429</a>                trust_score: <span class="number">50</span>,
+<a href=#430 id=430 data-nosnippet>430</a>                is_verified: <span class="bool-val">false</span>,
+<a href=#431 id=431 data-nosnippet>431</a>                verified_at: <span class="prelude-val">None</span>,
+<a href=#432 id=432 data-nosnippet>432</a>                verification_expires: <span class="prelude-val">None</span>,
+<a href=#433 id=433 data-nosnippet>433</a>                social_recovery,
+<a href=#434 id=434 data-nosnippet>434</a>                privacy_settings,
+<a href=#435 id=435 data-nosnippet>435</a>                created_at: timestamp,
+<a href=#436 id=436 data-nosnippet>436</a>                last_activity: timestamp,
+<a href=#437 id=437 data-nosnippet>437</a>            };
+<a href=#438 id=438 data-nosnippet>438</a>
+<a href=#439 id=439 data-nosnippet>439</a>            <span class="comment">// Store identity
+<a href=#440 id=440 data-nosnippet>440</a>            </span><span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>caller, <span class="kw-2">&amp;</span>identity);
+<a href=#441 id=441 data-nosnippet>441</a>            <span class="self">self</span>.did_to_account.insert(<span class="kw-2">&amp;</span>did, <span class="kw-2">&amp;</span>caller);
+<a href=#442 id=442 data-nosnippet>442</a>
+<a href=#443 id=443 data-nosnippet>443</a>            <span class="comment">// Initialize reputation metrics
+<a href=#444 id=444 data-nosnippet>444</a>            </span><span class="kw">let </span>reputation_metrics = ReputationMetrics {
+<a href=#445 id=445 data-nosnippet>445</a>                total_transactions: <span class="number">0</span>,
+<a href=#446 id=446 data-nosnippet>446</a>                successful_transactions: <span class="number">0</span>,
+<a href=#447 id=447 data-nosnippet>447</a>                failed_transactions: <span class="number">0</span>,
+<a href=#448 id=448 data-nosnippet>448</a>                dispute_count: <span class="number">0</span>,
+<a href=#449 id=449 data-nosnippet>449</a>                dispute_resolved_count: <span class="number">0</span>,
+<a href=#450 id=450 data-nosnippet>450</a>                average_transaction_value: <span class="number">0</span>,
+<a href=#451 id=451 data-nosnippet>451</a>                total_value_transacted: <span class="number">0</span>,
+<a href=#452 id=452 data-nosnippet>452</a>                last_updated: timestamp,
+<a href=#453 id=453 data-nosnippet>453</a>                reputation_score: <span class="number">500</span>,
+<a href=#454 id=454 data-nosnippet>454</a>            };
+<a href=#455 id=455 data-nosnippet>455</a>            <span class="self">self</span>.reputation_metrics.insert(<span class="kw-2">&amp;</span>caller, <span class="kw-2">&amp;</span>reputation_metrics);
+<a href=#456 id=456 data-nosnippet>456</a>
+<a href=#457 id=457 data-nosnippet>457</a>            <span class="comment">// Emit event
+<a href=#458 id=458 data-nosnippet>458</a>            </span><span class="self">self</span>.env().emit_event(IdentityCreated {
+<a href=#459 id=459 data-nosnippet>459</a>                account: caller,
+<a href=#460 id=460 data-nosnippet>460</a>                did,
+<a href=#461 id=461 data-nosnippet>461</a>                timestamp,
+<a href=#462 id=462 data-nosnippet>462</a>            });
 <a href=#463 id=463 data-nosnippet>463</a>
-<a href=#464 id=464 data-nosnippet>464</a>            <span class="comment">// Get identity
-<a href=#465 id=465 data-nosnippet>465</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>identity = <span class="self">self
-<a href=#466 id=466 data-nosnippet>466</a>                </span>.identities
-<a href=#467 id=467 data-nosnippet>467</a>                .get(<span class="kw-2">&amp;</span>target_account)
-<a href=#468 id=468 data-nosnippet>468</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
-<a href=#469 id=469 data-nosnippet>469</a>
-<a href=#470 id=470 data-nosnippet>470</a>            <span class="comment">// Update verification
-<a href=#471 id=471 data-nosnippet>471</a>            </span>identity.verification_level = verification_level;
-<a href=#472 id=472 data-nosnippet>472</a>            identity.is_verified = <span class="bool-val">true</span>;
-<a href=#473 id=473 data-nosnippet>473</a>            identity.verified_at = <span class="prelude-val">Some</span>(timestamp);
-<a href=#474 id=474 data-nosnippet>474</a>            identity.verification_expires = expires_in_days.map(|days| timestamp + days * <span class="number">86400</span>);
-<a href=#475 id=475 data-nosnippet>475</a>            identity.last_activity = timestamp;
-<a href=#476 id=476 data-nosnippet>476</a>
-<a href=#477 id=477 data-nosnippet>477</a>            <span class="comment">// Update trust score based on verification level
-<a href=#478 id=478 data-nosnippet>478</a>            </span>identity.trust_score = <span class="kw">match </span>verification_level {
-<a href=#479 id=479 data-nosnippet>479</a>                VerificationLevel::None =&gt; <span class="number">0</span>,
-<a href=#480 id=480 data-nosnippet>480</a>                VerificationLevel::Basic =&gt; <span class="number">60</span>,
-<a href=#481 id=481 data-nosnippet>481</a>                VerificationLevel::Standard =&gt; <span class="number">75</span>,
-<a href=#482 id=482 data-nosnippet>482</a>                VerificationLevel::Enhanced =&gt; <span class="number">90</span>,
-<a href=#483 id=483 data-nosnippet>483</a>                VerificationLevel::Premium =&gt; <span class="number">100</span>,
-<a href=#484 id=484 data-nosnippet>484</a>            };
-<a href=#485 id=485 data-nosnippet>485</a>
-<a href=#486 id=486 data-nosnippet>486</a>            <span class="comment">// Store updated identity
-<a href=#487 id=487 data-nosnippet>487</a>            </span><span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>target_account, <span class="kw-2">&amp;</span>identity);
+<a href=#464 id=464 data-nosnippet>464</a>            <span class="prelude-val">Ok</span>(())
+<a href=#465 id=465 data-nosnippet>465</a>        }
+<a href=#466 id=466 data-nosnippet>466</a>
+<a href=#467 id=467 data-nosnippet>467</a>        <span class="doccomment">/// Verify identity (verifier only)
+<a href=#468 id=468 data-nosnippet>468</a>        </span><span class="attr">#[ink(message)]
+<a href=#469 id=469 data-nosnippet>469</a>        </span><span class="kw">pub fn </span>verify_identity(
+<a href=#470 id=470 data-nosnippet>470</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#471 id=471 data-nosnippet>471</a>            target_account: AccountId,
+<a href=#472 id=472 data-nosnippet>472</a>            verification_level: VerificationLevel,
+<a href=#473 id=473 data-nosnippet>473</a>            expires_in_days: <span class="prelude-ty">Option</span>&lt;u64&gt;,
+<a href=#474 id=474 data-nosnippet>474</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
+<a href=#475 id=475 data-nosnippet>475</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
+<a href=#476 id=476 data-nosnippet>476</a>            <span class="kw">let </span>timestamp = <span class="self">self</span>.env().block_timestamp();
+<a href=#477 id=477 data-nosnippet>477</a>
+<a href=#478 id=478 data-nosnippet>478</a>            <span class="comment">// Check if caller is authorized verifier
+<a href=#479 id=479 data-nosnippet>479</a>            </span><span class="kw">if </span>!<span class="self">self</span>.is_authorized_verifier(caller) {
+<a href=#480 id=480 data-nosnippet>480</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::Unauthorized);
+<a href=#481 id=481 data-nosnippet>481</a>            }
+<a href=#482 id=482 data-nosnippet>482</a>
+<a href=#483 id=483 data-nosnippet>483</a>            <span class="comment">// Get identity
+<a href=#484 id=484 data-nosnippet>484</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>identity = <span class="self">self
+<a href=#485 id=485 data-nosnippet>485</a>                </span>.identities
+<a href=#486 id=486 data-nosnippet>486</a>                .get(<span class="kw-2">&amp;</span>target_account)
+<a href=#487 id=487 data-nosnippet>487</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
 <a href=#488 id=488 data-nosnippet>488</a>
-<a href=#489 id=489 data-nosnippet>489</a>            <span class="comment">// Emit event
-<a href=#490 id=490 data-nosnippet>490</a>            </span><span class="self">self</span>.env().emit_event(IdentityVerified {
-<a href=#491 id=491 data-nosnippet>491</a>                account: target_account,
-<a href=#492 id=492 data-nosnippet>492</a>                verification_level,
-<a href=#493 id=493 data-nosnippet>493</a>                verified_by: caller,
-<a href=#494 id=494 data-nosnippet>494</a>                timestamp,
-<a href=#495 id=495 data-nosnippet>495</a>            });
-<a href=#496 id=496 data-nosnippet>496</a>
-<a href=#497 id=497 data-nosnippet>497</a>            <span class="prelude-val">Ok</span>(())
-<a href=#498 id=498 data-nosnippet>498</a>        }
-<a href=#499 id=499 data-nosnippet>499</a>
-<a href=#500 id=500 data-nosnippet>500</a>        <span class="doccomment">/// Update reputation based on transaction
-<a href=#501 id=501 data-nosnippet>501</a>        </span><span class="attr">#[ink(message)]
-<a href=#502 id=502 data-nosnippet>502</a>        </span><span class="kw">pub fn </span>update_reputation(
-<a href=#503 id=503 data-nosnippet>503</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#504 id=504 data-nosnippet>504</a>            target_account: AccountId,
-<a href=#505 id=505 data-nosnippet>505</a>            transaction_successful: bool,
-<a href=#506 id=506 data-nosnippet>506</a>            transaction_value: u128,
-<a href=#507 id=507 data-nosnippet>507</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
-<a href=#508 id=508 data-nosnippet>508</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
-<a href=#509 id=509 data-nosnippet>509</a>            <span class="kw">let </span>timestamp = <span class="self">self</span>.env().block_timestamp();
-<a href=#510 id=510 data-nosnippet>510</a>
-<a href=#511 id=511 data-nosnippet>511</a>            <span class="comment">// Only authorized contracts can update reputation
-<a href=#512 id=512 data-nosnippet>512</a>            </span><span class="kw">if </span>!<span class="self">self</span>.is_authorized_verifier(caller) {
-<a href=#513 id=513 data-nosnippet>513</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::Unauthorized);
-<a href=#514 id=514 data-nosnippet>514</a>            }
+<a href=#489 id=489 data-nosnippet>489</a>            <span class="comment">// Update verification
+<a href=#490 id=490 data-nosnippet>490</a>            </span>identity.verification_level = verification_level;
+<a href=#491 id=491 data-nosnippet>491</a>            identity.is_verified = <span class="bool-val">true</span>;
+<a href=#492 id=492 data-nosnippet>492</a>            identity.verified_at = <span class="prelude-val">Some</span>(timestamp);
+<a href=#493 id=493 data-nosnippet>493</a>            identity.verification_expires = expires_in_days.map(|days| timestamp + days * <span class="number">86400</span>);
+<a href=#494 id=494 data-nosnippet>494</a>            identity.last_activity = timestamp;
+<a href=#495 id=495 data-nosnippet>495</a>
+<a href=#496 id=496 data-nosnippet>496</a>            <span class="comment">// Update trust score based on verification level
+<a href=#497 id=497 data-nosnippet>497</a>            </span>identity.trust_score = <span class="kw">match </span>verification_level {
+<a href=#498 id=498 data-nosnippet>498</a>                VerificationLevel::None =&gt; <span class="number">0</span>,
+<a href=#499 id=499 data-nosnippet>499</a>                VerificationLevel::Basic =&gt; <span class="number">60</span>,
+<a href=#500 id=500 data-nosnippet>500</a>                VerificationLevel::Standard =&gt; <span class="number">75</span>,
+<a href=#501 id=501 data-nosnippet>501</a>                VerificationLevel::Enhanced =&gt; <span class="number">90</span>,
+<a href=#502 id=502 data-nosnippet>502</a>                VerificationLevel::Premium =&gt; <span class="number">100</span>,
+<a href=#503 id=503 data-nosnippet>503</a>            };
+<a href=#504 id=504 data-nosnippet>504</a>
+<a href=#505 id=505 data-nosnippet>505</a>            <span class="comment">// Store updated identity
+<a href=#506 id=506 data-nosnippet>506</a>            </span><span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>target_account, <span class="kw-2">&amp;</span>identity);
+<a href=#507 id=507 data-nosnippet>507</a>
+<a href=#508 id=508 data-nosnippet>508</a>            <span class="comment">// Emit event
+<a href=#509 id=509 data-nosnippet>509</a>            </span><span class="self">self</span>.env().emit_event(IdentityVerified {
+<a href=#510 id=510 data-nosnippet>510</a>                account: target_account,
+<a href=#511 id=511 data-nosnippet>511</a>                verification_level,
+<a href=#512 id=512 data-nosnippet>512</a>                verified_by: caller,
+<a href=#513 id=513 data-nosnippet>513</a>                timestamp,
+<a href=#514 id=514 data-nosnippet>514</a>            });
 <a href=#515 id=515 data-nosnippet>515</a>
-<a href=#516 id=516 data-nosnippet>516</a>            <span class="comment">// Get and update reputation metrics
-<a href=#517 id=517 data-nosnippet>517</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>metrics = <span class="self">self
-<a href=#518 id=518 data-nosnippet>518</a>                </span>.reputation_metrics
-<a href=#519 id=519 data-nosnippet>519</a>                .get(<span class="kw-2">&amp;</span>target_account)
-<a href=#520 id=520 data-nosnippet>520</a>                .unwrap_or_else(|| ReputationMetrics {
-<a href=#521 id=521 data-nosnippet>521</a>                    total_transactions: <span class="number">0</span>,
-<a href=#522 id=522 data-nosnippet>522</a>                    successful_transactions: <span class="number">0</span>,
-<a href=#523 id=523 data-nosnippet>523</a>                    failed_transactions: <span class="number">0</span>,
-<a href=#524 id=524 data-nosnippet>524</a>                    dispute_count: <span class="number">0</span>,
-<a href=#525 id=525 data-nosnippet>525</a>                    dispute_resolved_count: <span class="number">0</span>,
-<a href=#526 id=526 data-nosnippet>526</a>                    average_transaction_value: <span class="number">0</span>,
-<a href=#527 id=527 data-nosnippet>527</a>                    total_value_transacted: <span class="number">0</span>,
-<a href=#528 id=528 data-nosnippet>528</a>                    last_updated: timestamp,
-<a href=#529 id=529 data-nosnippet>529</a>                    reputation_score: <span class="number">500</span>,
-<a href=#530 id=530 data-nosnippet>530</a>                });
-<a href=#531 id=531 data-nosnippet>531</a>
-<a href=#532 id=532 data-nosnippet>532</a>            metrics.total_transactions += <span class="number">1</span>;
-<a href=#533 id=533 data-nosnippet>533</a>            metrics.total_value_transacted += transaction_value;
-<a href=#534 id=534 data-nosnippet>534</a>            metrics.average_transaction_value =
-<a href=#535 id=535 data-nosnippet>535</a>                metrics.total_value_transacted / metrics.total_transactions <span class="kw">as </span>u128;
-<a href=#536 id=536 data-nosnippet>536</a>
-<a href=#537 id=537 data-nosnippet>537</a>            <span class="kw">if </span>transaction_successful {
-<a href=#538 id=538 data-nosnippet>538</a>                metrics.successful_transactions += <span class="number">1</span>;
-<a href=#539 id=539 data-nosnippet>539</a>                <span class="comment">// Increase reputation for successful transactions
-<a href=#540 id=540 data-nosnippet>540</a>                </span>metrics.reputation_score = (metrics.reputation_score + <span class="number">5</span>).min(<span class="number">1000</span>);
-<a href=#541 id=541 data-nosnippet>541</a>            } <span class="kw">else </span>{
-<a href=#542 id=542 data-nosnippet>542</a>                metrics.failed_transactions += <span class="number">1</span>;
-<a href=#543 id=543 data-nosnippet>543</a>                <span class="comment">// Decrease reputation for failed transactions
-<a href=#544 id=544 data-nosnippet>544</a>                </span>metrics.reputation_score = metrics.reputation_score.saturating_sub(<span class="number">10</span>);
-<a href=#545 id=545 data-nosnippet>545</a>            }
-<a href=#546 id=546 data-nosnippet>546</a>
-<a href=#547 id=547 data-nosnippet>547</a>            metrics.last_updated = timestamp;
-<a href=#548 id=548 data-nosnippet>548</a>
-<a href=#549 id=549 data-nosnippet>549</a>            <span class="comment">// Update identity reputation score
-<a href=#550 id=550 data-nosnippet>550</a>            </span><span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">mut </span>identity) = <span class="self">self</span>.identities.get(<span class="kw-2">&amp;</span>target_account) {
-<a href=#551 id=551 data-nosnippet>551</a>                <span class="kw">let </span>old_score = identity.reputation_score;
-<a href=#552 id=552 data-nosnippet>552</a>                identity.reputation_score = metrics.reputation_score;
-<a href=#553 id=553 data-nosnippet>553</a>                identity.last_activity = timestamp;
-<a href=#554 id=554 data-nosnippet>554</a>                <span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>target_account, <span class="kw-2">&amp;</span>identity);
+<a href=#516 id=516 data-nosnippet>516</a>            <span class="prelude-val">Ok</span>(())
+<a href=#517 id=517 data-nosnippet>517</a>        }
+<a href=#518 id=518 data-nosnippet>518</a>
+<a href=#519 id=519 data-nosnippet>519</a>        <span class="doccomment">/// Update reputation based on transaction
+<a href=#520 id=520 data-nosnippet>520</a>        </span><span class="attr">#[ink(message)]
+<a href=#521 id=521 data-nosnippet>521</a>        </span><span class="kw">pub fn </span>update_reputation(
+<a href=#522 id=522 data-nosnippet>522</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#523 id=523 data-nosnippet>523</a>            target_account: AccountId,
+<a href=#524 id=524 data-nosnippet>524</a>            transaction_successful: bool,
+<a href=#525 id=525 data-nosnippet>525</a>            transaction_value: u128,
+<a href=#526 id=526 data-nosnippet>526</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
+<a href=#527 id=527 data-nosnippet>527</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
+<a href=#528 id=528 data-nosnippet>528</a>            <span class="kw">let </span>timestamp = <span class="self">self</span>.env().block_timestamp();
+<a href=#529 id=529 data-nosnippet>529</a>
+<a href=#530 id=530 data-nosnippet>530</a>            <span class="comment">// Only authorized contracts can update reputation
+<a href=#531 id=531 data-nosnippet>531</a>            </span><span class="kw">if </span>!<span class="self">self</span>.is_authorized_verifier(caller) {
+<a href=#532 id=532 data-nosnippet>532</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::Unauthorized);
+<a href=#533 id=533 data-nosnippet>533</a>            }
+<a href=#534 id=534 data-nosnippet>534</a>
+<a href=#535 id=535 data-nosnippet>535</a>            <span class="comment">// Get and update reputation metrics
+<a href=#536 id=536 data-nosnippet>536</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>metrics = <span class="self">self
+<a href=#537 id=537 data-nosnippet>537</a>                </span>.reputation_metrics
+<a href=#538 id=538 data-nosnippet>538</a>                .get(<span class="kw-2">&amp;</span>target_account)
+<a href=#539 id=539 data-nosnippet>539</a>                .unwrap_or(ReputationMetrics {
+<a href=#540 id=540 data-nosnippet>540</a>                    total_transactions: <span class="number">0</span>,
+<a href=#541 id=541 data-nosnippet>541</a>                    successful_transactions: <span class="number">0</span>,
+<a href=#542 id=542 data-nosnippet>542</a>                    failed_transactions: <span class="number">0</span>,
+<a href=#543 id=543 data-nosnippet>543</a>                    dispute_count: <span class="number">0</span>,
+<a href=#544 id=544 data-nosnippet>544</a>                    dispute_resolved_count: <span class="number">0</span>,
+<a href=#545 id=545 data-nosnippet>545</a>                    average_transaction_value: <span class="number">0</span>,
+<a href=#546 id=546 data-nosnippet>546</a>                    total_value_transacted: <span class="number">0</span>,
+<a href=#547 id=547 data-nosnippet>547</a>                    last_updated: timestamp,
+<a href=#548 id=548 data-nosnippet>548</a>                    reputation_score: <span class="number">500</span>,
+<a href=#549 id=549 data-nosnippet>549</a>                });
+<a href=#550 id=550 data-nosnippet>550</a>
+<a href=#551 id=551 data-nosnippet>551</a>            metrics.total_transactions += <span class="number">1</span>;
+<a href=#552 id=552 data-nosnippet>552</a>            metrics.total_value_transacted += transaction_value;
+<a href=#553 id=553 data-nosnippet>553</a>            metrics.average_transaction_value =
+<a href=#554 id=554 data-nosnippet>554</a>                metrics.total_value_transacted / metrics.total_transactions <span class="kw">as </span>u128;
 <a href=#555 id=555 data-nosnippet>555</a>
-<a href=#556 id=556 data-nosnippet>556</a>                <span class="comment">// Emit event
-<a href=#557 id=557 data-nosnippet>557</a>                </span><span class="self">self</span>.env().emit_event(ReputationUpdated {
-<a href=#558 id=558 data-nosnippet>558</a>                    account: target_account,
-<a href=#559 id=559 data-nosnippet>559</a>                    old_score,
-<a href=#560 id=560 data-nosnippet>560</a>                    new_score: metrics.reputation_score,
-<a href=#561 id=561 data-nosnippet>561</a>                    timestamp,
-<a href=#562 id=562 data-nosnippet>562</a>                });
-<a href=#563 id=563 data-nosnippet>563</a>            }
-<a href=#564 id=564 data-nosnippet>564</a>
-<a href=#565 id=565 data-nosnippet>565</a>            <span class="comment">// Store updated metrics
-<a href=#566 id=566 data-nosnippet>566</a>            </span><span class="self">self</span>.reputation_metrics.insert(<span class="kw-2">&amp;</span>target_account, <span class="kw-2">&amp;</span>metrics);
+<a href=#556 id=556 data-nosnippet>556</a>            <span class="kw">if </span>transaction_successful {
+<a href=#557 id=557 data-nosnippet>557</a>                metrics.successful_transactions += <span class="number">1</span>;
+<a href=#558 id=558 data-nosnippet>558</a>                <span class="comment">// Increase reputation for successful transactions
+<a href=#559 id=559 data-nosnippet>559</a>                </span>metrics.reputation_score = (metrics.reputation_score + <span class="number">5</span>).min(<span class="number">1000</span>);
+<a href=#560 id=560 data-nosnippet>560</a>            } <span class="kw">else </span>{
+<a href=#561 id=561 data-nosnippet>561</a>                metrics.failed_transactions += <span class="number">1</span>;
+<a href=#562 id=562 data-nosnippet>562</a>                <span class="comment">// Decrease reputation for failed transactions
+<a href=#563 id=563 data-nosnippet>563</a>                </span>metrics.reputation_score = metrics.reputation_score.saturating_sub(<span class="number">10</span>);
+<a href=#564 id=564 data-nosnippet>564</a>            }
+<a href=#565 id=565 data-nosnippet>565</a>
+<a href=#566 id=566 data-nosnippet>566</a>            metrics.last_updated = timestamp;
 <a href=#567 id=567 data-nosnippet>567</a>
-<a href=#568 id=568 data-nosnippet>568</a>            <span class="prelude-val">Ok</span>(())
-<a href=#569 id=569 data-nosnippet>569</a>        }
-<a href=#570 id=570 data-nosnippet>570</a>
-<a href=#571 id=571 data-nosnippet>571</a>        <span class="doccomment">/// Get trust assessment for counterparty
-<a href=#572 id=572 data-nosnippet>572</a>        </span><span class="attr">#[ink(message)]
-<a href=#573 id=573 data-nosnippet>573</a>        </span><span class="kw">pub fn </span>assess_trust(
-<a href=#574 id=574 data-nosnippet>574</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#575 id=575 data-nosnippet>575</a>            target_account: AccountId,
-<a href=#576 id=576 data-nosnippet>576</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;TrustAssessment, IdentityError&gt; {
-<a href=#577 id=577 data-nosnippet>577</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
-<a href=#578 id=578 data-nosnippet>578</a>            <span class="kw">let </span>timestamp = <span class="self">self</span>.env().block_timestamp();
-<a href=#579 id=579 data-nosnippet>579</a>
-<a href=#580 id=580 data-nosnippet>580</a>            <span class="comment">// Get target identity and reputation
-<a href=#581 id=581 data-nosnippet>581</a>            </span><span class="kw">let </span>target_identity = <span class="self">self
-<a href=#582 id=582 data-nosnippet>582</a>                </span>.identities
-<a href=#583 id=583 data-nosnippet>583</a>                .get(<span class="kw-2">&amp;</span>target_account)
-<a href=#584 id=584 data-nosnippet>584</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
-<a href=#585 id=585 data-nosnippet>585</a>            <span class="kw">let </span>target_metrics =
-<a href=#586 id=586 data-nosnippet>586</a>                <span class="self">self</span>.reputation_metrics
-<a href=#587 id=587 data-nosnippet>587</a>                    .get(<span class="kw-2">&amp;</span>target_account)
-<a href=#588 id=588 data-nosnippet>588</a>                    .unwrap_or_else(|| ReputationMetrics {
-<a href=#589 id=589 data-nosnippet>589</a>                        total_transactions: <span class="number">0</span>,
-<a href=#590 id=590 data-nosnippet>590</a>                        successful_transactions: <span class="number">0</span>,
-<a href=#591 id=591 data-nosnippet>591</a>                        failed_transactions: <span class="number">0</span>,
-<a href=#592 id=592 data-nosnippet>592</a>                        dispute_count: <span class="number">0</span>,
-<a href=#593 id=593 data-nosnippet>593</a>                        dispute_resolved_count: <span class="number">0</span>,
-<a href=#594 id=594 data-nosnippet>594</a>                        average_transaction_value: <span class="number">0</span>,
-<a href=#595 id=595 data-nosnippet>595</a>                        total_value_transacted: <span class="number">0</span>,
-<a href=#596 id=596 data-nosnippet>596</a>                        last_updated: timestamp,
-<a href=#597 id=597 data-nosnippet>597</a>                        reputation_score: target_identity.reputation_score,
-<a href=#598 id=598 data-nosnippet>598</a>                    });
-<a href=#599 id=599 data-nosnippet>599</a>
-<a href=#600 id=600 data-nosnippet>600</a>            <span class="comment">// Calculate trust score
-<a href=#601 id=601 data-nosnippet>601</a>            </span><span class="kw">let </span>trust_score = <span class="self">self</span>.calculate_trust_score(<span class="kw-2">&amp;</span>target_identity, <span class="kw-2">&amp;</span>target_metrics);
-<a href=#602 id=602 data-nosnippet>602</a>
-<a href=#603 id=603 data-nosnippet>603</a>            <span class="comment">// Determine risk level based on trust score
-<a href=#604 id=604 data-nosnippet>604</a>            </span><span class="kw">let </span>risk_level = <span class="kw">if </span>trust_score &gt;= <span class="number">80 </span>{
-<a href=#605 id=605 data-nosnippet>605</a>                RiskLevel::Low
-<a href=#606 id=606 data-nosnippet>606</a>            } <span class="kw">else if </span>trust_score &gt;= <span class="number">60 </span>{
-<a href=#607 id=607 data-nosnippet>607</a>                RiskLevel::Medium
-<a href=#608 id=608 data-nosnippet>608</a>            } <span class="kw">else if </span>trust_score &gt;= <span class="number">40 </span>{
-<a href=#609 id=609 data-nosnippet>609</a>                RiskLevel::High
-<a href=#610 id=610 data-nosnippet>610</a>            } <span class="kw">else </span>{
-<a href=#611 id=611 data-nosnippet>611</a>                RiskLevel::Critical
-<a href=#612 id=612 data-nosnippet>612</a>            };
-<a href=#613 id=613 data-nosnippet>613</a>
-<a href=#614 id=614 data-nosnippet>614</a>            <span class="comment">// Create trust assessment
-<a href=#615 id=615 data-nosnippet>615</a>            </span><span class="kw">let </span>assessment = TrustAssessment {
-<a href=#616 id=616 data-nosnippet>616</a>                target_account,
-<a href=#617 id=617 data-nosnippet>617</a>                trust_score,
-<a href=#618 id=618 data-nosnippet>618</a>                risk_level,
-<a href=#619 id=619 data-nosnippet>619</a>                verification_level: target_identity.verification_level,
-<a href=#620 id=620 data-nosnippet>620</a>                reputation_score: target_identity.reputation_score,
-<a href=#621 id=621 data-nosnippet>621</a>                shared_transactions: target_metrics.total_transactions,
-<a href=#622 id=622 data-nosnippet>622</a>                positive_interactions: target_metrics.successful_transactions,
-<a href=#623 id=623 data-nosnippet>623</a>                negative_interactions: target_metrics.failed_transactions,
-<a href=#624 id=624 data-nosnippet>624</a>                assessment_date: timestamp,
-<a href=#625 id=625 data-nosnippet>625</a>                expires_at: timestamp + <span class="number">86400 </span>* <span class="number">30</span>, <span class="comment">// 30 days
-<a href=#626 id=626 data-nosnippet>626</a>            </span>};
-<a href=#627 id=627 data-nosnippet>627</a>
-<a href=#628 id=628 data-nosnippet>628</a>            <span class="self">self</span>.trust_assessments
-<a href=#629 id=629 data-nosnippet>629</a>                .insert(<span class="kw-2">&amp;</span>(caller, target_account), <span class="kw-2">&amp;</span>assessment);
-<a href=#630 id=630 data-nosnippet>630</a>
-<a href=#631 id=631 data-nosnippet>631</a>            <span class="prelude-val">Ok</span>(assessment)
-<a href=#632 id=632 data-nosnippet>632</a>        }
-<a href=#633 id=633 data-nosnippet>633</a>
-<a href=#634 id=634 data-nosnippet>634</a>        <span class="doccomment">/// Add cross-chain verification
-<a href=#635 id=635 data-nosnippet>635</a>        </span><span class="attr">#[ink(message)]
-<a href=#636 id=636 data-nosnippet>636</a>        </span><span class="kw">pub fn </span>add_cross_chain_verification(
-<a href=#637 id=637 data-nosnippet>637</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#638 id=638 data-nosnippet>638</a>            chain_id: ChainId,
-<a href=#639 id=639 data-nosnippet>639</a>            verification_hash: Hash,
-<a href=#640 id=640 data-nosnippet>640</a>            reputation_score: u32,
-<a href=#641 id=641 data-nosnippet>641</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
-<a href=#642 id=642 data-nosnippet>642</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
-<a href=#643 id=643 data-nosnippet>643</a>            <span class="kw">let </span>timestamp = <span class="self">self</span>.env().block_timestamp();
-<a href=#644 id=644 data-nosnippet>644</a>
-<a href=#645 id=645 data-nosnippet>645</a>            <span class="comment">// Check if chain is supported
-<a href=#646 id=646 data-nosnippet>646</a>            </span><span class="kw">if </span>!<span class="self">self</span>.supported_chains.contains(<span class="kw-2">&amp;</span>chain_id) {
-<a href=#647 id=647 data-nosnippet>647</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::UnsupportedChain);
-<a href=#648 id=648 data-nosnippet>648</a>            }
+<a href=#568 id=568 data-nosnippet>568</a>            <span class="comment">// Update identity reputation score
+<a href=#569 id=569 data-nosnippet>569</a>            </span><span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">mut </span>identity) = <span class="self">self</span>.identities.get(<span class="kw-2">&amp;</span>target_account) {
+<a href=#570 id=570 data-nosnippet>570</a>                <span class="kw">let </span>old_score = identity.reputation_score;
+<a href=#571 id=571 data-nosnippet>571</a>                identity.reputation_score = metrics.reputation_score;
+<a href=#572 id=572 data-nosnippet>572</a>                identity.last_activity = timestamp;
+<a href=#573 id=573 data-nosnippet>573</a>                <span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>target_account, <span class="kw-2">&amp;</span>identity);
+<a href=#574 id=574 data-nosnippet>574</a>
+<a href=#575 id=575 data-nosnippet>575</a>                <span class="comment">// Emit event
+<a href=#576 id=576 data-nosnippet>576</a>                </span><span class="self">self</span>.env().emit_event(ReputationUpdated {
+<a href=#577 id=577 data-nosnippet>577</a>                    account: target_account,
+<a href=#578 id=578 data-nosnippet>578</a>                    old_score,
+<a href=#579 id=579 data-nosnippet>579</a>                    new_score: metrics.reputation_score,
+<a href=#580 id=580 data-nosnippet>580</a>                    timestamp,
+<a href=#581 id=581 data-nosnippet>581</a>                });
+<a href=#582 id=582 data-nosnippet>582</a>            }
+<a href=#583 id=583 data-nosnippet>583</a>
+<a href=#584 id=584 data-nosnippet>584</a>            <span class="comment">// Store updated metrics
+<a href=#585 id=585 data-nosnippet>585</a>            </span><span class="self">self</span>.reputation_metrics.insert(<span class="kw-2">&amp;</span>target_account, <span class="kw-2">&amp;</span>metrics);
+<a href=#586 id=586 data-nosnippet>586</a>
+<a href=#587 id=587 data-nosnippet>587</a>            <span class="prelude-val">Ok</span>(())
+<a href=#588 id=588 data-nosnippet>588</a>        }
+<a href=#589 id=589 data-nosnippet>589</a>
+<a href=#590 id=590 data-nosnippet>590</a>        <span class="doccomment">/// Get trust assessment for counterparty
+<a href=#591 id=591 data-nosnippet>591</a>        </span><span class="attr">#[ink(message)]
+<a href=#592 id=592 data-nosnippet>592</a>        </span><span class="kw">pub fn </span>assess_trust(
+<a href=#593 id=593 data-nosnippet>593</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#594 id=594 data-nosnippet>594</a>            target_account: AccountId,
+<a href=#595 id=595 data-nosnippet>595</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;TrustAssessment, IdentityError&gt; {
+<a href=#596 id=596 data-nosnippet>596</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
+<a href=#597 id=597 data-nosnippet>597</a>            <span class="kw">let </span>timestamp = <span class="self">self</span>.env().block_timestamp();
+<a href=#598 id=598 data-nosnippet>598</a>
+<a href=#599 id=599 data-nosnippet>599</a>            <span class="comment">// Get target identity and reputation
+<a href=#600 id=600 data-nosnippet>600</a>            </span><span class="kw">let </span>target_identity = <span class="self">self
+<a href=#601 id=601 data-nosnippet>601</a>                </span>.identities
+<a href=#602 id=602 data-nosnippet>602</a>                .get(<span class="kw-2">&amp;</span>target_account)
+<a href=#603 id=603 data-nosnippet>603</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
+<a href=#604 id=604 data-nosnippet>604</a>            <span class="kw">let </span>target_metrics =
+<a href=#605 id=605 data-nosnippet>605</a>                <span class="self">self</span>.reputation_metrics
+<a href=#606 id=606 data-nosnippet>606</a>                    .get(<span class="kw-2">&amp;</span>target_account)
+<a href=#607 id=607 data-nosnippet>607</a>                    .unwrap_or(ReputationMetrics {
+<a href=#608 id=608 data-nosnippet>608</a>                        total_transactions: <span class="number">0</span>,
+<a href=#609 id=609 data-nosnippet>609</a>                        successful_transactions: <span class="number">0</span>,
+<a href=#610 id=610 data-nosnippet>610</a>                        failed_transactions: <span class="number">0</span>,
+<a href=#611 id=611 data-nosnippet>611</a>                        dispute_count: <span class="number">0</span>,
+<a href=#612 id=612 data-nosnippet>612</a>                        dispute_resolved_count: <span class="number">0</span>,
+<a href=#613 id=613 data-nosnippet>613</a>                        average_transaction_value: <span class="number">0</span>,
+<a href=#614 id=614 data-nosnippet>614</a>                        total_value_transacted: <span class="number">0</span>,
+<a href=#615 id=615 data-nosnippet>615</a>                        last_updated: timestamp,
+<a href=#616 id=616 data-nosnippet>616</a>                        reputation_score: target_identity.reputation_score,
+<a href=#617 id=617 data-nosnippet>617</a>                    });
+<a href=#618 id=618 data-nosnippet>618</a>
+<a href=#619 id=619 data-nosnippet>619</a>            <span class="comment">// Calculate trust score
+<a href=#620 id=620 data-nosnippet>620</a>            </span><span class="kw">let </span>trust_score = <span class="self">self</span>.calculate_trust_score(<span class="kw-2">&amp;</span>target_identity, <span class="kw-2">&amp;</span>target_metrics);
+<a href=#621 id=621 data-nosnippet>621</a>
+<a href=#622 id=622 data-nosnippet>622</a>            <span class="comment">// Determine risk level based on trust score
+<a href=#623 id=623 data-nosnippet>623</a>            </span><span class="kw">let </span>risk_level = <span class="kw">if </span>trust_score &gt;= <span class="number">80 </span>{
+<a href=#624 id=624 data-nosnippet>624</a>                RiskLevel::Low
+<a href=#625 id=625 data-nosnippet>625</a>            } <span class="kw">else if </span>trust_score &gt;= <span class="number">60 </span>{
+<a href=#626 id=626 data-nosnippet>626</a>                RiskLevel::Medium
+<a href=#627 id=627 data-nosnippet>627</a>            } <span class="kw">else if </span>trust_score &gt;= <span class="number">40 </span>{
+<a href=#628 id=628 data-nosnippet>628</a>                RiskLevel::High
+<a href=#629 id=629 data-nosnippet>629</a>            } <span class="kw">else </span>{
+<a href=#630 id=630 data-nosnippet>630</a>                RiskLevel::Critical
+<a href=#631 id=631 data-nosnippet>631</a>            };
+<a href=#632 id=632 data-nosnippet>632</a>
+<a href=#633 id=633 data-nosnippet>633</a>            <span class="comment">// Create trust assessment
+<a href=#634 id=634 data-nosnippet>634</a>            </span><span class="kw">let </span>assessment = TrustAssessment {
+<a href=#635 id=635 data-nosnippet>635</a>                target_account,
+<a href=#636 id=636 data-nosnippet>636</a>                trust_score,
+<a href=#637 id=637 data-nosnippet>637</a>                risk_level,
+<a href=#638 id=638 data-nosnippet>638</a>                verification_level: target_identity.verification_level,
+<a href=#639 id=639 data-nosnippet>639</a>                reputation_score: target_identity.reputation_score,
+<a href=#640 id=640 data-nosnippet>640</a>                shared_transactions: target_metrics.total_transactions,
+<a href=#641 id=641 data-nosnippet>641</a>                positive_interactions: target_metrics.successful_transactions,
+<a href=#642 id=642 data-nosnippet>642</a>                negative_interactions: target_metrics.failed_transactions,
+<a href=#643 id=643 data-nosnippet>643</a>                assessment_date: timestamp,
+<a href=#644 id=644 data-nosnippet>644</a>                expires_at: timestamp + <span class="number">86400 </span>* <span class="number">30</span>, <span class="comment">// 30 days
+<a href=#645 id=645 data-nosnippet>645</a>            </span>};
+<a href=#646 id=646 data-nosnippet>646</a>
+<a href=#647 id=647 data-nosnippet>647</a>            <span class="self">self</span>.trust_assessments
+<a href=#648 id=648 data-nosnippet>648</a>                .insert(<span class="kw-2">&amp;</span>(caller, target_account), <span class="kw-2">&amp;</span>assessment);
 <a href=#649 id=649 data-nosnippet>649</a>
-<a href=#650 id=650 data-nosnippet>650</a>            <span class="comment">// Get identity
-<a href=#651 id=651 data-nosnippet>651</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>identity = <span class="self">self
-<a href=#652 id=652 data-nosnippet>652</a>                </span>.identities
-<a href=#653 id=653 data-nosnippet>653</a>                .get(<span class="kw-2">&amp;</span>caller)
-<a href=#654 id=654 data-nosnippet>654</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
-<a href=#655 id=655 data-nosnippet>655</a>
-<a href=#656 id=656 data-nosnippet>656</a>            <span class="comment">// Add cross-chain verification
-<a href=#657 id=657 data-nosnippet>657</a>            </span><span class="kw">let </span>cross_chain_verification = CrossChainVerification {
-<a href=#658 id=658 data-nosnippet>658</a>                chain_id,
-<a href=#659 id=659 data-nosnippet>659</a>                verified_at: timestamp,
-<a href=#660 id=660 data-nosnippet>660</a>                verification_hash,
-<a href=#661 id=661 data-nosnippet>661</a>                reputation_score,
-<a href=#662 id=662 data-nosnippet>662</a>                is_active: <span class="bool-val">true</span>,
-<a href=#663 id=663 data-nosnippet>663</a>            };
-<a href=#664 id=664 data-nosnippet>664</a>
-<a href=#665 id=665 data-nosnippet>665</a>            <span class="self">self</span>.cross_chain_verifications
-<a href=#666 id=666 data-nosnippet>666</a>                .insert(<span class="kw-2">&amp;</span>(caller, chain_id), <span class="kw-2">&amp;</span>cross_chain_verification);
-<a href=#667 id=667 data-nosnippet>667</a>            identity.last_activity = timestamp;
+<a href=#650 id=650 data-nosnippet>650</a>            <span class="prelude-val">Ok</span>(assessment)
+<a href=#651 id=651 data-nosnippet>651</a>        }
+<a href=#652 id=652 data-nosnippet>652</a>
+<a href=#653 id=653 data-nosnippet>653</a>        <span class="doccomment">/// Add cross-chain verification
+<a href=#654 id=654 data-nosnippet>654</a>        </span><span class="attr">#[ink(message)]
+<a href=#655 id=655 data-nosnippet>655</a>        </span><span class="kw">pub fn </span>add_cross_chain_verification(
+<a href=#656 id=656 data-nosnippet>656</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#657 id=657 data-nosnippet>657</a>            chain_id: ChainId,
+<a href=#658 id=658 data-nosnippet>658</a>            verification_hash: Hash,
+<a href=#659 id=659 data-nosnippet>659</a>            reputation_score: u32,
+<a href=#660 id=660 data-nosnippet>660</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
+<a href=#661 id=661 data-nosnippet>661</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
+<a href=#662 id=662 data-nosnippet>662</a>            <span class="kw">let </span>timestamp = <span class="self">self</span>.env().block_timestamp();
+<a href=#663 id=663 data-nosnippet>663</a>
+<a href=#664 id=664 data-nosnippet>664</a>            <span class="comment">// Check if chain is supported
+<a href=#665 id=665 data-nosnippet>665</a>            </span><span class="kw">if </span>!<span class="self">self</span>.supported_chains.contains(<span class="kw-2">&amp;</span>chain_id) {
+<a href=#666 id=666 data-nosnippet>666</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::UnsupportedChain);
+<a href=#667 id=667 data-nosnippet>667</a>            }
 <a href=#668 id=668 data-nosnippet>668</a>
-<a href=#669 id=669 data-nosnippet>669</a>            <span class="comment">// Update reputation based on cross-chain verification
-<a href=#670 id=670 data-nosnippet>670</a>            </span>identity.reputation_score = (identity.reputation_score + reputation_score) / <span class="number">2</span>;
-<a href=#671 id=671 data-nosnippet>671</a>
-<a href=#672 id=672 data-nosnippet>672</a>            <span class="comment">// Store updated identity
-<a href=#673 id=673 data-nosnippet>673</a>            </span><span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>caller, <span class="kw-2">&amp;</span>identity);
+<a href=#669 id=669 data-nosnippet>669</a>            <span class="comment">// Get identity
+<a href=#670 id=670 data-nosnippet>670</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>identity = <span class="self">self
+<a href=#671 id=671 data-nosnippet>671</a>                </span>.identities
+<a href=#672 id=672 data-nosnippet>672</a>                .get(<span class="kw-2">&amp;</span>caller)
+<a href=#673 id=673 data-nosnippet>673</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
 <a href=#674 id=674 data-nosnippet>674</a>
-<a href=#675 id=675 data-nosnippet>675</a>            <span class="comment">// Emit event
-<a href=#676 id=676 data-nosnippet>676</a>            </span><span class="self">self</span>.env().emit_event(CrossChainVerified {
-<a href=#677 id=677 data-nosnippet>677</a>                account: caller,
-<a href=#678 id=678 data-nosnippet>678</a>                chain_id,
-<a href=#679 id=679 data-nosnippet>679</a>                reputation_score,
-<a href=#680 id=680 data-nosnippet>680</a>                timestamp,
-<a href=#681 id=681 data-nosnippet>681</a>            });
-<a href=#682 id=682 data-nosnippet>682</a>
-<a href=#683 id=683 data-nosnippet>683</a>            <span class="prelude-val">Ok</span>(())
-<a href=#684 id=684 data-nosnippet>684</a>        }
-<a href=#685 id=685 data-nosnippet>685</a>
-<a href=#686 id=686 data-nosnippet>686</a>        <span class="doccomment">/// Initiate social recovery
-<a href=#687 id=687 data-nosnippet>687</a>        </span><span class="attr">#[ink(message)]
-<a href=#688 id=688 data-nosnippet>688</a>        </span><span class="kw">pub fn </span>initiate_recovery(
-<a href=#689 id=689 data-nosnippet>689</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#690 id=690 data-nosnippet>690</a>            new_account: AccountId,
-<a href=#691 id=691 data-nosnippet>691</a>            recovery_signature: Vec&lt;u8&gt;,
-<a href=#692 id=692 data-nosnippet>692</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
-<a href=#693 id=693 data-nosnippet>693</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
-<a href=#694 id=694 data-nosnippet>694</a>            <span class="kw">let </span>timestamp = <span class="self">self</span>.env().block_timestamp();
-<a href=#695 id=695 data-nosnippet>695</a>
-<a href=#696 id=696 data-nosnippet>696</a>            <span class="comment">// Get identity
-<a href=#697 id=697 data-nosnippet>697</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>identity = <span class="self">self
-<a href=#698 id=698 data-nosnippet>698</a>                </span>.identities
-<a href=#699 id=699 data-nosnippet>699</a>                .get(<span class="kw-2">&amp;</span>caller)
-<a href=#700 id=700 data-nosnippet>700</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
+<a href=#675 id=675 data-nosnippet>675</a>            <span class="comment">// Add cross-chain verification
+<a href=#676 id=676 data-nosnippet>676</a>            </span><span class="kw">let </span>cross_chain_verification = CrossChainVerification {
+<a href=#677 id=677 data-nosnippet>677</a>                chain_id,
+<a href=#678 id=678 data-nosnippet>678</a>                verified_at: timestamp,
+<a href=#679 id=679 data-nosnippet>679</a>                verification_hash,
+<a href=#680 id=680 data-nosnippet>680</a>                reputation_score,
+<a href=#681 id=681 data-nosnippet>681</a>                is_active: <span class="bool-val">true</span>,
+<a href=#682 id=682 data-nosnippet>682</a>            };
+<a href=#683 id=683 data-nosnippet>683</a>
+<a href=#684 id=684 data-nosnippet>684</a>            <span class="self">self</span>.cross_chain_verifications
+<a href=#685 id=685 data-nosnippet>685</a>                .insert(<span class="kw-2">&amp;</span>(caller, chain_id), <span class="kw-2">&amp;</span>cross_chain_verification);
+<a href=#686 id=686 data-nosnippet>686</a>            identity.last_activity = timestamp;
+<a href=#687 id=687 data-nosnippet>687</a>
+<a href=#688 id=688 data-nosnippet>688</a>            <span class="comment">// Update reputation based on cross-chain verification
+<a href=#689 id=689 data-nosnippet>689</a>            </span>identity.reputation_score = (identity.reputation_score + reputation_score) / <span class="number">2</span>;
+<a href=#690 id=690 data-nosnippet>690</a>
+<a href=#691 id=691 data-nosnippet>691</a>            <span class="comment">// Store updated identity
+<a href=#692 id=692 data-nosnippet>692</a>            </span><span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>caller, <span class="kw-2">&amp;</span>identity);
+<a href=#693 id=693 data-nosnippet>693</a>
+<a href=#694 id=694 data-nosnippet>694</a>            <span class="comment">// Emit event
+<a href=#695 id=695 data-nosnippet>695</a>            </span><span class="self">self</span>.env().emit_event(CrossChainVerified {
+<a href=#696 id=696 data-nosnippet>696</a>                account: caller,
+<a href=#697 id=697 data-nosnippet>697</a>                chain_id,
+<a href=#698 id=698 data-nosnippet>698</a>                reputation_score,
+<a href=#699 id=699 data-nosnippet>699</a>                timestamp,
+<a href=#700 id=700 data-nosnippet>700</a>            });
 <a href=#701 id=701 data-nosnippet>701</a>
-<a href=#702 id=702 data-nosnippet>702</a>            <span class="comment">// Check if recovery is already in progress
-<a href=#703 id=703 data-nosnippet>703</a>            </span><span class="kw">if </span>identity.social_recovery.is_recovery_active {
-<a href=#704 id=704 data-nosnippet>704</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::RecoveryInProgress);
-<a href=#705 id=705 data-nosnippet>705</a>            }
-<a href=#706 id=706 data-nosnippet>706</a>
-<a href=#707 id=707 data-nosnippet>707</a>            <span class="comment">// Verify recovery signature
-<a href=#708 id=708 data-nosnippet>708</a>            </span><span class="kw">if </span>!<span class="self">self</span>.verify_recovery_signature(
-<a href=#709 id=709 data-nosnippet>709</a>                <span class="kw-2">&amp;</span>caller,
-<a href=#710 id=710 data-nosnippet>710</a>                <span class="kw-2">&amp;</span>new_account,
-<a href=#711 id=711 data-nosnippet>711</a>                <span class="kw-2">&amp;</span>recovery_signature,
-<a href=#712 id=712 data-nosnippet>712</a>                <span class="kw-2">&amp;</span>identity,
-<a href=#713 id=713 data-nosnippet>713</a>            ) {
-<a href=#714 id=714 data-nosnippet>714</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::InvalidSignature);
-<a href=#715 id=715 data-nosnippet>715</a>            }
-<a href=#716 id=716 data-nosnippet>716</a>
-<a href=#717 id=717 data-nosnippet>717</a>            <span class="comment">// Start recovery process
-<a href=#718 id=718 data-nosnippet>718</a>            </span>identity.social_recovery.is_recovery_active = <span class="bool-val">true</span>;
-<a href=#719 id=719 data-nosnippet>719</a>            identity.social_recovery.last_recovery_attempt = <span class="prelude-val">Some</span>(timestamp);
-<a href=#720 id=720 data-nosnippet>720</a>            identity.social_recovery.recovery_approvals = Vec::new();
-<a href=#721 id=721 data-nosnippet>721</a>
-<a href=#722 id=722 data-nosnippet>722</a>            <span class="comment">// Store updated identity
-<a href=#723 id=723 data-nosnippet>723</a>            </span><span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>caller, <span class="kw-2">&amp;</span>identity);
-<a href=#724 id=724 data-nosnippet>724</a>
-<a href=#725 id=725 data-nosnippet>725</a>            <span class="comment">// Emit event
-<a href=#726 id=726 data-nosnippet>726</a>            </span><span class="self">self</span>.env().emit_event(RecoveryInitiated {
-<a href=#727 id=727 data-nosnippet>727</a>                account: caller,
-<a href=#728 id=728 data-nosnippet>728</a>                initiator: caller,
-<a href=#729 id=729 data-nosnippet>729</a>                timestamp,
-<a href=#730 id=730 data-nosnippet>730</a>            });
-<a href=#731 id=731 data-nosnippet>731</a>
-<a href=#732 id=732 data-nosnippet>732</a>            <span class="prelude-val">Ok</span>(())
-<a href=#733 id=733 data-nosnippet>733</a>        }
-<a href=#734 id=734 data-nosnippet>734</a>
-<a href=#735 id=735 data-nosnippet>735</a>        <span class="doccomment">/// Approve recovery (guardian only)
-<a href=#736 id=736 data-nosnippet>736</a>        </span><span class="attr">#[ink(message)]
-<a href=#737 id=737 data-nosnippet>737</a>        </span><span class="kw">pub fn </span>approve_recovery(
-<a href=#738 id=738 data-nosnippet>738</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#739 id=739 data-nosnippet>739</a>            target_account: AccountId,
-<a href=#740 id=740 data-nosnippet>740</a>            new_account: AccountId,
-<a href=#741 id=741 data-nosnippet>741</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
-<a href=#742 id=742 data-nosnippet>742</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
+<a href=#702 id=702 data-nosnippet>702</a>            <span class="prelude-val">Ok</span>(())
+<a href=#703 id=703 data-nosnippet>703</a>        }
+<a href=#704 id=704 data-nosnippet>704</a>
+<a href=#705 id=705 data-nosnippet>705</a>        <span class="doccomment">/// Initiate social recovery
+<a href=#706 id=706 data-nosnippet>706</a>        </span><span class="attr">#[ink(message)]
+<a href=#707 id=707 data-nosnippet>707</a>        </span><span class="kw">pub fn </span>initiate_recovery(
+<a href=#708 id=708 data-nosnippet>708</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#709 id=709 data-nosnippet>709</a>            new_account: AccountId,
+<a href=#710 id=710 data-nosnippet>710</a>            recovery_signature: Vec&lt;u8&gt;,
+<a href=#711 id=711 data-nosnippet>711</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
+<a href=#712 id=712 data-nosnippet>712</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
+<a href=#713 id=713 data-nosnippet>713</a>            <span class="kw">let </span>timestamp = <span class="self">self</span>.env().block_timestamp();
+<a href=#714 id=714 data-nosnippet>714</a>
+<a href=#715 id=715 data-nosnippet>715</a>            <span class="comment">// Get identity
+<a href=#716 id=716 data-nosnippet>716</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>identity = <span class="self">self
+<a href=#717 id=717 data-nosnippet>717</a>                </span>.identities
+<a href=#718 id=718 data-nosnippet>718</a>                .get(<span class="kw-2">&amp;</span>caller)
+<a href=#719 id=719 data-nosnippet>719</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
+<a href=#720 id=720 data-nosnippet>720</a>
+<a href=#721 id=721 data-nosnippet>721</a>            <span class="comment">// Check if recovery is already in progress
+<a href=#722 id=722 data-nosnippet>722</a>            </span><span class="kw">if </span>identity.social_recovery.is_recovery_active {
+<a href=#723 id=723 data-nosnippet>723</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::RecoveryInProgress);
+<a href=#724 id=724 data-nosnippet>724</a>            }
+<a href=#725 id=725 data-nosnippet>725</a>
+<a href=#726 id=726 data-nosnippet>726</a>            <span class="comment">// Verify recovery signature
+<a href=#727 id=727 data-nosnippet>727</a>            </span><span class="kw">if </span>!<span class="self">self</span>.verify_recovery_signature(
+<a href=#728 id=728 data-nosnippet>728</a>                <span class="kw-2">&amp;</span>caller,
+<a href=#729 id=729 data-nosnippet>729</a>                <span class="kw-2">&amp;</span>new_account,
+<a href=#730 id=730 data-nosnippet>730</a>                <span class="kw-2">&amp;</span>recovery_signature,
+<a href=#731 id=731 data-nosnippet>731</a>                <span class="kw-2">&amp;</span>identity,
+<a href=#732 id=732 data-nosnippet>732</a>            ) {
+<a href=#733 id=733 data-nosnippet>733</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::InvalidSignature);
+<a href=#734 id=734 data-nosnippet>734</a>            }
+<a href=#735 id=735 data-nosnippet>735</a>
+<a href=#736 id=736 data-nosnippet>736</a>            <span class="comment">// Start recovery process
+<a href=#737 id=737 data-nosnippet>737</a>            </span>identity.social_recovery.is_recovery_active = <span class="bool-val">true</span>;
+<a href=#738 id=738 data-nosnippet>738</a>            identity.social_recovery.last_recovery_attempt = <span class="prelude-val">Some</span>(timestamp);
+<a href=#739 id=739 data-nosnippet>739</a>            identity.social_recovery.recovery_approvals = Vec::new();
+<a href=#740 id=740 data-nosnippet>740</a>
+<a href=#741 id=741 data-nosnippet>741</a>            <span class="comment">// Store updated identity
+<a href=#742 id=742 data-nosnippet>742</a>            </span><span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>caller, <span class="kw-2">&amp;</span>identity);
 <a href=#743 id=743 data-nosnippet>743</a>
-<a href=#744 id=744 data-nosnippet>744</a>            <span class="comment">// Get target identity
-<a href=#745 id=745 data-nosnippet>745</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>identity = <span class="self">self
-<a href=#746 id=746 data-nosnippet>746</a>                </span>.identities
-<a href=#747 id=747 data-nosnippet>747</a>                .get(<span class="kw-2">&amp;</span>target_account)
-<a href=#748 id=748 data-nosnippet>748</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
-<a href=#749 id=749 data-nosnippet>749</a>
-<a href=#750 id=750 data-nosnippet>750</a>            <span class="comment">// Check if caller is a guardian
-<a href=#751 id=751 data-nosnippet>751</a>            </span><span class="kw">if </span>!identity.social_recovery.guardians.contains(<span class="kw-2">&amp;</span>caller) {
-<a href=#752 id=752 data-nosnippet>752</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::Unauthorized);
-<a href=#753 id=753 data-nosnippet>753</a>            }
-<a href=#754 id=754 data-nosnippet>754</a>
-<a href=#755 id=755 data-nosnippet>755</a>            <span class="comment">// Check if recovery is active
-<a href=#756 id=756 data-nosnippet>756</a>            </span><span class="kw">if </span>!identity.social_recovery.is_recovery_active {
-<a href=#757 id=757 data-nosnippet>757</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::RecoveryNotActive);
-<a href=#758 id=758 data-nosnippet>758</a>            }
-<a href=#759 id=759 data-nosnippet>759</a>
-<a href=#760 id=760 data-nosnippet>760</a>            <span class="comment">// Add approval
-<a href=#761 id=761 data-nosnippet>761</a>            </span><span class="kw">if </span>!identity
-<a href=#762 id=762 data-nosnippet>762</a>                .social_recovery
-<a href=#763 id=763 data-nosnippet>763</a>                .recovery_approvals
-<a href=#764 id=764 data-nosnippet>764</a>                .contains(<span class="kw-2">&amp;</span>caller)
-<a href=#765 id=765 data-nosnippet>765</a>            {
-<a href=#766 id=766 data-nosnippet>766</a>                identity.social_recovery.recovery_approvals.push(caller);
-<a href=#767 id=767 data-nosnippet>767</a>            }
+<a href=#744 id=744 data-nosnippet>744</a>            <span class="comment">// Emit event
+<a href=#745 id=745 data-nosnippet>745</a>            </span><span class="self">self</span>.env().emit_event(RecoveryInitiated {
+<a href=#746 id=746 data-nosnippet>746</a>                account: caller,
+<a href=#747 id=747 data-nosnippet>747</a>                initiator: caller,
+<a href=#748 id=748 data-nosnippet>748</a>                timestamp,
+<a href=#749 id=749 data-nosnippet>749</a>            });
+<a href=#750 id=750 data-nosnippet>750</a>
+<a href=#751 id=751 data-nosnippet>751</a>            <span class="prelude-val">Ok</span>(())
+<a href=#752 id=752 data-nosnippet>752</a>        }
+<a href=#753 id=753 data-nosnippet>753</a>
+<a href=#754 id=754 data-nosnippet>754</a>        <span class="doccomment">/// Approve recovery (guardian only)
+<a href=#755 id=755 data-nosnippet>755</a>        </span><span class="attr">#[ink(message)]
+<a href=#756 id=756 data-nosnippet>756</a>        </span><span class="kw">pub fn </span>approve_recovery(
+<a href=#757 id=757 data-nosnippet>757</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#758 id=758 data-nosnippet>758</a>            target_account: AccountId,
+<a href=#759 id=759 data-nosnippet>759</a>            new_account: AccountId,
+<a href=#760 id=760 data-nosnippet>760</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
+<a href=#761 id=761 data-nosnippet>761</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
+<a href=#762 id=762 data-nosnippet>762</a>
+<a href=#763 id=763 data-nosnippet>763</a>            <span class="comment">// Get target identity
+<a href=#764 id=764 data-nosnippet>764</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>identity = <span class="self">self
+<a href=#765 id=765 data-nosnippet>765</a>                </span>.identities
+<a href=#766 id=766 data-nosnippet>766</a>                .get(<span class="kw-2">&amp;</span>target_account)
+<a href=#767 id=767 data-nosnippet>767</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
 <a href=#768 id=768 data-nosnippet>768</a>
-<a href=#769 id=769 data-nosnippet>769</a>            <span class="comment">// Check if threshold is met
-<a href=#770 id=770 data-nosnippet>770</a>            </span><span class="kw">if </span>identity.social_recovery.recovery_approvals.len()
-<a href=#771 id=771 data-nosnippet>771</a>                &gt;= identity.social_recovery.threshold <span class="kw">as </span>usize
-<a href=#772 id=772 data-nosnippet>772</a>            {
-<a href=#773 id=773 data-nosnippet>773</a>                <span class="comment">// Complete recovery
-<a href=#774 id=774 data-nosnippet>774</a>                </span><span class="self">self</span>.complete_recovery(target_account, new_account)<span class="question-mark">?</span>;
-<a href=#775 id=775 data-nosnippet>775</a>            } <span class="kw">else </span>{
-<a href=#776 id=776 data-nosnippet>776</a>                <span class="comment">// Store updated identity
-<a href=#777 id=777 data-nosnippet>777</a>                </span><span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>target_account, <span class="kw-2">&amp;</span>identity);
-<a href=#778 id=778 data-nosnippet>778</a>            }
-<a href=#779 id=779 data-nosnippet>779</a>
-<a href=#780 id=780 data-nosnippet>780</a>            <span class="prelude-val">Ok</span>(())
-<a href=#781 id=781 data-nosnippet>781</a>        }
-<a href=#782 id=782 data-nosnippet>782</a>
-<a href=#783 id=783 data-nosnippet>783</a>        <span class="doccomment">/// Complete identity recovery
-<a href=#784 id=784 data-nosnippet>784</a>        </span><span class="kw">fn </span>complete_recovery(
-<a href=#785 id=785 data-nosnippet>785</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#786 id=786 data-nosnippet>786</a>            old_account: AccountId,
-<a href=#787 id=787 data-nosnippet>787</a>            new_account: AccountId,
-<a href=#788 id=788 data-nosnippet>788</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
-<a href=#789 id=789 data-nosnippet>789</a>            <span class="kw">let </span>_timestamp = <span class="self">self</span>.env().block_timestamp();
-<a href=#790 id=790 data-nosnippet>790</a>
-<a href=#791 id=791 data-nosnippet>791</a>            <span class="comment">// Get old identity
-<a href=#792 id=792 data-nosnippet>792</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>identity = <span class="self">self
-<a href=#793 id=793 data-nosnippet>793</a>                </span>.identities
-<a href=#794 id=794 data-nosnippet>794</a>                .get(<span class="kw-2">&amp;</span>old_account)
-<a href=#795 id=795 data-nosnippet>795</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
-<a href=#796 id=796 data-nosnippet>796</a>
-<a href=#797 id=797 data-nosnippet>797</a>            <span class="comment">// Update account ID
-<a href=#798 id=798 data-nosnippet>798</a>            </span>identity.account_id = new_account;
-<a href=#799 id=799 data-nosnippet>799</a>            identity.social_recovery.is_recovery_active = <span class="bool-val">false</span>;
-<a href=#800 id=800 data-nosnippet>800</a>            identity.social_recovery.recovery_approvals = Vec::new();
-<a href=#801 id=801 data-nosnippet>801</a>            identity.last_activity = _timestamp;
-<a href=#802 id=802 data-nosnippet>802</a>
-<a href=#803 id=803 data-nosnippet>803</a>            <span class="comment">// Remove old identity mapping
-<a href=#804 id=804 data-nosnippet>804</a>            </span><span class="self">self</span>.identities.remove(<span class="kw-2">&amp;</span>old_account);
-<a href=#805 id=805 data-nosnippet>805</a>
-<a href=#806 id=806 data-nosnippet>806</a>            <span class="comment">// Add new identity mapping
-<a href=#807 id=807 data-nosnippet>807</a>            </span><span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>new_account, <span class="kw-2">&amp;</span>identity);
-<a href=#808 id=808 data-nosnippet>808</a>            <span class="self">self</span>.did_to_account
-<a href=#809 id=809 data-nosnippet>809</a>                .insert(<span class="kw-2">&amp;</span>identity.did_document.did, <span class="kw-2">&amp;</span>new_account);
-<a href=#810 id=810 data-nosnippet>810</a>
-<a href=#811 id=811 data-nosnippet>811</a>            <span class="comment">// Update reputation metrics mapping
-<a href=#812 id=812 data-nosnippet>812</a>            </span><span class="kw">if let </span><span class="prelude-val">Some</span>(metrics) = <span class="self">self</span>.reputation_metrics.get(<span class="kw-2">&amp;</span>old_account) {
-<a href=#813 id=813 data-nosnippet>813</a>                <span class="self">self</span>.reputation_metrics.remove(<span class="kw-2">&amp;</span>old_account);
-<a href=#814 id=814 data-nosnippet>814</a>                <span class="self">self</span>.reputation_metrics.insert(<span class="kw-2">&amp;</span>new_account, <span class="kw-2">&amp;</span>metrics);
-<a href=#815 id=815 data-nosnippet>815</a>            }
-<a href=#816 id=816 data-nosnippet>816</a>
-<a href=#817 id=817 data-nosnippet>817</a>            <span class="comment">// Emit event
-<a href=#818 id=818 data-nosnippet>818</a>            </span><span class="self">self</span>.env().emit_event(RecoveryCompleted {
-<a href=#819 id=819 data-nosnippet>819</a>                account: old_account,
-<a href=#820 id=820 data-nosnippet>820</a>                new_account,
-<a href=#821 id=821 data-nosnippet>821</a>                timestamp: _timestamp,
-<a href=#822 id=822 data-nosnippet>822</a>            });
-<a href=#823 id=823 data-nosnippet>823</a>
-<a href=#824 id=824 data-nosnippet>824</a>            <span class="prelude-val">Ok</span>(())
-<a href=#825 id=825 data-nosnippet>825</a>        }
-<a href=#826 id=826 data-nosnippet>826</a>
-<a href=#827 id=827 data-nosnippet>827</a>        <span class="doccomment">/// Privacy-preserving identity verification using zero-knowledge proofs
-<a href=#828 id=828 data-nosnippet>828</a>        </span><span class="attr">#[ink(message)]
-<a href=#829 id=829 data-nosnippet>829</a>        </span><span class="kw">pub fn </span>verify_privacy_preserving(
-<a href=#830 id=830 data-nosnippet>830</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#831 id=831 data-nosnippet>831</a>            proof: Vec&lt;u8&gt;,
-<a href=#832 id=832 data-nosnippet>832</a>            public_inputs: Vec&lt;u8&gt;,
-<a href=#833 id=833 data-nosnippet>833</a>            verification_type: String,
-<a href=#834 id=834 data-nosnippet>834</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;bool, IdentityError&gt; {
-<a href=#835 id=835 data-nosnippet>835</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
-<a href=#836 id=836 data-nosnippet>836</a>            <span class="kw">let </span>_timestamp = <span class="self">self</span>.env().block_timestamp();
-<a href=#837 id=837 data-nosnippet>837</a>
-<a href=#838 id=838 data-nosnippet>838</a>            <span class="comment">// Get identity
-<a href=#839 id=839 data-nosnippet>839</a>            </span><span class="kw">let </span>identity = <span class="self">self
-<a href=#840 id=840 data-nosnippet>840</a>                </span>.identities
-<a href=#841 id=841 data-nosnippet>841</a>                .get(<span class="kw-2">&amp;</span>caller)
-<a href=#842 id=842 data-nosnippet>842</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
-<a href=#843 id=843 data-nosnippet>843</a>
-<a href=#844 id=844 data-nosnippet>844</a>            <span class="comment">// Check if privacy settings allow this verification
-<a href=#845 id=845 data-nosnippet>845</a>            </span><span class="kw">if </span>!identity.privacy_settings.zero_knowledge_proof {
-<a href=#846 id=846 data-nosnippet>846</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::PrivacyVerificationFailed);
-<a href=#847 id=847 data-nosnippet>847</a>            }
-<a href=#848 id=848 data-nosnippet>848</a>
-<a href=#849 id=849 data-nosnippet>849</a>            <span class="comment">// Verify zero-knowledge proof (simplified verification)
-<a href=#850 id=850 data-nosnippet>850</a>            </span><span class="kw">let </span>is_valid =
-<a href=#851 id=851 data-nosnippet>851</a>                <span class="self">self</span>.verify_zero_knowledge_proof(<span class="kw-2">&amp;</span>proof, <span class="kw-2">&amp;</span>public_inputs, <span class="kw-2">&amp;</span>verification_type);
-<a href=#852 id=852 data-nosnippet>852</a>
-<a href=#853 id=853 data-nosnippet>853</a>            <span class="kw">if </span>is_valid {
-<a href=#854 id=854 data-nosnippet>854</a>                <span class="comment">// Update privacy nonce for replay protection
-<a href=#855 id=855 data-nosnippet>855</a>                </span><span class="kw">let </span>current_nonce = <span class="self">self</span>.privacy_nonces.get(<span class="kw-2">&amp;</span>caller).unwrap_or(<span class="number">0</span>);
-<a href=#856 id=856 data-nosnippet>856</a>                <span class="self">self</span>.privacy_nonces.insert(<span class="kw-2">&amp;</span>caller, <span class="kw-2">&amp;</span>(current_nonce + <span class="number">1</span>));
-<a href=#857 id=857 data-nosnippet>857</a>
-<a href=#858 id=858 data-nosnippet>858</a>                <span class="comment">// Update last activity
-<a href=#859 id=859 data-nosnippet>859</a>                </span><span class="kw">let </span><span class="kw-2">mut </span>updated_identity = identity;
-<a href=#860 id=860 data-nosnippet>860</a>                updated_identity.last_activity = _timestamp;
-<a href=#861 id=861 data-nosnippet>861</a>                <span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>caller, <span class="kw-2">&amp;</span>updated_identity);
-<a href=#862 id=862 data-nosnippet>862</a>            }
-<a href=#863 id=863 data-nosnippet>863</a>
-<a href=#864 id=864 data-nosnippet>864</a>            <span class="prelude-val">Ok</span>(is_valid)
-<a href=#865 id=865 data-nosnippet>865</a>        }
-<a href=#866 id=866 data-nosnippet>866</a>
-<a href=#867 id=867 data-nosnippet>867</a>        <span class="doccomment">/// Get identity information
-<a href=#868 id=868 data-nosnippet>868</a>        </span><span class="attr">#[ink(message)]
-<a href=#869 id=869 data-nosnippet>869</a>        </span><span class="kw">pub fn </span>get_identity(<span class="kw-2">&amp;</span><span class="self">self</span>, account: AccountId) -&gt; <span class="prelude-ty">Option</span>&lt;Identity&gt; {
-<a href=#870 id=870 data-nosnippet>870</a>            <span class="self">self</span>.identities.get(<span class="kw-2">&amp;</span>account)
-<a href=#871 id=871 data-nosnippet>871</a>        }
-<a href=#872 id=872 data-nosnippet>872</a>
-<a href=#873 id=873 data-nosnippet>873</a>        <span class="doccomment">/// Get reputation metrics
-<a href=#874 id=874 data-nosnippet>874</a>        </span><span class="attr">#[ink(message)]
-<a href=#875 id=875 data-nosnippet>875</a>        </span><span class="kw">pub fn </span>get_reputation_metrics(<span class="kw-2">&amp;</span><span class="self">self</span>, account: AccountId) -&gt; <span class="prelude-ty">Option</span>&lt;ReputationMetrics&gt; {
-<a href=#876 id=876 data-nosnippet>876</a>            <span class="self">self</span>.reputation_metrics.get(<span class="kw-2">&amp;</span>account)
-<a href=#877 id=877 data-nosnippet>877</a>        }
-<a href=#878 id=878 data-nosnippet>878</a>
-<a href=#879 id=879 data-nosnippet>879</a>        <span class="doccomment">/// Get trust assessment
-<a href=#880 id=880 data-nosnippet>880</a>        </span><span class="attr">#[ink(message)]
-<a href=#881 id=881 data-nosnippet>881</a>        </span><span class="kw">pub fn </span>get_trust_assessment(
-<a href=#882 id=882 data-nosnippet>882</a>            <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#883 id=883 data-nosnippet>883</a>            assessor: AccountId,
-<a href=#884 id=884 data-nosnippet>884</a>            target: AccountId,
-<a href=#885 id=885 data-nosnippet>885</a>        ) -&gt; <span class="prelude-ty">Option</span>&lt;TrustAssessment&gt; {
-<a href=#886 id=886 data-nosnippet>886</a>            <span class="self">self</span>.trust_assessments.get(<span class="kw-2">&amp;</span>(assessor, target))
-<a href=#887 id=887 data-nosnippet>887</a>        }
-<a href=#888 id=888 data-nosnippet>888</a>
-<a href=#889 id=889 data-nosnippet>889</a>        <span class="doccomment">/// Check if account meets reputation threshold
-<a href=#890 id=890 data-nosnippet>890</a>        </span><span class="attr">#[ink(message)]
-<a href=#891 id=891 data-nosnippet>891</a>        </span><span class="kw">pub fn </span>meets_reputation_threshold(<span class="kw-2">&amp;</span><span class="self">self</span>, account: AccountId, threshold: u32) -&gt; bool {
-<a href=#892 id=892 data-nosnippet>892</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(identity) = <span class="self">self</span>.identities.get(<span class="kw-2">&amp;</span>account) {
-<a href=#893 id=893 data-nosnippet>893</a>                identity.reputation_score &gt;= threshold
-<a href=#894 id=894 data-nosnippet>894</a>            } <span class="kw">else </span>{
-<a href=#895 id=895 data-nosnippet>895</a>                <span class="bool-val">false
-<a href=#896 id=896 data-nosnippet>896</a>            </span>}
-<a href=#897 id=897 data-nosnippet>897</a>        }
-<a href=#898 id=898 data-nosnippet>898</a>
-<a href=#899 id=899 data-nosnippet>899</a>        <span class="doccomment">/// Get cross-chain verification status
-<a href=#900 id=900 data-nosnippet>900</a>        </span><span class="attr">#[ink(message)]
-<a href=#901 id=901 data-nosnippet>901</a>        </span><span class="kw">pub fn </span>get_cross_chain_verification(
-<a href=#902 id=902 data-nosnippet>902</a>            <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#903 id=903 data-nosnippet>903</a>            account: AccountId,
-<a href=#904 id=904 data-nosnippet>904</a>            chain_id: ChainId,
-<a href=#905 id=905 data-nosnippet>905</a>        ) -&gt; <span class="prelude-ty">Option</span>&lt;CrossChainVerification&gt; {
-<a href=#906 id=906 data-nosnippet>906</a>            <span class="self">self</span>.cross_chain_verifications.get(<span class="kw-2">&amp;</span>(account, chain_id))
-<a href=#907 id=907 data-nosnippet>907</a>        }
-<a href=#908 id=908 data-nosnippet>908</a>
-<a href=#909 id=909 data-nosnippet>909</a>        <span class="doccomment">/// Helper methods
-<a href=#910 id=910 data-nosnippet>910</a>        </span><span class="kw">fn </span>validate_did_format(<span class="kw-2">&amp;</span><span class="self">self</span>, did: <span class="kw-2">&amp;</span>str) -&gt; bool {
-<a href=#911 id=911 data-nosnippet>911</a>            <span class="comment">// Basic DID format validation: did:method:specific-id
-<a href=#912 id=912 data-nosnippet>912</a>            </span>did.starts_with(<span class="string">"did:"</span>) &amp;&amp; did.split(<span class="string">':'</span>).count() &gt;= <span class="number">3
-<a href=#913 id=913 data-nosnippet>913</a>        </span>}
-<a href=#914 id=914 data-nosnippet>914</a>
-<a href=#915 id=915 data-nosnippet>915</a>        <span class="kw">fn </span>is_authorized_verifier(<span class="kw-2">&amp;</span><span class="self">self</span>, account: AccountId) -&gt; bool {
-<a href=#916 id=916 data-nosnippet>916</a>            account == <span class="self">self</span>.admin || <span class="self">self</span>.authorized_verifiers.get(<span class="kw-2">&amp;</span>account).unwrap_or(<span class="bool-val">false</span>)
-<a href=#917 id=917 data-nosnippet>917</a>        }
-<a href=#918 id=918 data-nosnippet>918</a>
-<a href=#919 id=919 data-nosnippet>919</a>        <span class="kw">fn </span>calculate_trust_score(<span class="kw-2">&amp;</span><span class="self">self</span>, identity: <span class="kw-2">&amp;</span>Identity, metrics: <span class="kw-2">&amp;</span>ReputationMetrics) -&gt; u32 {
-<a href=#920 id=920 data-nosnippet>920</a>            <span class="kw">let </span>base_score = identity.trust_score;
-<a href=#921 id=921 data-nosnippet>921</a>            <span class="kw">let </span>reputation_factor = identity.reputation_score;
-<a href=#922 id=922 data-nosnippet>922</a>            <span class="kw">let </span>verification_bonus = <span class="kw">match </span>identity.verification_level {
-<a href=#923 id=923 data-nosnippet>923</a>                VerificationLevel::None =&gt; <span class="number">0</span>,
-<a href=#924 id=924 data-nosnippet>924</a>                VerificationLevel::Basic =&gt; <span class="number">10</span>,
-<a href=#925 id=925 data-nosnippet>925</a>                VerificationLevel::Standard =&gt; <span class="number">20</span>,
-<a href=#926 id=926 data-nosnippet>926</a>                VerificationLevel::Enhanced =&gt; <span class="number">30</span>,
-<a href=#927 id=927 data-nosnippet>927</a>                VerificationLevel::Premium =&gt; <span class="number">40</span>,
-<a href=#928 id=928 data-nosnippet>928</a>            };
-<a href=#929 id=929 data-nosnippet>929</a>
-<a href=#930 id=930 data-nosnippet>930</a>            <span class="comment">// Calculate success rate
-<a href=#931 id=931 data-nosnippet>931</a>            </span><span class="kw">let </span>success_rate = <span class="kw">if </span>metrics.total_transactions &gt; <span class="number">0 </span>{
-<a href=#932 id=932 data-nosnippet>932</a>                (metrics.successful_transactions * <span class="number">100</span>) / metrics.total_transactions
-<a href=#933 id=933 data-nosnippet>933</a>            } <span class="kw">else </span>{
-<a href=#934 id=934 data-nosnippet>934</a>                <span class="number">50 </span><span class="comment">// Default for no history
-<a href=#935 id=935 data-nosnippet>935</a>            </span>};
-<a href=#936 id=936 data-nosnippet>936</a>
-<a href=#937 id=937 data-nosnippet>937</a>            <span class="comment">// Weighted calculation with proper type casting
-<a href=#938 id=938 data-nosnippet>938</a>            </span>((base_score <span class="kw">as </span>u64 * <span class="number">40</span>)
-<a href=#939 id=939 data-nosnippet>939</a>                + (reputation_factor <span class="kw">as </span>u64 / <span class="number">10 </span>* <span class="number">30</span>)
-<a href=#940 id=940 data-nosnippet>940</a>                + (verification_bonus <span class="kw">as </span>u64 * <span class="number">20</span>)
-<a href=#941 id=941 data-nosnippet>941</a>                + (success_rate <span class="kw">as </span>u64 * <span class="number">10</span>)) <span class="kw">as </span>u32
-<a href=#942 id=942 data-nosnippet>942</a>                / <span class="number">100
-<a href=#943 id=943 data-nosnippet>943</a>        </span>}
-<a href=#944 id=944 data-nosnippet>944</a>
-<a href=#945 id=945 data-nosnippet>945</a>        <span class="kw">fn </span>verify_recovery_signature(
-<a href=#946 id=946 data-nosnippet>946</a>            <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#947 id=947 data-nosnippet>947</a>            _old_account: <span class="kw-2">&amp;</span>AccountId,
-<a href=#948 id=948 data-nosnippet>948</a>            _new_account: <span class="kw-2">&amp;</span>AccountId,
-<a href=#949 id=949 data-nosnippet>949</a>            signature: <span class="kw-2">&amp;</span>[u8],
-<a href=#950 id=950 data-nosnippet>950</a>            _identity: <span class="kw-2">&amp;</span>Identity,
-<a href=#951 id=951 data-nosnippet>951</a>        ) -&gt; bool {
-<a href=#952 id=952 data-nosnippet>952</a>            <span class="comment">// Simplified signature verification
-<a href=#953 id=953 data-nosnippet>953</a>            // In production, this would use proper cryptographic verification
-<a href=#954 id=954 data-nosnippet>954</a>            </span>signature.len() == <span class="number">64 </span><span class="comment">// Basic length check for Ed25519 signature
-<a href=#955 id=955 data-nosnippet>955</a>        </span>}
+<a href=#769 id=769 data-nosnippet>769</a>            <span class="comment">// Check if caller is a guardian
+<a href=#770 id=770 data-nosnippet>770</a>            </span><span class="kw">if </span>!identity.social_recovery.guardians.contains(<span class="kw-2">&amp;</span>caller) {
+<a href=#771 id=771 data-nosnippet>771</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::Unauthorized);
+<a href=#772 id=772 data-nosnippet>772</a>            }
+<a href=#773 id=773 data-nosnippet>773</a>
+<a href=#774 id=774 data-nosnippet>774</a>            <span class="comment">// Check if recovery is active
+<a href=#775 id=775 data-nosnippet>775</a>            </span><span class="kw">if </span>!identity.social_recovery.is_recovery_active {
+<a href=#776 id=776 data-nosnippet>776</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::RecoveryNotActive);
+<a href=#777 id=777 data-nosnippet>777</a>            }
+<a href=#778 id=778 data-nosnippet>778</a>
+<a href=#779 id=779 data-nosnippet>779</a>            <span class="comment">// Add approval
+<a href=#780 id=780 data-nosnippet>780</a>            </span><span class="kw">if </span>!identity
+<a href=#781 id=781 data-nosnippet>781</a>                .social_recovery
+<a href=#782 id=782 data-nosnippet>782</a>                .recovery_approvals
+<a href=#783 id=783 data-nosnippet>783</a>                .contains(<span class="kw-2">&amp;</span>caller)
+<a href=#784 id=784 data-nosnippet>784</a>            {
+<a href=#785 id=785 data-nosnippet>785</a>                identity.social_recovery.recovery_approvals.push(caller);
+<a href=#786 id=786 data-nosnippet>786</a>            }
+<a href=#787 id=787 data-nosnippet>787</a>
+<a href=#788 id=788 data-nosnippet>788</a>            <span class="comment">// Check if threshold is met
+<a href=#789 id=789 data-nosnippet>789</a>            </span><span class="kw">if </span>identity.social_recovery.recovery_approvals.len()
+<a href=#790 id=790 data-nosnippet>790</a>                &gt;= identity.social_recovery.threshold <span class="kw">as </span>usize
+<a href=#791 id=791 data-nosnippet>791</a>            {
+<a href=#792 id=792 data-nosnippet>792</a>                <span class="comment">// Complete recovery
+<a href=#793 id=793 data-nosnippet>793</a>                </span><span class="self">self</span>.complete_recovery(target_account, new_account)<span class="question-mark">?</span>;
+<a href=#794 id=794 data-nosnippet>794</a>            } <span class="kw">else </span>{
+<a href=#795 id=795 data-nosnippet>795</a>                <span class="comment">// Store updated identity
+<a href=#796 id=796 data-nosnippet>796</a>                </span><span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>target_account, <span class="kw-2">&amp;</span>identity);
+<a href=#797 id=797 data-nosnippet>797</a>            }
+<a href=#798 id=798 data-nosnippet>798</a>
+<a href=#799 id=799 data-nosnippet>799</a>            <span class="prelude-val">Ok</span>(())
+<a href=#800 id=800 data-nosnippet>800</a>        }
+<a href=#801 id=801 data-nosnippet>801</a>
+<a href=#802 id=802 data-nosnippet>802</a>        <span class="doccomment">/// Complete identity recovery
+<a href=#803 id=803 data-nosnippet>803</a>        </span><span class="kw">fn </span>complete_recovery(
+<a href=#804 id=804 data-nosnippet>804</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#805 id=805 data-nosnippet>805</a>            old_account: AccountId,
+<a href=#806 id=806 data-nosnippet>806</a>            new_account: AccountId,
+<a href=#807 id=807 data-nosnippet>807</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
+<a href=#808 id=808 data-nosnippet>808</a>            <span class="kw">let </span>_timestamp = <span class="self">self</span>.env().block_timestamp();
+<a href=#809 id=809 data-nosnippet>809</a>
+<a href=#810 id=810 data-nosnippet>810</a>            <span class="comment">// Get old identity
+<a href=#811 id=811 data-nosnippet>811</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>identity = <span class="self">self
+<a href=#812 id=812 data-nosnippet>812</a>                </span>.identities
+<a href=#813 id=813 data-nosnippet>813</a>                .get(<span class="kw-2">&amp;</span>old_account)
+<a href=#814 id=814 data-nosnippet>814</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
+<a href=#815 id=815 data-nosnippet>815</a>
+<a href=#816 id=816 data-nosnippet>816</a>            <span class="comment">// Update account ID
+<a href=#817 id=817 data-nosnippet>817</a>            </span>identity.account_id = new_account;
+<a href=#818 id=818 data-nosnippet>818</a>            identity.social_recovery.is_recovery_active = <span class="bool-val">false</span>;
+<a href=#819 id=819 data-nosnippet>819</a>            identity.social_recovery.recovery_approvals = Vec::new();
+<a href=#820 id=820 data-nosnippet>820</a>            identity.last_activity = _timestamp;
+<a href=#821 id=821 data-nosnippet>821</a>
+<a href=#822 id=822 data-nosnippet>822</a>            <span class="comment">// Remove old identity mapping
+<a href=#823 id=823 data-nosnippet>823</a>            </span><span class="self">self</span>.identities.remove(<span class="kw-2">&amp;</span>old_account);
+<a href=#824 id=824 data-nosnippet>824</a>
+<a href=#825 id=825 data-nosnippet>825</a>            <span class="comment">// Add new identity mapping
+<a href=#826 id=826 data-nosnippet>826</a>            </span><span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>new_account, <span class="kw-2">&amp;</span>identity);
+<a href=#827 id=827 data-nosnippet>827</a>            <span class="self">self</span>.did_to_account
+<a href=#828 id=828 data-nosnippet>828</a>                .insert(<span class="kw-2">&amp;</span>identity.did_document.did, <span class="kw-2">&amp;</span>new_account);
+<a href=#829 id=829 data-nosnippet>829</a>
+<a href=#830 id=830 data-nosnippet>830</a>            <span class="comment">// Update reputation metrics mapping
+<a href=#831 id=831 data-nosnippet>831</a>            </span><span class="kw">if let </span><span class="prelude-val">Some</span>(metrics) = <span class="self">self</span>.reputation_metrics.get(<span class="kw-2">&amp;</span>old_account) {
+<a href=#832 id=832 data-nosnippet>832</a>                <span class="self">self</span>.reputation_metrics.remove(<span class="kw-2">&amp;</span>old_account);
+<a href=#833 id=833 data-nosnippet>833</a>                <span class="self">self</span>.reputation_metrics.insert(<span class="kw-2">&amp;</span>new_account, <span class="kw-2">&amp;</span>metrics);
+<a href=#834 id=834 data-nosnippet>834</a>            }
+<a href=#835 id=835 data-nosnippet>835</a>
+<a href=#836 id=836 data-nosnippet>836</a>            <span class="comment">// Emit event
+<a href=#837 id=837 data-nosnippet>837</a>            </span><span class="self">self</span>.env().emit_event(RecoveryCompleted {
+<a href=#838 id=838 data-nosnippet>838</a>                account: old_account,
+<a href=#839 id=839 data-nosnippet>839</a>                new_account,
+<a href=#840 id=840 data-nosnippet>840</a>                timestamp: _timestamp,
+<a href=#841 id=841 data-nosnippet>841</a>            });
+<a href=#842 id=842 data-nosnippet>842</a>
+<a href=#843 id=843 data-nosnippet>843</a>            <span class="prelude-val">Ok</span>(())
+<a href=#844 id=844 data-nosnippet>844</a>        }
+<a href=#845 id=845 data-nosnippet>845</a>
+<a href=#846 id=846 data-nosnippet>846</a>        <span class="doccomment">/// Privacy-preserving identity verification using zero-knowledge proofs
+<a href=#847 id=847 data-nosnippet>847</a>        </span><span class="attr">#[ink(message)]
+<a href=#848 id=848 data-nosnippet>848</a>        </span><span class="kw">pub fn </span>verify_privacy_preserving(
+<a href=#849 id=849 data-nosnippet>849</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#850 id=850 data-nosnippet>850</a>            proof: Vec&lt;u8&gt;,
+<a href=#851 id=851 data-nosnippet>851</a>            public_inputs: Vec&lt;u8&gt;,
+<a href=#852 id=852 data-nosnippet>852</a>            verification_type: String,
+<a href=#853 id=853 data-nosnippet>853</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;bool, IdentityError&gt; {
+<a href=#854 id=854 data-nosnippet>854</a>            <span class="kw">let </span>caller = <span class="self">self</span>.env().caller();
+<a href=#855 id=855 data-nosnippet>855</a>            <span class="kw">let </span>_timestamp = <span class="self">self</span>.env().block_timestamp();
+<a href=#856 id=856 data-nosnippet>856</a>
+<a href=#857 id=857 data-nosnippet>857</a>            <span class="comment">// Get identity
+<a href=#858 id=858 data-nosnippet>858</a>            </span><span class="kw">let </span>identity = <span class="self">self
+<a href=#859 id=859 data-nosnippet>859</a>                </span>.identities
+<a href=#860 id=860 data-nosnippet>860</a>                .get(<span class="kw-2">&amp;</span>caller)
+<a href=#861 id=861 data-nosnippet>861</a>                .ok_or(IdentityError::IdentityNotFound)<span class="question-mark">?</span>;
+<a href=#862 id=862 data-nosnippet>862</a>
+<a href=#863 id=863 data-nosnippet>863</a>            <span class="comment">// Check if privacy settings allow this verification
+<a href=#864 id=864 data-nosnippet>864</a>            </span><span class="kw">if </span>!identity.privacy_settings.zero_knowledge_proof {
+<a href=#865 id=865 data-nosnippet>865</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::PrivacyVerificationFailed);
+<a href=#866 id=866 data-nosnippet>866</a>            }
+<a href=#867 id=867 data-nosnippet>867</a>
+<a href=#868 id=868 data-nosnippet>868</a>            <span class="comment">// Verify zero-knowledge proof (simplified verification)
+<a href=#869 id=869 data-nosnippet>869</a>            </span><span class="kw">let </span>is_valid =
+<a href=#870 id=870 data-nosnippet>870</a>                <span class="self">self</span>.verify_zero_knowledge_proof(<span class="kw-2">&amp;</span>proof, <span class="kw-2">&amp;</span>public_inputs, <span class="kw-2">&amp;</span>verification_type);
+<a href=#871 id=871 data-nosnippet>871</a>
+<a href=#872 id=872 data-nosnippet>872</a>            <span class="kw">if </span>is_valid {
+<a href=#873 id=873 data-nosnippet>873</a>                <span class="comment">// Update privacy nonce for replay protection
+<a href=#874 id=874 data-nosnippet>874</a>                </span><span class="kw">let </span>current_nonce = <span class="self">self</span>.privacy_nonces.get(<span class="kw-2">&amp;</span>caller).unwrap_or(<span class="number">0</span>);
+<a href=#875 id=875 data-nosnippet>875</a>                <span class="self">self</span>.privacy_nonces.insert(<span class="kw-2">&amp;</span>caller, <span class="kw-2">&amp;</span>(current_nonce + <span class="number">1</span>));
+<a href=#876 id=876 data-nosnippet>876</a>
+<a href=#877 id=877 data-nosnippet>877</a>                <span class="comment">// Update last activity
+<a href=#878 id=878 data-nosnippet>878</a>                </span><span class="kw">let </span><span class="kw-2">mut </span>updated_identity = identity;
+<a href=#879 id=879 data-nosnippet>879</a>                updated_identity.last_activity = _timestamp;
+<a href=#880 id=880 data-nosnippet>880</a>                <span class="self">self</span>.identities.insert(<span class="kw-2">&amp;</span>caller, <span class="kw-2">&amp;</span>updated_identity);
+<a href=#881 id=881 data-nosnippet>881</a>            }
+<a href=#882 id=882 data-nosnippet>882</a>
+<a href=#883 id=883 data-nosnippet>883</a>            <span class="prelude-val">Ok</span>(is_valid)
+<a href=#884 id=884 data-nosnippet>884</a>        }
+<a href=#885 id=885 data-nosnippet>885</a>
+<a href=#886 id=886 data-nosnippet>886</a>        <span class="doccomment">/// Get identity information
+<a href=#887 id=887 data-nosnippet>887</a>        </span><span class="attr">#[ink(message)]
+<a href=#888 id=888 data-nosnippet>888</a>        </span><span class="kw">pub fn </span>get_identity(<span class="kw-2">&amp;</span><span class="self">self</span>, account: AccountId) -&gt; <span class="prelude-ty">Option</span>&lt;Identity&gt; {
+<a href=#889 id=889 data-nosnippet>889</a>            <span class="self">self</span>.identities.get(<span class="kw-2">&amp;</span>account)
+<a href=#890 id=890 data-nosnippet>890</a>        }
+<a href=#891 id=891 data-nosnippet>891</a>
+<a href=#892 id=892 data-nosnippet>892</a>        <span class="doccomment">/// Get reputation metrics
+<a href=#893 id=893 data-nosnippet>893</a>        </span><span class="attr">#[ink(message)]
+<a href=#894 id=894 data-nosnippet>894</a>        </span><span class="kw">pub fn </span>get_reputation_metrics(<span class="kw-2">&amp;</span><span class="self">self</span>, account: AccountId) -&gt; <span class="prelude-ty">Option</span>&lt;ReputationMetrics&gt; {
+<a href=#895 id=895 data-nosnippet>895</a>            <span class="self">self</span>.reputation_metrics.get(<span class="kw-2">&amp;</span>account)
+<a href=#896 id=896 data-nosnippet>896</a>        }
+<a href=#897 id=897 data-nosnippet>897</a>
+<a href=#898 id=898 data-nosnippet>898</a>        <span class="doccomment">/// Get trust assessment
+<a href=#899 id=899 data-nosnippet>899</a>        </span><span class="attr">#[ink(message)]
+<a href=#900 id=900 data-nosnippet>900</a>        </span><span class="kw">pub fn </span>get_trust_assessment(
+<a href=#901 id=901 data-nosnippet>901</a>            <span class="kw-2">&amp;</span><span class="self">self</span>,
+<a href=#902 id=902 data-nosnippet>902</a>            assessor: AccountId,
+<a href=#903 id=903 data-nosnippet>903</a>            target: AccountId,
+<a href=#904 id=904 data-nosnippet>904</a>        ) -&gt; <span class="prelude-ty">Option</span>&lt;TrustAssessment&gt; {
+<a href=#905 id=905 data-nosnippet>905</a>            <span class="self">self</span>.trust_assessments.get(<span class="kw-2">&amp;</span>(assessor, target))
+<a href=#906 id=906 data-nosnippet>906</a>        }
+<a href=#907 id=907 data-nosnippet>907</a>
+<a href=#908 id=908 data-nosnippet>908</a>        <span class="doccomment">/// Check if account meets reputation threshold
+<a href=#909 id=909 data-nosnippet>909</a>        </span><span class="attr">#[ink(message)]
+<a href=#910 id=910 data-nosnippet>910</a>        </span><span class="kw">pub fn </span>meets_reputation_threshold(<span class="kw-2">&amp;</span><span class="self">self</span>, account: AccountId, threshold: u32) -&gt; bool {
+<a href=#911 id=911 data-nosnippet>911</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(identity) = <span class="self">self</span>.identities.get(<span class="kw-2">&amp;</span>account) {
+<a href=#912 id=912 data-nosnippet>912</a>                identity.reputation_score &gt;= threshold
+<a href=#913 id=913 data-nosnippet>913</a>            } <span class="kw">else </span>{
+<a href=#914 id=914 data-nosnippet>914</a>                <span class="bool-val">false
+<a href=#915 id=915 data-nosnippet>915</a>            </span>}
+<a href=#916 id=916 data-nosnippet>916</a>        }
+<a href=#917 id=917 data-nosnippet>917</a>
+<a href=#918 id=918 data-nosnippet>918</a>        <span class="doccomment">/// Get cross-chain verification status
+<a href=#919 id=919 data-nosnippet>919</a>        </span><span class="attr">#[ink(message)]
+<a href=#920 id=920 data-nosnippet>920</a>        </span><span class="kw">pub fn </span>get_cross_chain_verification(
+<a href=#921 id=921 data-nosnippet>921</a>            <span class="kw-2">&amp;</span><span class="self">self</span>,
+<a href=#922 id=922 data-nosnippet>922</a>            account: AccountId,
+<a href=#923 id=923 data-nosnippet>923</a>            chain_id: ChainId,
+<a href=#924 id=924 data-nosnippet>924</a>        ) -&gt; <span class="prelude-ty">Option</span>&lt;CrossChainVerification&gt; {
+<a href=#925 id=925 data-nosnippet>925</a>            <span class="self">self</span>.cross_chain_verifications.get(<span class="kw-2">&amp;</span>(account, chain_id))
+<a href=#926 id=926 data-nosnippet>926</a>        }
+<a href=#927 id=927 data-nosnippet>927</a>
+<a href=#928 id=928 data-nosnippet>928</a>        <span class="doccomment">/// Helper methods
+<a href=#929 id=929 data-nosnippet>929</a>        </span><span class="kw">fn </span>validate_did_format(<span class="kw-2">&amp;</span><span class="self">self</span>, did: <span class="kw-2">&amp;</span>str) -&gt; bool {
+<a href=#930 id=930 data-nosnippet>930</a>            <span class="comment">// Basic DID format validation: did:method:specific-id
+<a href=#931 id=931 data-nosnippet>931</a>            </span>did.starts_with(<span class="string">"did:"</span>) &amp;&amp; did.split(<span class="string">':'</span>).count() &gt;= <span class="number">3
+<a href=#932 id=932 data-nosnippet>932</a>        </span>}
+<a href=#933 id=933 data-nosnippet>933</a>
+<a href=#934 id=934 data-nosnippet>934</a>        <span class="kw">fn </span>is_authorized_verifier(<span class="kw-2">&amp;</span><span class="self">self</span>, account: AccountId) -&gt; bool {
+<a href=#935 id=935 data-nosnippet>935</a>            account == <span class="self">self</span>.admin || <span class="self">self</span>.authorized_verifiers.get(<span class="kw-2">&amp;</span>account).unwrap_or(<span class="bool-val">false</span>)
+<a href=#936 id=936 data-nosnippet>936</a>        }
+<a href=#937 id=937 data-nosnippet>937</a>
+<a href=#938 id=938 data-nosnippet>938</a>        <span class="kw">fn </span>calculate_trust_score(<span class="kw-2">&amp;</span><span class="self">self</span>, identity: <span class="kw-2">&amp;</span>Identity, metrics: <span class="kw-2">&amp;</span>ReputationMetrics) -&gt; u32 {
+<a href=#939 id=939 data-nosnippet>939</a>            <span class="kw">let </span>base_score = identity.trust_score;
+<a href=#940 id=940 data-nosnippet>940</a>            <span class="kw">let </span>reputation_factor = identity.reputation_score;
+<a href=#941 id=941 data-nosnippet>941</a>            <span class="kw">let </span>verification_bonus = <span class="kw">match </span>identity.verification_level {
+<a href=#942 id=942 data-nosnippet>942</a>                VerificationLevel::None =&gt; <span class="number">0</span>,
+<a href=#943 id=943 data-nosnippet>943</a>                VerificationLevel::Basic =&gt; <span class="number">10</span>,
+<a href=#944 id=944 data-nosnippet>944</a>                VerificationLevel::Standard =&gt; <span class="number">20</span>,
+<a href=#945 id=945 data-nosnippet>945</a>                VerificationLevel::Enhanced =&gt; <span class="number">30</span>,
+<a href=#946 id=946 data-nosnippet>946</a>                VerificationLevel::Premium =&gt; <span class="number">40</span>,
+<a href=#947 id=947 data-nosnippet>947</a>            };
+<a href=#948 id=948 data-nosnippet>948</a>
+<a href=#949 id=949 data-nosnippet>949</a>            <span class="comment">// Calculate success rate
+<a href=#950 id=950 data-nosnippet>950</a>            </span><span class="attr">#[allow(clippy::manual_checked_ops)]
+<a href=#951 id=951 data-nosnippet>951</a>            </span><span class="kw">let </span>success_rate = <span class="kw">if </span>metrics.total_transactions &gt; <span class="number">0 </span>{
+<a href=#952 id=952 data-nosnippet>952</a>                (metrics.successful_transactions * <span class="number">100</span>) / metrics.total_transactions
+<a href=#953 id=953 data-nosnippet>953</a>            } <span class="kw">else </span>{
+<a href=#954 id=954 data-nosnippet>954</a>                <span class="number">50 </span><span class="comment">// Default for no history
+<a href=#955 id=955 data-nosnippet>955</a>            </span>};
 <a href=#956 id=956 data-nosnippet>956</a>
-<a href=#957 id=957 data-nosnippet>957</a>        <span class="kw">fn </span>verify_zero_knowledge_proof(
-<a href=#958 id=958 data-nosnippet>958</a>            <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#959 id=959 data-nosnippet>959</a>            proof: <span class="kw-2">&amp;</span>[u8],
-<a href=#960 id=960 data-nosnippet>960</a>            public_inputs: <span class="kw-2">&amp;</span>[u8],
-<a href=#961 id=961 data-nosnippet>961</a>            verification_type: <span class="kw-2">&amp;</span>str,
-<a href=#962 id=962 data-nosnippet>962</a>        ) -&gt; bool {
-<a href=#963 id=963 data-nosnippet>963</a>            <span class="comment">// Simplified ZK verification
-<a href=#964 id=964 data-nosnippet>964</a>            // In production, this would integrate with proper ZK proof systems
-<a href=#965 id=965 data-nosnippet>965</a>            </span><span class="kw">match </span>verification_type {
-<a href=#966 id=966 data-nosnippet>966</a>                <span class="string">"identity_proof" </span>=&gt; proof.len() &gt;= <span class="number">32</span>,
-<a href=#967 id=967 data-nosnippet>967</a>                <span class="string">"reputation_proof" </span>=&gt; public_inputs.len() &gt;= <span class="number">8</span>,
-<a href=#968 id=968 data-nosnippet>968</a>                <span class="kw">_ </span>=&gt; <span class="bool-val">false</span>,
-<a href=#969 id=969 data-nosnippet>969</a>            }
-<a href=#970 id=970 data-nosnippet>970</a>        }
-<a href=#971 id=971 data-nosnippet>971</a>
-<a href=#972 id=972 data-nosnippet>972</a>        <span class="doccomment">/// Admin methods
-<a href=#973 id=973 data-nosnippet>973</a>        </span><span class="attr">#[ink(message)]
-<a href=#974 id=974 data-nosnippet>974</a>        </span><span class="kw">pub fn </span>add_authorized_verifier(
-<a href=#975 id=975 data-nosnippet>975</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#976 id=976 data-nosnippet>976</a>            verifier: AccountId,
-<a href=#977 id=977 data-nosnippet>977</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
-<a href=#978 id=978 data-nosnippet>978</a>            <span class="kw">if </span><span class="self">self</span>.env().caller() != <span class="self">self</span>.admin {
-<a href=#979 id=979 data-nosnippet>979</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::Unauthorized);
-<a href=#980 id=980 data-nosnippet>980</a>            }
-<a href=#981 id=981 data-nosnippet>981</a>            <span class="self">self</span>.authorized_verifiers.insert(<span class="kw-2">&amp;</span>verifier, <span class="kw-2">&amp;</span><span class="bool-val">true</span>);
-<a href=#982 id=982 data-nosnippet>982</a>            <span class="prelude-val">Ok</span>(())
-<a href=#983 id=983 data-nosnippet>983</a>        }
-<a href=#984 id=984 data-nosnippet>984</a>
-<a href=#985 id=985 data-nosnippet>985</a>        <span class="attr">#[ink(message)]
-<a href=#986 id=986 data-nosnippet>986</a>        </span><span class="kw">pub fn </span>remove_authorized_verifier(
-<a href=#987 id=987 data-nosnippet>987</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#988 id=988 data-nosnippet>988</a>            verifier: AccountId,
-<a href=#989 id=989 data-nosnippet>989</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
-<a href=#990 id=990 data-nosnippet>990</a>            <span class="kw">if </span><span class="self">self</span>.env().caller() != <span class="self">self</span>.admin {
-<a href=#991 id=991 data-nosnippet>991</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::Unauthorized);
-<a href=#992 id=992 data-nosnippet>992</a>            }
-<a href=#993 id=993 data-nosnippet>993</a>            <span class="self">self</span>.authorized_verifiers.insert(<span class="kw-2">&amp;</span>verifier, <span class="kw-2">&amp;</span><span class="bool-val">false</span>);
-<a href=#994 id=994 data-nosnippet>994</a>            <span class="prelude-val">Ok</span>(())
-<a href=#995 id=995 data-nosnippet>995</a>        }
-<a href=#996 id=996 data-nosnippet>996</a>
-<a href=#997 id=997 data-nosnippet>997</a>        <span class="attr">#[ink(message)]
-<a href=#998 id=998 data-nosnippet>998</a>        </span><span class="kw">pub fn </span>add_supported_chain(<span class="kw-2">&amp;mut </span><span class="self">self</span>, chain_id: ChainId) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
-<a href=#999 id=999 data-nosnippet>999</a>            <span class="kw">if </span><span class="self">self</span>.env().caller() != <span class="self">self</span>.admin {
-<a href=#1000 id=1000 data-nosnippet>1000</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::Unauthorized);
-<a href=#1001 id=1001 data-nosnippet>1001</a>            }
-<a href=#1002 id=1002 data-nosnippet>1002</a>            <span class="kw">if </span>!<span class="self">self</span>.supported_chains.contains(<span class="kw-2">&amp;</span>chain_id) {
-<a href=#1003 id=1003 data-nosnippet>1003</a>                <span class="self">self</span>.supported_chains.push(chain_id);
-<a href=#1004 id=1004 data-nosnippet>1004</a>            }
-<a href=#1005 id=1005 data-nosnippet>1005</a>            <span class="prelude-val">Ok</span>(())
-<a href=#1006 id=1006 data-nosnippet>1006</a>        }
-<a href=#1007 id=1007 data-nosnippet>1007</a>
-<a href=#1008 id=1008 data-nosnippet>1008</a>        <span class="attr">#[ink(message)]
-<a href=#1009 id=1009 data-nosnippet>1009</a>        </span><span class="kw">pub fn </span>get_supported_chains(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;ChainId&gt; {
-<a href=#1010 id=1010 data-nosnippet>1010</a>            <span class="self">self</span>.supported_chains.clone()
-<a href=#1011 id=1011 data-nosnippet>1011</a>        }
-<a href=#1012 id=1012 data-nosnippet>1012</a>    }
-<a href=#1013 id=1013 data-nosnippet>1013</a>}
+<a href=#957 id=957 data-nosnippet>957</a>            <span class="comment">// Weighted calculation with proper type casting
+<a href=#958 id=958 data-nosnippet>958</a>            </span>((base_score <span class="kw">as </span>u64 * <span class="number">40</span>)
+<a href=#959 id=959 data-nosnippet>959</a>                + (reputation_factor <span class="kw">as </span>u64 / <span class="number">10 </span>* <span class="number">30</span>)
+<a href=#960 id=960 data-nosnippet>960</a>                + (verification_bonus <span class="kw">as </span>u64 * <span class="number">20</span>)
+<a href=#961 id=961 data-nosnippet>961</a>                + (success_rate * <span class="number">10</span>)) <span class="kw">as </span>u32
+<a href=#962 id=962 data-nosnippet>962</a>                / <span class="number">100
+<a href=#963 id=963 data-nosnippet>963</a>        </span>}
+<a href=#964 id=964 data-nosnippet>964</a>
+<a href=#965 id=965 data-nosnippet>965</a>        <span class="kw">fn </span>verify_recovery_signature(
+<a href=#966 id=966 data-nosnippet>966</a>            <span class="kw-2">&amp;</span><span class="self">self</span>,
+<a href=#967 id=967 data-nosnippet>967</a>            _old_account: <span class="kw-2">&amp;</span>AccountId,
+<a href=#968 id=968 data-nosnippet>968</a>            _new_account: <span class="kw-2">&amp;</span>AccountId,
+<a href=#969 id=969 data-nosnippet>969</a>            signature: <span class="kw-2">&amp;</span>[u8],
+<a href=#970 id=970 data-nosnippet>970</a>            _identity: <span class="kw-2">&amp;</span>Identity,
+<a href=#971 id=971 data-nosnippet>971</a>        ) -&gt; bool {
+<a href=#972 id=972 data-nosnippet>972</a>            <span class="comment">// Simplified signature verification
+<a href=#973 id=973 data-nosnippet>973</a>            // In production, this would use proper cryptographic verification
+<a href=#974 id=974 data-nosnippet>974</a>            </span>signature.len() == <span class="number">64 </span><span class="comment">// Basic length check for Ed25519 signature
+<a href=#975 id=975 data-nosnippet>975</a>        </span>}
+<a href=#976 id=976 data-nosnippet>976</a>
+<a href=#977 id=977 data-nosnippet>977</a>        <span class="kw">fn </span>verify_zero_knowledge_proof(
+<a href=#978 id=978 data-nosnippet>978</a>            <span class="kw-2">&amp;</span><span class="self">self</span>,
+<a href=#979 id=979 data-nosnippet>979</a>            proof: <span class="kw-2">&amp;</span>[u8],
+<a href=#980 id=980 data-nosnippet>980</a>            public_inputs: <span class="kw-2">&amp;</span>[u8],
+<a href=#981 id=981 data-nosnippet>981</a>            verification_type: <span class="kw-2">&amp;</span>str,
+<a href=#982 id=982 data-nosnippet>982</a>        ) -&gt; bool {
+<a href=#983 id=983 data-nosnippet>983</a>            <span class="comment">// Simplified ZK verification
+<a href=#984 id=984 data-nosnippet>984</a>            // In production, this would integrate with proper ZK proof systems
+<a href=#985 id=985 data-nosnippet>985</a>            </span><span class="kw">match </span>verification_type {
+<a href=#986 id=986 data-nosnippet>986</a>                <span class="string">"identity_proof" </span>=&gt; proof.len() &gt;= <span class="number">32</span>,
+<a href=#987 id=987 data-nosnippet>987</a>                <span class="string">"reputation_proof" </span>=&gt; public_inputs.len() &gt;= <span class="number">8</span>,
+<a href=#988 id=988 data-nosnippet>988</a>                <span class="kw">_ </span>=&gt; <span class="bool-val">false</span>,
+<a href=#989 id=989 data-nosnippet>989</a>            }
+<a href=#990 id=990 data-nosnippet>990</a>        }
+<a href=#991 id=991 data-nosnippet>991</a>
+<a href=#992 id=992 data-nosnippet>992</a>        <span class="doccomment">/// Admin methods
+<a href=#993 id=993 data-nosnippet>993</a>        </span><span class="attr">#[ink(message)]
+<a href=#994 id=994 data-nosnippet>994</a>        </span><span class="kw">pub fn </span>add_authorized_verifier(
+<a href=#995 id=995 data-nosnippet>995</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#996 id=996 data-nosnippet>996</a>            verifier: AccountId,
+<a href=#997 id=997 data-nosnippet>997</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
+<a href=#998 id=998 data-nosnippet>998</a>            <span class="kw">if </span><span class="self">self</span>.env().caller() != <span class="self">self</span>.admin {
+<a href=#999 id=999 data-nosnippet>999</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::Unauthorized);
+<a href=#1000 id=1000 data-nosnippet>1000</a>            }
+<a href=#1001 id=1001 data-nosnippet>1001</a>            <span class="self">self</span>.authorized_verifiers.insert(<span class="kw-2">&amp;</span>verifier, <span class="kw-2">&amp;</span><span class="bool-val">true</span>);
+<a href=#1002 id=1002 data-nosnippet>1002</a>            <span class="prelude-val">Ok</span>(())
+<a href=#1003 id=1003 data-nosnippet>1003</a>        }
+<a href=#1004 id=1004 data-nosnippet>1004</a>
+<a href=#1005 id=1005 data-nosnippet>1005</a>        <span class="attr">#[ink(message)]
+<a href=#1006 id=1006 data-nosnippet>1006</a>        </span><span class="kw">pub fn </span>remove_authorized_verifier(
+<a href=#1007 id=1007 data-nosnippet>1007</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#1008 id=1008 data-nosnippet>1008</a>            verifier: AccountId,
+<a href=#1009 id=1009 data-nosnippet>1009</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
+<a href=#1010 id=1010 data-nosnippet>1010</a>            <span class="kw">if </span><span class="self">self</span>.env().caller() != <span class="self">self</span>.admin {
+<a href=#1011 id=1011 data-nosnippet>1011</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::Unauthorized);
+<a href=#1012 id=1012 data-nosnippet>1012</a>            }
+<a href=#1013 id=1013 data-nosnippet>1013</a>            <span class="self">self</span>.authorized_verifiers.insert(<span class="kw-2">&amp;</span>verifier, <span class="kw-2">&amp;</span><span class="bool-val">false</span>);
+<a href=#1014 id=1014 data-nosnippet>1014</a>            <span class="prelude-val">Ok</span>(())
+<a href=#1015 id=1015 data-nosnippet>1015</a>        }
+<a href=#1016 id=1016 data-nosnippet>1016</a>
+<a href=#1017 id=1017 data-nosnippet>1017</a>        <span class="attr">#[ink(message)]
+<a href=#1018 id=1018 data-nosnippet>1018</a>        </span><span class="kw">pub fn </span>add_supported_chain(<span class="kw-2">&amp;mut </span><span class="self">self</span>, chain_id: ChainId) -&gt; <span class="prelude-ty">Result</span>&lt;(), IdentityError&gt; {
+<a href=#1019 id=1019 data-nosnippet>1019</a>            <span class="kw">if </span><span class="self">self</span>.env().caller() != <span class="self">self</span>.admin {
+<a href=#1020 id=1020 data-nosnippet>1020</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(IdentityError::Unauthorized);
+<a href=#1021 id=1021 data-nosnippet>1021</a>            }
+<a href=#1022 id=1022 data-nosnippet>1022</a>            <span class="kw">if </span>!<span class="self">self</span>.supported_chains.contains(<span class="kw-2">&amp;</span>chain_id) {
+<a href=#1023 id=1023 data-nosnippet>1023</a>                <span class="self">self</span>.supported_chains.push(chain_id);
+<a href=#1024 id=1024 data-nosnippet>1024</a>            }
+<a href=#1025 id=1025 data-nosnippet>1025</a>            <span class="prelude-val">Ok</span>(())
+<a href=#1026 id=1026 data-nosnippet>1026</a>        }
+<a href=#1027 id=1027 data-nosnippet>1027</a>
+<a href=#1028 id=1028 data-nosnippet>1028</a>        <span class="attr">#[ink(message)]
+<a href=#1029 id=1029 data-nosnippet>1029</a>        </span><span class="kw">pub fn </span>get_supported_chains(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;ChainId&gt; {
+<a href=#1030 id=1030 data-nosnippet>1030</a>            <span class="self">self</span>.supported_chains.clone()
+<a href=#1031 id=1031 data-nosnippet>1031</a>        }
+<a href=#1032 id=1032 data-nosnippet>1032</a>    }
+<a href=#1033 id=1033 data-nosnippet>1033</a>}
 </code></pre></div></section></main></body></html>
