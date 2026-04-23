@@ -54,6 +54,18 @@ mod bridge {
 
         /// Pending admin key rotation request
         pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
+
+        /// Account daily bridge request count for rate limiting
+        account_daily_requests: Mapping<AccountId, u64>,
+
+        /// Account last reset day for rate limiting
+        account_last_reset_day: Mapping<AccountId, u64>,
+
+        /// Chain daily volume for rate limiting
+        chain_daily_volume: Mapping<ChainId, u128>,
+
+        /// Chain last reset day for rate limiting
+        chain_last_reset_day: Mapping<ChainId, u64>,
     }
 
     /// Events for bridge operations
@@ -127,6 +139,9 @@ mod bridge {
                 gas_limit_per_bridge: gas_limit,
                 emergency_pause: false,
                 metadata_preservation: true,
+                rate_limit_enabled: true,
+                max_requests_per_day: 10,
+                max_value_per_day: 1_000_000_000_000_000_000,
             };
 
             // Initialize chain info for supported chains
@@ -144,6 +159,10 @@ mod bridge {
                 admin: caller,
                 operator_public_keys: Mapping::default(),
                 pending_admin_rotation: None,
+                account_daily_requests: Mapping::default(),
+                account_last_reset_day: Mapping::default(),
+                chain_daily_volume: Mapping::default(),
+                chain_last_reset_day: Mapping::default(),
             };
 
             // Set up default chain information
@@ -156,6 +175,7 @@ mod bridge {
                     gas_multiplier: propchain_traits::constants::DEFAULT_GAS_MULTIPLIER,
                     confirmation_blocks: propchain_traits::constants::DEFAULT_CONFIRMATION_BLOCKS,
                     supported_tokens: Vec::new(),
+                    chain_daily_limit: 10_000_000_000_000_000_000, // Example large default
                 };
                 bridge.chain_info.insert(chain_id, &chain_info);
             }
@@ -197,6 +217,10 @@ mod bridge {
             if !self.is_authorized_for_token(caller, token_id) {
                 return Err(Error::Unauthorized);
             }
+
+            // Enforce rate limiting
+            // For NFT bridge, we count requests but value is 0 here since NFT value isn't strictly defined by amount.
+            self.check_and_update_rate_limits(caller, destination_chain, 0, true)?;
 
             // Create bridge request
             self.request_counter += 1;
@@ -536,6 +560,10 @@ mod bridge {
                 return Err(Error::InvalidChain);
             }
 
+            // Enforce rate limiting
+            // For cross-chain trades, we track the volume (amount_in) but don't count it as an NFT request.
+            self.check_and_update_rate_limits(self.env().caller(), destination_chain, amount_in, false)?;
+
             self.cross_chain_trade_counter += 1;
             let trade_id = self.cross_chain_trade_counter;
             let quote = self.quote_cross_chain_trade(destination_chain, amount_in)?;
@@ -794,6 +822,59 @@ mod bridge {
             let base_gas = 100000; // Base gas for bridge operation
             let metadata_gas = request.metadata.legal_description.len() as u64 * 100; // Gas for metadata
             base_gas + metadata_gas
+        }
+
+        fn check_and_update_rate_limits(
+            &mut self,
+            account: AccountId,
+            destination_chain: ChainId,
+            amount: u128,
+            is_nft: bool,
+        ) -> Result<(), Error> {
+            if !self.config.rate_limit_enabled {
+                return Ok(());
+            }
+
+            let current_day = self.env().block_timestamp() / 86_400_000;
+
+            if is_nft {
+                let last_reset = self.account_last_reset_day.get(account).unwrap_or(0);
+                let mut daily_requests = self.account_daily_requests.get(account).unwrap_or(0);
+
+                if last_reset < current_day {
+                    daily_requests = 0;
+                    self.account_last_reset_day.insert(account, &current_day);
+                }
+
+                if daily_requests >= self.config.max_requests_per_day {
+                    return Err(Error::RateLimitExceeded);
+                }
+
+                self.account_daily_requests.insert(account, &(daily_requests + 1));
+            }
+
+            if amount > 0 {
+                let chain_info = self
+                    .chain_info
+                    .get(destination_chain)
+                    .ok_or(Error::InvalidChain)?;
+                let last_chain_reset = self.chain_last_reset_day.get(destination_chain).unwrap_or(0);
+                let mut chain_volume = self.chain_daily_volume.get(destination_chain).unwrap_or(0);
+
+                if last_chain_reset < current_day {
+                    chain_volume = 0;
+                    self.chain_last_reset_day.insert(destination_chain, &current_day);
+                }
+
+                if chain_volume.saturating_add(amount) > chain_info.chain_daily_limit {
+                    return Err(Error::RateLimitExceeded);
+                }
+
+                self.chain_daily_volume
+                    .insert(destination_chain, &(chain_volume + amount));
+            }
+
+            Ok(())
         }
     }
 }

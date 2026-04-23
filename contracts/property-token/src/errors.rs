@@ -67,6 +67,8 @@ pub enum Error {
     InsufficientRewardPool,
     /// An active stake already exists for this account and token
     AlreadyStaked,
+    /// Token IDs and amounts vectors have different lengths
+    LengthMismatch,
 }
 
 impl core::fmt::Display for Error {
@@ -104,6 +106,7 @@ impl core::fmt::Display for Error {
             Error::NoRewards => write!(f, "No staking rewards available"),
             Error::InsufficientRewardPool => write!(f, "Insufficient reward pool balance"),
             Error::AlreadyStaked => write!(f, "An active stake already exists for this token"),
+            Error::LengthMismatch => write!(f, "Token IDs and amounts length mismatch"),
         }
     }
 }
@@ -141,6 +144,7 @@ impl ContractError for Error {
             Error::NoRewards => property_token_codes::NO_REWARDS,
             Error::InsufficientRewardPool => property_token_codes::INSUFFICIENT_REWARD_POOL,
             Error::AlreadyStaked => property_token_codes::ALREADY_STAKED,
+            Error::LengthMismatch => property_token_codes::BATCH_SIZE_EXCEEDED,
         }
     }
 
@@ -176,6 +180,7 @@ impl ContractError for Error {
             Error::ProposalNotFound => "The governance proposal does not exist",
             Error::ProposalClosed => "The governance proposal is closed for voting",
             Error::AskNotFound => "The sell ask does not exist",
+            Error::LengthMismatch => "Token IDs and amounts vectors have different lengths",
             Error::BatchSizeExceeded => {
                 "The input batch exceeds the maximum allowed size"
             }

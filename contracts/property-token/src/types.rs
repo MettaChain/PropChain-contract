@@ -161,6 +161,9 @@ pub struct TaxRecord {
     Debug,
     Clone,
     Copy,
+#[derive(
+    Debug,
+    Clone,
     PartialEq,
     Eq,
     scale::Encode,
@@ -197,10 +200,16 @@ impl ShareLockPeriod {
 }
 
 /// Per-account, per-token staking record
+pub enum VestingRole {
+    Team,
+    Investor,
+}
+
 #[derive(
     Debug,
     Clone,
     PartialEq,
+    Eq,
     scale::Encode,
     scale::Decode,
     ink::storage::traits::StorageLayout,
@@ -215,3 +224,12 @@ pub struct ShareStakeInfo {
     pub lock_period: ShareLockPeriod,
     pub reward_debt: u128,
 }
+pub struct VestingSchedule {
+    pub role: VestingRole,
+    pub total_amount: u128,
+    pub claimed_amount: u128,
+    pub start_time: u64,
+    pub cliff_duration: u64,
+    pub vesting_duration: u64,
+}
+

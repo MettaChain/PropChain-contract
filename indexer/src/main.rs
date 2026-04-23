@@ -12,6 +12,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
+use tower_governor::{
+    governor::GovernorConfigBuilder, GovernorLayer,
+};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[derive(Parser, Debug)]
@@ -59,6 +62,16 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Rate limiting: 100 requests per second per IP, burst of 20
+    let governor_conf = GovernorConfigBuilder::default()
+        .per_second(100)
+        .burst_size(20)
+        .finish()
+        .expect("valid governor config");
+    let governor_layer = GovernorLayer {
+        config: std::sync::Arc::new(governor_conf),
+    };
+
     let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -74,7 +87,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/metrics", get(|| async move { metric_handle.render() }))
         .with_state(api_state)
         .layer(prometheus_layer)
-        .layer(cors);
+        .layer(cors)
+        .layer(governor_layer);
 
     let addr: SocketAddr = cfg.bind_addr.parse().context("parse bind addr")?;
     tracing::info!("Indexer API listening on http://{}", addr);

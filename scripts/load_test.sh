@@ -194,6 +194,11 @@ case "${1:-help}" in
         fi
         ;;
     
+    rate)
+        check_prerequisites
+        run_load_test "api_rate_limit" "API Rate Limit Tests (Issue #162)"
+        ;;
+
     custom)
         check_prerequisites
         if [ -z "$2" ]; then

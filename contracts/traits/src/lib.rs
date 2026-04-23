@@ -4,13 +4,17 @@
 // Existing modules
 // =========================================================================
 pub mod access_control;
+pub mod observer;
 pub mod constants;
 pub mod crypto;
+pub mod di;
 pub mod errors;
 pub mod randomness;
 
 pub use access_control::*;
+pub use observer::*;
 pub use crypto::*;
+pub use di::*;
 pub mod i18n;
 pub mod monitoring;
 
@@ -23,6 +27,7 @@ pub mod dex;
 pub mod fee;
 pub mod oracle;
 pub mod property;
+pub mod event_bus;
 
 // =========================================================================
 // Re-exports for backward compatibility
@@ -43,6 +48,7 @@ pub use property::*;
 // Re-export compliance and fee module contents (types are defined in those modules)
 pub use compliance::*;
 pub use fee::*;
+pub use event_bus::*;
 
 #[cfg(not(feature = "std"))]
 use scale_info::prelude::vec::Vec;

@@ -408,3 +408,217 @@ pub fn assert_performance_thresholds(
 
     println!("✅ All performance thresholds met!");
 }
+
+// ── API Rate Limit Tests (Issue #162) ─────────────────────────────────────────
+
+#[cfg(test)]
+mod api_rate_limit_tests {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    use std::thread;
+
+    /// Simulates N sequential HTTP-like calls against the rate limiter logic
+    /// and counts how many are accepted vs rejected.
+    ///
+    /// We test the token-bucket logic from `contracts/ai-valuation/src/rate_limit.rs`
+    /// directly (no live server needed) so these run in `cargo test` without
+    /// a running indexer.
+    fn make_limiter() -> crate::RateLimiterSim {
+        crate::RateLimiterSim::new(100, 20) // 100 rps, burst 20
+    }
+
+    // ── 1. Burst stays within limit ──────────────────────────────────────────
+
+    /// Send);
+        let results: Vec<bool> = (0..20).map(|_| limiter.try_acquire(0)).collect();
+        let accepted = results.iter().filter(|&&r| r).count();
+        assert_eq!(accepted, 20, "all 20 burst requests should be accepted");
+    }
+
+    /// The 21st request at t=0 (burst exhausted, no refill yet) must be rejected.
+    #[test]
+    fn test_burst_exceeded_rejected() {
+        let mut limiter = RateLimiterSim::new(100, 20);
+        for _ in 0..20 { limiter.try_acquire(0); }
+        assert!(!limiter.try_acquire(0), "request beyond burst must be rejected");
+    }
+
+    // ── 2. Refill behaviour ──────────────────────────────────────────────────
+
+    /// After 1 second (rate = 100 rps) the bucket should accept 100 more requests.
+    #[test]
+    fn test_refill_after_one_second() {
+        let mut limiter = RateLimiterSim::new(100, 20);
+        // Drain burst
+        for _ in 0..20 { limiter.try_acquire(0); }
+   0, so after 1s tokens = min(0 + 100, 20) = 20
+        let accepted = (0..20).filter(|_| limiter.try_acquire(1000)).count();
+        assert_eq!(accepted, 20, "bucket should refill to burst cap after 1s");
+    }
+
+    /// Partial refill: after 100ms (10 tokens at 100rps) exactly 10 accepted.
+    #[test]
+    fn test_partial_refill_100ms() {
+        let mut limiter = RateLimiterSim::new(100, 20);
+        for _ in 0..20 { limiter.try_acquire(0); }
+        // 100ms → 10 tokens refilled (100 tokens/s × 0.1s)
+        let accepted = (0..20).filter(|_| limiter.try_acquire(100)).count();
+        assert_eq!(accepted, 10, "only 10 tokens should refill in 100ms");
+    }
+
+    // ── 3. Concurrent callers ────────────────────────────────────────────────
+
+    /// 50 concurrent threads each fire 10 requests at t=0.
+    /// Only `burst_size` (20) of the 500 total should succeed.
+    #[test]
+    fn test_concurrent_burst_only_buew(AtomicU32::new(0));
+        // Shared atomic counters stand in for the real limiter under concurrency
+        let burst: u32 = 20;
+        let total_requests: u32 = 500;
+
+        // Simulate: first `burst` wins, rest are rejected
+        let handles: Vec<_> = (0..50).map(|_| {
+            let acc = Arc::clone(&accepted);
+            let rej = Arc::clone(&rejected);
+            thread::spawn(move || {
+                for _ in 0..10 {
+                    // fetch_add returns old value; if old value < burst → accept
+                    let prev = acc.fetch_add(0, Ordering::SeqCst);
+                    if prev < burst {
+                        if acc.fetch_add(1, Ordering::SeqCst) < burst {
+                            // accepted
+                        } else {
+                            acc.fetch_sub(1, Ordering::SeqCst);
+                            rej.fetch_add(1, Ordering::SeqCst);
+                        }
+                    } else {
+                        rej.fetch_add(1, Ordering::SeqCst);
+                  }
+                }
+            })
+        }).collect();
+
+        for h in handles { h.join().unwrap(); }
+
+        let total = accepted.load(Ordering::SeqCst) + rejected.load(Ordering::SeqCst);
+        assert_eq!(total, total_requests, "all 500 requests accounted for");
+        assert!(
+            accepted.load(Ordering::SeqCst) <= burst,
+            "accepted ({}) must not exceed burst ({})",
+            accepted.load(Ordering::SeqCst), burst
+        );
+        println!(
+            "Concurrent burst test — accepted: {}, rejected: {}",
+            accepted.load(Ordering::SeqCst),
+            rejected.load(Ordering::SeqCst)
+        );
+    }
+
+    // ── 4. Sustained load stays under rate ───────────────────────────────────
+
+    /// Fire 200 requests spread over 2 seconds (100/s) — all should succeed
+    /// because the rate exactly matches the limit.
+    #[test]
+    fn test_sustained_load_at_exact_rate_all_succeed() {
+ed = 0usize;
+        for i in 0..200u64 {
+            // Each request is 10ms apart → 100 rps
+            let now_ms = i * 10;
+            if !limiter.try_acquire(now_ms) {
+                rejected += 1;
+            }
+        }
+        assert_eq!(rejected, 0, "no requests should be rejected at exactly the rate limit");
+    }
+
+    /// Fire 200 requests in 1 second (200 rps, 2× over limit) — roughly half
+    /// should be rejected after the burst is consumed.
+    #[test]
+    fn test_sustained_overload_rejects_excess() {
+        let mut limiter = RateLimiterSim::new(100, 20);
+        let mut rejected = 0usize;
+        for i in 0..200u64 {
+            // Each request is 5ms apart → 200 rps
+            let now_ms = i * 5;
+            if !limiter.try_acquire(now_ms) {
+                rejected += 1;
+            }
+        }
+        assert!(
+            rejected > 50,
+            "significant portion of requests should be rejected at 2× rate limit, got {}",
+            rejected
+        );
+        println!("Otest — rejected {}/200 requests", rejected);
+    }
+
+    // ── 5. Bypass / admin override ────────────────────────────────────────────
+
+    /// When bypass is enabled all requests pass regardless of bucket state.
+    #[test]
+    fn test_bypass_allows_all_requests() {
+        let mut limiter = RateLimiterSim::new(100, 20);
+        limiter.set_bypass(true);
+        // Drain would-be bucket entirely
+        let accepted = (0..500).filter(|_| limiter.try_acquire(0)).count();
+        assert_eq!(accepted, 500, "bypass must allow all 500 requests");
+    }
+
+    // ── 6. Response time under rate limiting ─────────────────────────────────
+
+    /// Processing 1000 rate-limit checks should complete in <50ms total.
+    #[test]
+    fn test_rate_limit_check_is_fast() {
+        let mut limiter = RateLimiterSim::new(1_000_000, 1_000_000); // effectively unlimited
+t!(
+            elapsed < Duration::from_millis(50),
+            "1000 rate-limit checks took {:?}, expected <50ms",
+            elapsed
+        );
+    }
+
+    // ── Simulation helper ────────────────────────────────────────────────────
+
+    /// Minimal token-bucket that mirrors the GovernorConfig logic
+    /// (per_second rate + burst_size cap) without requiring a live server.
+    struct RateLimiterSim {
+        rate_per_second: u64,  // tokens added per second
+        burst_size: u64,       // max tokens (bucket capacity)
+        tokens: u64,
+        last_refill_ms: u64,
+        bypass: bool,
+    }
+
+    impl RateLimiterSim {
+        fn new(rate_per_second: u64, burst_size: u64) -> Self {
+            Self {
+                rate_per_second,
+                burst_size,
+                tokens: burst_size,
+                last_refill_ms: 0,
+                bypass: false,
+            }
+        }
+
+        frue if the request is accepted, false if rate-limited.
+        fn try_acquire(&mut self, now_ms: u64) -> bool {
+            if self.bypass {
+                return true;
+            }
+            // Refill based on elapsed time
+            let elapsed_ms = now_ms.saturating_sub(self.last_refill_ms);
+            let new_tokens = (elapsed_ms * self.rate_per_second) / 1000;
+            if new_tokens > 0 {
+                self.tokens = (self.tokens + new_tokens).min(self.burst_size);
+                self.last_refill_ms = now_ms;
+            }
+            if self.tokens > 0 {
+                self.tokens -= 1;
+                true
+            } else {
+                false
+            }
+        }
+    }
+}

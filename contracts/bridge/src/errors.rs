@@ -15,6 +15,7 @@ pub enum Error {
     InvalidMetadata,
     DuplicateRequest,
     GasLimitExceeded,
+    RateLimitExceeded,
 }
 
 impl core::fmt::Display for Error {
@@ -32,6 +33,7 @@ impl core::fmt::Display for Error {
             Error::InvalidMetadata => write!(f, "Invalid metadata"),
             Error::DuplicateRequest => write!(f, "Duplicate bridge request"),
             Error::GasLimitExceeded => write!(f, "Gas limit exceeded"),
+            Error::RateLimitExceeded => write!(f, "Rate limit exceeded"),
         }
     }
 }
@@ -51,6 +53,7 @@ impl ContractError for Error {
             Error::InvalidMetadata => bridge_codes::BRIDGE_INVALID_METADATA,
             Error::DuplicateRequest => bridge_codes::BRIDGE_DUPLICATE_REQUEST,
             Error::GasLimitExceeded => bridge_codes::BRIDGE_GAS_LIMIT_EXCEEDED,
+            Error::RateLimitExceeded => bridge_codes::BRIDGE_RATE_LIMIT_EXCEEDED,
         }
     }
 
@@ -72,6 +75,7 @@ impl ContractError for Error {
             Error::InvalidMetadata => "The token metadata is invalid",
             Error::DuplicateRequest => "A bridge request with these parameters already exists",
             Error::GasLimitExceeded => "The operation exceeded the gas limit",
+            Error::RateLimitExceeded => "The operation exceeded the daily rate limit",
         }
     }
 
