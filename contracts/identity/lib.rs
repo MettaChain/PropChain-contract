@@ -949,7 +949,7 @@ pub mod propchain_identity {
             // Calculate success rate
             #[allow(clippy::manual_checked_ops)]
             let success_rate = if metrics.total_transactions > 0 {
-                (metrics.successful_transactions * 100) / metrics.total_transactions
+                metrics.successful_transactions.saturating_mul(100).checked_div(metrics.total_transactions).unwrap_or(50)
             } else {
                 50 // Default for no history
             };

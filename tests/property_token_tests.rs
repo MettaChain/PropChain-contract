@@ -321,3 +321,73 @@ mod property_token_tests {
         assert_eq!(result, Err(Error::TokenNotFound));
     }
 }
+#[ink::test]
+fn test_batch_transfer_success() {
+    let mut contract = setup_contract();
+    let accounts = test::default_accounts::<DefaultEnvironment>();
+    test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+    contract.balances.insert((&accounts.alice, &1u64), &100u128);
+    contract.balances.insert((&accounts.alice, &2u64), &200u128);
+
+    let result = contract.safe_batch_transfer_from(
+        accounts.alice,
+        accounts.bob,
+        vec![1u64, 2u64],
+        vec![50u128, 100u128],
+        vec![],
+    );
+    assert!(result.is_ok());
+    assert_eq!(contract.balances.get((&accounts.alice, &1u64)).unwrap_or(0), 50);
+    assert_eq!(contract.balances.get((&accounts.bob, &2u64)).unwrap_or(0), 100);
+}
+
+#[ink::test]
+fn test_batch_transfer_length_mismatch() {
+    let mut contract = setup_contract();
+    let accounts = test::default_accounts::<DefaultEnvironment>();
+    test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+    let result = contract.safe_batch_transfer_from(
+        accounts.alice,
+        accounts.bob,
+        vec![1u64, 2u64],
+        vec![10u128],
+        vec![],
+    );
+    assert_eq!(result, Err(Error::LengthMismatch));
+}
+
+#[ink::test]
+fn test_batch_transfer_insufficient_balance() {
+    let mut contract = setup_contract();
+    let accounts = test::default_accounts::<DefaultEnvironment>();
+    test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+    contract.balances.insert((&accounts.alice, &1u64), &10u128);
+
+    let result = contract.safe_batch_transfer_from(
+        accounts.alice,
+        accounts.bob,
+        vec![1u64],
+        vec![999u128],
+        vec![],
+    );
+    assert_eq!(result, Err(Error::InsufficientBalance));
+}
+
+#[ink::test]
+fn test_batch_transfer_unauthorized() {
+    let mut contract = setup_contract();
+    let accounts = test::default_accounts::<DefaultEnvironment>();
+    test::set_caller::<DefaultEnvironment>(accounts.bob);
+
+    let result = contract.safe_batch_transfer_from(
+        accounts.alice,
+        accounts.bob,
+        vec![1u64],
+        vec![10u128],
+        vec![],
+    );
+    assert_eq!(result, Err(Error::Unauthorized));
+}
