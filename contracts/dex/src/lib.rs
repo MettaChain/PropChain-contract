@@ -2,6 +2,7 @@
 #![allow(unexpected_cfgs)]
 
 use ink::prelude::string::String;
+use ink::prelude::vec::Vec;
 use ink::storage::Mapping;
 use propchain_traits::*;
 
@@ -863,6 +864,122 @@ mod dex {
             self.governance_balances.get(account).unwrap_or(0)
         }
 
+        #[ink(message)]
+        pub fn get_order_book_snapshot(
+            &self,
+            pair_id: u64,
+            max_levels: u32,
+        ) -> Result<OrderBookSnapshot, Error> {
+            let _ = self.pool(pair_id)?;
+            let bids = self.collect_order_book_levels(pair_id, OrderSide::Buy, max_levels);
+            let asks = self.collect_order_book_levels(pair_id, OrderSide::Sell, max_levels);
+
+            let best_bid = bids.first().map(|level| level.price).unwrap_or(0);
+            let best_ask = asks.first().map(|level| level.price).unwrap_or(0);
+            let spread = if best_bid > 0 && best_ask > best_bid {
+                best_ask - best_bid
+            } else {
+                0
+            };
+            let mid_price = if best_bid > 0 && best_ask > 0 {
+                best_bid.saturating_add(best_ask) / 2
+            } else if best_bid > 0 {
+                best_bid
+            } else {
+                best_ask
+            };
+            let total_bid_depth = bids
+                .iter()
+                .fold(0u128, |acc, level| acc.saturating_add(level.total_amount));
+            let total_ask_depth = asks
+                .iter()
+                .fold(0u128, |acc, level| acc.saturating_add(level.total_amount));
+            let analytics = self.analytics_for(pair_id);
+
+            Ok(OrderBookSnapshot {
+                pair_id,
+                bids,
+                asks,
+                best_bid,
+                best_ask,
+                spread,
+                mid_price,
+                total_bid_depth,
+                total_ask_depth,
+                last_price: analytics.last_price,
+                last_updated: analytics.last_updated,
+            })
+        }
+
+        #[ink(message)]
+        pub fn get_order_book_levels(
+            &self,
+            pair_id: u64,
+            side: OrderSide,
+            max_levels: u32,
+        ) -> Result<Vec<OrderBookLevel>, Error> {
+            let _ = self.pool(pair_id)?;
+            Ok(self.collect_order_book_levels(pair_id, side, max_levels))
+        }
+
+        fn collect_order_book_levels(
+            &self,
+            pair_id: u64,
+            side: OrderSide,
+            max_levels: u32,
+        ) -> Vec<OrderBookLevel> {
+            let count = self.order_book_count.get(pair_id).unwrap_or(0);
+            let mut levels: Vec<OrderBookLevel> = Vec::new();
+            for idx in 0..count {
+                let order_id = match self.order_book.get((pair_id, idx)) {
+                    Some(order_id) => order_id,
+                    None => continue,
+                };
+                let order = match self.orders.get(order_id) {
+                    Some(order) => order,
+                    None => continue,
+                };
+                if order.side != side {
+                    continue;
+                }
+                if !matches!(
+                    order.status,
+                    OrderStatus::Open | OrderStatus::PartiallyFilled | OrderStatus::Triggered
+                ) {
+                    continue;
+                }
+                if order.remaining_amount == 0 || order.price == 0 {
+                    continue;
+                }
+                if let Some(existing) = levels.iter_mut().find(|level| level.price == order.price) {
+                    existing.total_amount =
+                        existing.total_amount.saturating_add(order.remaining_amount);
+                    existing.order_count = existing.order_count.saturating_add(1);
+                } else {
+                    levels.push(OrderBookLevel {
+                        price: order.price,
+                        total_amount: order.remaining_amount,
+                        order_count: 1,
+                        cumulative_amount: 0,
+                        side,
+                    });
+                }
+            }
+            match side {
+                OrderSide::Buy => levels.sort_by(|a, b| b.price.cmp(&a.price)),
+                OrderSide::Sell => levels.sort_by(|a, b| a.price.cmp(&b.price)),
+            }
+            if max_levels > 0 && (max_levels as usize) < levels.len() {
+                levels.truncate(max_levels as usize);
+            }
+            let mut cumulative = 0u128;
+            for level in levels.iter_mut() {
+                cumulative = cumulative.saturating_add(level.total_amount);
+                level.cumulative_amount = cumulative;
+            }
+            levels
+        }
+
         fn swap(
             &mut self,
             pair_id: u64,
@@ -1175,4 +1292,6 @@ mod dex {
     }
 
     // Unit tests extracted to tests.rs (Issue #101)
+    #[cfg(test)]
+    include!("tests.rs");
 }

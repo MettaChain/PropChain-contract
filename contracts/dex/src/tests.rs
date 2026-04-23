@@ -149,6 +149,147 @@ mod tests {
     }
 
     #[ink::test]
+    fn order_book_snapshot_aggregates_levels_for_visualization() {
+        let mut dex = setup_dex();
+        let pair_id = create_pool(&mut dex);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        dex.place_order(
+            pair_id,
+            OrderSide::Sell,
+            OrderType::Limit,
+            TimeInForce::GoodTillCancelled,
+            2_100,
+            400,
+            None,
+            None,
+            false,
+        )
+        .expect("ask 1");
+        dex.place_order(
+            pair_id,
+            OrderSide::Sell,
+            OrderType::Limit,
+            TimeInForce::GoodTillCancelled,
+            2_100,
+            300,
+            None,
+            None,
+            false,
+        )
+        .expect("ask 2 same price");
+        dex.place_order(
+            pair_id,
+            OrderSide::Sell,
+            OrderType::Limit,
+            TimeInForce::GoodTillCancelled,
+            2_200,
+            100,
+            None,
+            None,
+            false,
+        )
+        .expect("ask 3");
+
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        dex.place_order(
+            pair_id,
+            OrderSide::Buy,
+            OrderType::Limit,
+            TimeInForce::GoodTillCancelled,
+            1_900,
+            250,
+            None,
+            None,
+            false,
+        )
+        .expect("bid 1");
+        dex.place_order(
+            pair_id,
+            OrderSide::Buy,
+            OrderType::Limit,
+            TimeInForce::GoodTillCancelled,
+            1_950,
+            500,
+            None,
+            None,
+            false,
+        )
+        .expect("bid 2");
+
+        let snapshot = dex
+            .get_order_book_snapshot(pair_id, 10)
+            .expect("snapshot should load");
+        assert_eq!(snapshot.pair_id, pair_id);
+        assert_eq!(snapshot.bids.len(), 2);
+        assert_eq!(snapshot.asks.len(), 2);
+
+        assert_eq!(snapshot.bids[0].price, 1_950);
+        assert_eq!(snapshot.bids[0].total_amount, 500);
+        assert_eq!(snapshot.bids[0].order_count, 1);
+        assert_eq!(snapshot.bids[0].cumulative_amount, 500);
+        assert_eq!(snapshot.bids[1].price, 1_900);
+        assert_eq!(snapshot.bids[1].cumulative_amount, 750);
+
+        assert_eq!(snapshot.asks[0].price, 2_100);
+        assert_eq!(snapshot.asks[0].total_amount, 700);
+        assert_eq!(snapshot.asks[0].order_count, 2);
+        assert_eq!(snapshot.asks[0].cumulative_amount, 700);
+        assert_eq!(snapshot.asks[1].price, 2_200);
+        assert_eq!(snapshot.asks[1].cumulative_amount, 800);
+
+        assert_eq!(snapshot.best_bid, 1_950);
+        assert_eq!(snapshot.best_ask, 2_100);
+        assert_eq!(snapshot.spread, 150);
+        assert_eq!(snapshot.mid_price, 2_025);
+        assert_eq!(snapshot.total_bid_depth, 750);
+        assert_eq!(snapshot.total_ask_depth, 800);
+
+        let cancel_id = dex
+            .place_order(
+                pair_id,
+                OrderSide::Buy,
+                OrderType::Limit,
+                TimeInForce::GoodTillCancelled,
+                1_800,
+                100,
+                None,
+                None,
+                false,
+            )
+            .expect("bid to cancel");
+        dex.cancel_order(cancel_id).expect("cancel should work");
+        let after_cancel = dex
+            .get_order_book_snapshot(pair_id, 10)
+            .expect("post-cancel snapshot");
+        assert_eq!(
+            after_cancel.bids.len(),
+            2,
+            "cancelled orders must not appear in the visualization"
+        );
+
+        let top = dex
+            .get_order_book_snapshot(pair_id, 1)
+            .expect("top-of-book");
+        assert_eq!(top.bids.len(), 1);
+        assert_eq!(top.asks.len(), 1);
+        assert_eq!(top.bids[0].price, 1_950);
+        assert_eq!(top.asks[0].price, 2_100);
+
+        let bids_only = dex
+            .get_order_book_levels(pair_id, OrderSide::Buy, 10)
+            .expect("bids only");
+        assert_eq!(bids_only.len(), 2);
+        assert_eq!(bids_only[0].price, 1_950);
+
+        assert_eq!(
+            dex.get_order_book_snapshot(999, 10),
+            Err(Error::PoolNotFound)
+        );
+    }
+
+    #[ink::test]
     fn cross_chain_trade_and_portfolio_tracking_work() {
         let mut dex = setup_dex();
         let pair_id = create_pool(&mut dex);
