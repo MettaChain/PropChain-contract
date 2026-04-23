@@ -92,4 +92,49 @@ mod tests {
             .expect("settled trade should exist");
         assert_eq!(settled.status, CrossChainTradeStatus::Settled);
     }
+
+    #[ink::test]
+    fn test_estimate_bridge_gas_respects_chain_profile() {
+        let mut bridge = setup_bridge();
+
+        let default_gas = bridge
+            .estimate_bridge_gas(1, 2)
+            .expect("default chain should be estimable");
+
+        let tuned_chain = ChainBridgeInfo {
+            chain_id: 2,
+            chain_name: String::from("High-Confirmation"),
+            bridge_contract_address: None,
+            is_active: true,
+            gas_multiplier: 180,
+            confirmation_blocks: 24,
+            supported_tokens: Vec::new(),
+        };
+        bridge
+            .update_chain_info(2, tuned_chain)
+            .expect("admin should update chain profile");
+
+        let updated_gas = bridge
+            .estimate_bridge_gas(1, 2)
+            .expect("updated chain should be estimable");
+
+        assert!(updated_gas > default_gas);
+        assert!(updated_gas <= bridge.get_config().gas_limit_per_bridge);
+    }
+
+    #[ink::test]
+    fn test_quote_cross_chain_trade_scales_with_amount() {
+        let bridge = setup_bridge();
+
+        let small = bridge
+            .quote_cross_chain_trade(2, 50_000)
+            .expect("small quote should succeed");
+        let large = bridge
+            .quote_cross_chain_trade(2, 100_000)
+            .expect("large quote should succeed");
+
+        assert!(small.total_fee >= small.protocol_fee);
+        assert!(large.total_fee > small.total_fee);
+        assert!(large.protocol_fee > small.protocol_fee);
+    }
 }

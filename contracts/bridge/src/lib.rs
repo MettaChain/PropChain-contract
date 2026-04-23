@@ -481,11 +481,18 @@ mod bridge {
                 .chain_info
                 .get(destination_chain)
                 .ok_or(Error::InvalidChain)?;
+            if !chain_info.is_active {
+                return Err(Error::InvalidChain);
+            }
 
-            let base_gas = self.config.gas_limit_per_bridge;
-            let multiplier = chain_info.gas_multiplier;
+            let base_gas = propchain_traits::constants::BRIDGE_BASE_GAS;
+            let multiplier = u64::from(chain_info.gas_multiplier);
+            let confirmation_blocks = u64::from(chain_info.confirmation_blocks);
+            let adjusted_base = base_gas.saturating_mul(multiplier) / 100;
+            let confirmation_overhead = adjusted_base.saturating_mul(confirmation_blocks) / 100;
+            let estimated = adjusted_base.saturating_add(confirmation_overhead);
 
-            Ok(base_gas * multiplier as u64 / 100)
+            Ok(estimated.min(self.config.gas_limit_per_bridge))
         }
 
         /// Monitors bridge status
@@ -532,13 +539,30 @@ mod bridge {
             destination_chain: ChainId,
             amount_in: u128,
         ) -> Result<BridgeFeeQuote, Error> {
+            let chain_info = self
+                .chain_info
+                .get(destination_chain)
+                .ok_or(Error::InvalidChain)?;
             let gas_estimate = self.estimate_bridge_gas(0, destination_chain)?;
             let protocol_fee = amount_in / 200;
+            // Convert gas usage into an amount-based fee so totals stay in token units.
+            let gas_fee = if self.config.gas_limit_per_bridge == 0 {
+                0
+            } else {
+                let gas_ratio_bps =
+                    (u128::from(gas_estimate).saturating_mul(10_000))
+                        / u128::from(self.config.gas_limit_per_bridge);
+                let chain_risk_bps = u128::from(chain_info.confirmation_blocks).saturating_mul(10);
+                let adjusted_bps = gas_ratio_bps
+                    .saturating_add(chain_risk_bps)
+                    .min(2_500);
+                amount_in.saturating_mul(adjusted_bps) / 10_000
+            };
             Ok(BridgeFeeQuote {
                 destination_chain,
                 gas_estimate,
                 protocol_fee,
-                total_fee: protocol_fee.saturating_add(gas_estimate as u128),
+                total_fee: protocol_fee.saturating_add(gas_fee),
             })
         }
 
