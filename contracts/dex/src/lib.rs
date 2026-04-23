@@ -62,6 +62,29 @@ mod dex {
         pub destination_chain: ChainId,
     }
 
+    #[ink(event)]
+    pub struct AdminActionScheduled {
+        #[ink(topic)]
+        pub action_id: u64,
+        #[ink(topic)]
+        pub proposer: AccountId,
+        pub kind: AdminActionKind,
+        pub executable_at: u64,
+    }
+
+    #[ink(event)]
+    pub struct AdminActionExecuted {
+        #[ink(topic)]
+        pub action_id: u64,
+        pub kind: AdminActionKind,
+    }
+
+    #[ink(event)]
+    pub struct AdminActionCancelled {
+        #[ink(topic)]
+        pub action_id: u64,
+    }
+
     #[ink(storage)]
     pub struct PropertyDex {
         admin: AccountId,
@@ -84,6 +107,9 @@ mod dex {
         votes_cast: Mapping<(u64, AccountId), bool>,
         liquidity_mining: LiquidityMiningCampaign,
         last_reward_block: Mapping<u64, u64>,
+        admin_timelock_delay: u64,
+        pending_admin_actions: Mapping<u64, PendingAdminAction>,
+        pending_admin_action_counter: u64,
     }
 
     impl PropertyDex {
@@ -126,6 +152,9 @@ mod dex {
                     reward_token_symbol: String::from("GOV"),
                 },
                 last_reward_block: Mapping::default(),
+                admin_timelock_delay: 0,
+                pending_admin_actions: Mapping::default(),
+                pending_admin_action_counter: 0,
             };
             instance
                 .governance_balances
@@ -534,15 +563,10 @@ mod dex {
             if self.env().caller() != self.admin {
                 return Err(Error::Unauthorized);
             }
-            self.bridge_quotes.insert(
-                destination_chain,
-                &BridgeFeeQuote {
-                    destination_chain,
-                    gas_estimate,
-                    protocol_fee,
-                    total_fee: protocol_fee.saturating_add(gas_estimate as u128),
-                },
-            );
+            if self.admin_timelock_delay > 0 {
+                return Err(Error::TimelockRequired);
+            }
+            self.apply_configure_bridge_route(destination_chain, gas_estimate, protocol_fee);
             Ok(())
         }
 
@@ -632,13 +656,15 @@ mod dex {
             if self.env().caller() != self.admin {
                 return Err(Error::Unauthorized);
             }
-            self.liquidity_mining = LiquidityMiningCampaign {
+            if self.admin_timelock_delay > 0 {
+                return Err(Error::TimelockRequired);
+            }
+            self.apply_set_liquidity_mining(
                 emission_rate,
                 start_block,
                 end_block,
                 reward_token_symbol,
-            };
-            self.governance_config.emission_rate = emission_rate;
+            );
             Ok(())
         }
 
@@ -862,6 +888,198 @@ mod dex {
         #[ink(message)]
         pub fn get_governance_balance(&self, account: AccountId) -> u128 {
             self.governance_balances.get(account).unwrap_or(0)
+        }
+
+        #[ink(message)]
+        pub fn get_admin_timelock_delay(&self) -> u64 {
+            self.admin_timelock_delay
+        }
+
+        #[ink(message)]
+        pub fn set_admin_timelock_delay(&mut self, delay_blocks: u64) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            if self.admin_timelock_delay > 0 {
+                return Err(Error::TimelockRequired);
+            }
+            self.admin_timelock_delay = delay_blocks;
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn schedule_bridge_route_update(
+            &mut self,
+            destination_chain: ChainId,
+            gas_estimate: u64,
+            protocol_fee: u128,
+        ) -> Result<u64, Error> {
+            let payload = AdminActionPayload {
+                destination_chain,
+                gas_estimate,
+                protocol_fee,
+                ..empty_admin_action_payload()
+            };
+            self.schedule_admin_action_internal(AdminActionKind::ConfigureBridgeRoute, payload)
+        }
+
+        #[ink(message)]
+        pub fn schedule_liquidity_mining_update(
+            &mut self,
+            emission_rate: u128,
+            start_block: u64,
+            end_block: u64,
+            reward_token_symbol: String,
+        ) -> Result<u64, Error> {
+            let payload = AdminActionPayload {
+                emission_rate,
+                start_block,
+                end_block,
+                reward_token_symbol,
+                ..empty_admin_action_payload()
+            };
+            self.schedule_admin_action_internal(AdminActionKind::SetLiquidityMining, payload)
+        }
+
+        #[ink(message)]
+        pub fn schedule_timelock_delay_update(&mut self, delay_blocks: u64) -> Result<u64, Error> {
+            let payload = AdminActionPayload {
+                timelock_delay_blocks: delay_blocks,
+                ..empty_admin_action_payload()
+            };
+            self.schedule_admin_action_internal(AdminActionKind::UpdateTimelockDelay, payload)
+        }
+
+        #[ink(message)]
+        pub fn execute_admin_action(&mut self, action_id: u64) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            let mut action = self
+                .pending_admin_actions
+                .get(action_id)
+                .ok_or(Error::AdminActionNotFound)?;
+            if !matches!(action.status, AdminActionStatus::Scheduled) {
+                return Err(Error::AdminActionAlreadyFinalized);
+            }
+            let current_block = u64::from(self.env().block_number());
+            if current_block < action.executable_at {
+                return Err(Error::TimelockActive);
+            }
+            match action.kind {
+                AdminActionKind::ConfigureBridgeRoute => {
+                    self.apply_configure_bridge_route(
+                        action.payload.destination_chain,
+                        action.payload.gas_estimate,
+                        action.payload.protocol_fee,
+                    );
+                }
+                AdminActionKind::SetLiquidityMining => {
+                    self.apply_set_liquidity_mining(
+                        action.payload.emission_rate,
+                        action.payload.start_block,
+                        action.payload.end_block,
+                        action.payload.reward_token_symbol.clone(),
+                    );
+                }
+                AdminActionKind::UpdateTimelockDelay => {
+                    self.admin_timelock_delay = action.payload.timelock_delay_blocks;
+                }
+            }
+            action.status = AdminActionStatus::Executed;
+            let kind = action.kind;
+            self.pending_admin_actions.insert(action_id, &action);
+            self.env()
+                .emit_event(AdminActionExecuted { action_id, kind });
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn cancel_admin_action(&mut self, action_id: u64) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            let mut action = self
+                .pending_admin_actions
+                .get(action_id)
+                .ok_or(Error::AdminActionNotFound)?;
+            if !matches!(action.status, AdminActionStatus::Scheduled) {
+                return Err(Error::AdminActionAlreadyFinalized);
+            }
+            action.status = AdminActionStatus::Cancelled;
+            self.pending_admin_actions.insert(action_id, &action);
+            self.env().emit_event(AdminActionCancelled { action_id });
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn get_scheduled_admin_action(&self, action_id: u64) -> Option<PendingAdminAction> {
+            self.pending_admin_actions.get(action_id)
+        }
+
+        fn schedule_admin_action_internal(
+            &mut self,
+            kind: AdminActionKind,
+            payload: AdminActionPayload,
+        ) -> Result<u64, Error> {
+            let caller = self.env().caller();
+            if caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            self.pending_admin_action_counter = self.pending_admin_action_counter.saturating_add(1);
+            let action_id = self.pending_admin_action_counter;
+            let scheduled_at = u64::from(self.env().block_number());
+            let executable_at = scheduled_at.saturating_add(self.admin_timelock_delay);
+            let action = PendingAdminAction {
+                action_id,
+                kind,
+                payload,
+                proposer: caller,
+                scheduled_at,
+                executable_at,
+                status: AdminActionStatus::Scheduled,
+            };
+            self.pending_admin_actions.insert(action_id, &action);
+            self.env().emit_event(AdminActionScheduled {
+                action_id,
+                proposer: caller,
+                kind,
+                executable_at,
+            });
+            Ok(action_id)
+        }
+
+        fn apply_configure_bridge_route(
+            &mut self,
+            destination_chain: ChainId,
+            gas_estimate: u64,
+            protocol_fee: u128,
+        ) {
+            self.bridge_quotes.insert(
+                destination_chain,
+                &BridgeFeeQuote {
+                    destination_chain,
+                    gas_estimate,
+                    protocol_fee,
+                    total_fee: protocol_fee.saturating_add(gas_estimate as u128),
+                },
+            );
+        }
+
+        fn apply_set_liquidity_mining(
+            &mut self,
+            emission_rate: u128,
+            start_block: u64,
+            end_block: u64,
+            reward_token_symbol: String,
+        ) {
+            self.liquidity_mining = LiquidityMiningCampaign {
+                emission_rate,
+                start_block,
+                end_block,
+                reward_token_symbol,
+            };
+            self.governance_config.emission_rate = emission_rate;
         }
 
         #[ink(message)]
@@ -1232,6 +1450,19 @@ mod dex {
                 volatility_bips: 0,
                 last_updated: 0,
             })
+        }
+    }
+
+    fn empty_admin_action_payload() -> AdminActionPayload {
+        AdminActionPayload {
+            destination_chain: 0,
+            gas_estimate: 0,
+            protocol_fee: 0,
+            emission_rate: 0,
+            start_block: 0,
+            end_block: 0,
+            reward_token_symbol: String::new(),
+            timelock_delay_blocks: 0,
         }
     }
 

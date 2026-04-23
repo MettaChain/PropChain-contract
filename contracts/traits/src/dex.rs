@@ -161,6 +161,63 @@ pub struct PairAnalytics {
 }
 
 // =========================================================================
+// Admin Timelock Types
+// =========================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub enum AdminActionKind {
+    ConfigureBridgeRoute,
+    SetLiquidityMining,
+    UpdateTimelockDelay,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub enum AdminActionStatus {
+    Scheduled,
+    Executed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub struct AdminActionPayload {
+    pub destination_chain: ChainId,
+    pub gas_estimate: u64,
+    pub protocol_fee: u128,
+    pub emission_rate: u128,
+    pub start_block: u64,
+    pub end_block: u64,
+    pub reward_token_symbol: String,
+    pub timelock_delay_blocks: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub struct PendingAdminAction {
+    pub action_id: u64,
+    pub kind: AdminActionKind,
+    pub payload: AdminActionPayload,
+    pub proposer: AccountId,
+    pub scheduled_at: u64,
+    pub executable_at: u64,
+    pub status: AdminActionStatus,
+}
+
+// =========================================================================
 // Order Book Visualization Types
 // =========================================================================
 

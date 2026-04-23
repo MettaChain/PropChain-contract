@@ -18,6 +18,10 @@ pub enum Error {
     InvalidBridgeRoute,
     CrossChainTradeNotFound,
     InsufficientGovernanceBalance,
+    TimelockRequired,
+    TimelockActive,
+    AdminActionNotFound,
+    AdminActionAlreadyFinalized,
 }
 
 impl core::fmt::Display for Error {
@@ -39,6 +43,16 @@ impl core::fmt::Display for Error {
             Error::CrossChainTradeNotFound => write!(f, "Cross-chain trade not found"),
             Error::InsufficientGovernanceBalance => {
                 write!(f, "Insufficient governance balance")
+            }
+            Error::TimelockRequired => {
+                write!(f, "Sensitive admin change must be scheduled through the timelock")
+            }
+            Error::TimelockActive => {
+                write!(f, "Scheduled admin action has not reached its execution block")
+            }
+            Error::AdminActionNotFound => write!(f, "Scheduled admin action not found"),
+            Error::AdminActionAlreadyFinalized => {
+                write!(f, "Scheduled admin action was already executed or cancelled")
             }
         }
     }
@@ -64,6 +78,10 @@ impl ContractError for Error {
             Error::InsufficientGovernanceBalance => {
                 dex_codes::DEX_INSUFFICIENT_GOVERNANCE_BALANCE
             }
+            Error::TimelockRequired => dex_codes::DEX_TIMELOCK_REQUIRED,
+            Error::TimelockActive => dex_codes::DEX_TIMELOCK_ACTIVE,
+            Error::AdminActionNotFound => dex_codes::DEX_ADMIN_ACTION_NOT_FOUND,
+            Error::AdminActionAlreadyFinalized => dex_codes::DEX_ADMIN_ACTION_ALREADY_FINALIZED,
         }
     }
 
@@ -85,6 +103,16 @@ impl ContractError for Error {
             Error::CrossChainTradeNotFound => "The cross-chain trade does not exist",
             Error::InsufficientGovernanceBalance => {
                 "The account does not hold enough governance tokens"
+            }
+            Error::TimelockRequired => {
+                "Direct admin call blocked: action must be scheduled while a timelock is active"
+            }
+            Error::TimelockActive => {
+                "Scheduled admin action cannot execute until the timelock delay has elapsed"
+            }
+            Error::AdminActionNotFound => "The scheduled admin action does not exist",
+            Error::AdminActionAlreadyFinalized => {
+                "The scheduled admin action has already been executed or cancelled"
             }
         }
     }

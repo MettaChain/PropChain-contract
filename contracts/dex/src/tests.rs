@@ -290,6 +290,133 @@ mod tests {
     }
 
     #[ink::test]
+    fn admin_timelock_blocks_direct_changes_when_enabled() {
+        let mut dex = setup_dex();
+        dex.set_admin_timelock_delay(5).expect("enable timelock");
+        assert_eq!(dex.get_admin_timelock_delay(), 5);
+
+        assert_eq!(
+            dex.configure_bridge_route(3, 111_000, 500),
+            Err(Error::TimelockRequired)
+        );
+        assert_eq!(
+            dex.set_liquidity_mining_campaign(50, 0, 1_000, String::from("GOV2")),
+            Err(Error::TimelockRequired)
+        );
+        assert_eq!(
+            dex.set_admin_timelock_delay(0),
+            Err(Error::TimelockRequired),
+            "delay change must itself route through timelock once enabled"
+        );
+    }
+
+    #[ink::test]
+    fn admin_timelock_executes_scheduled_action_after_delay() {
+        let mut dex = setup_dex();
+        dex.set_admin_timelock_delay(5).expect("enable timelock");
+
+        test::set_block_number::<DefaultEnvironment>(10);
+        let action_id = dex
+            .schedule_bridge_route_update(3, 200_000, 999)
+            .expect("schedule bridge update");
+
+        let scheduled = dex
+            .get_scheduled_admin_action(action_id)
+            .expect("action exists");
+        assert_eq!(scheduled.executable_at, 15);
+        assert_eq!(scheduled.kind, AdminActionKind::ConfigureBridgeRoute);
+        assert_eq!(scheduled.status, AdminActionStatus::Scheduled);
+
+        assert_eq!(
+            dex.execute_admin_action(action_id),
+            Err(Error::TimelockActive),
+            "execution before delay must fail"
+        );
+
+        test::set_block_number::<DefaultEnvironment>(14);
+        assert_eq!(
+            dex.execute_admin_action(action_id),
+            Err(Error::TimelockActive)
+        );
+
+        test::set_block_number::<DefaultEnvironment>(15);
+        dex.execute_admin_action(action_id)
+            .expect("execute after delay");
+
+        let quote = dex
+            .quote_cross_chain_trade(3)
+            .expect("bridge route applied");
+        assert_eq!(quote.gas_estimate, 200_000);
+        assert_eq!(quote.protocol_fee, 999);
+
+        assert_eq!(
+            dex.execute_admin_action(action_id),
+            Err(Error::AdminActionAlreadyFinalized),
+            "cannot re-execute a finalized action"
+        );
+
+        let finalized = dex
+            .get_scheduled_admin_action(action_id)
+            .expect("still retrievable");
+        assert_eq!(finalized.status, AdminActionStatus::Executed);
+    }
+
+    #[ink::test]
+    fn admin_timelock_cancel_prevents_execution() {
+        let mut dex = setup_dex();
+        dex.set_admin_timelock_delay(5).expect("enable timelock");
+        test::set_block_number::<DefaultEnvironment>(10);
+        let action_id = dex
+            .schedule_liquidity_mining_update(77, 20, 1_000, String::from("NEW"))
+            .expect("schedule");
+        dex.cancel_admin_action(action_id).expect("cancel");
+
+        test::set_block_number::<DefaultEnvironment>(30);
+        assert_eq!(
+            dex.execute_admin_action(action_id),
+            Err(Error::AdminActionAlreadyFinalized)
+        );
+
+        let action = dex
+            .get_scheduled_admin_action(action_id)
+            .expect("cancelled action retained for audit");
+        assert_eq!(action.status, AdminActionStatus::Cancelled);
+    }
+
+    #[ink::test]
+    fn admin_timelock_delay_change_requires_scheduling() {
+        let mut dex = setup_dex();
+        dex.set_admin_timelock_delay(3).expect("enable timelock");
+        test::set_block_number::<DefaultEnvironment>(100);
+
+        let action_id = dex
+            .schedule_timelock_delay_update(0)
+            .expect("schedule delay change");
+        test::set_block_number::<DefaultEnvironment>(103);
+        dex.execute_admin_action(action_id)
+            .expect("apply new delay");
+        assert_eq!(dex.get_admin_timelock_delay(), 0);
+
+        dex.configure_bridge_route(4, 10_000, 50)
+            .expect("direct path works again once delay is 0");
+    }
+
+    #[ink::test]
+    fn admin_timelock_non_admin_cannot_schedule_or_execute() {
+        let mut dex = setup_dex();
+        dex.set_admin_timelock_delay(2).expect("enable timelock");
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            dex.schedule_bridge_route_update(9, 1, 1),
+            Err(Error::Unauthorized)
+        );
+        assert_eq!(dex.execute_admin_action(1), Err(Error::Unauthorized));
+        assert_eq!(dex.cancel_admin_action(1), Err(Error::Unauthorized));
+    }
+
+    #[ink::test]
     fn cross_chain_trade_and_portfolio_tracking_work() {
         let mut dex = setup_dex();
         let pair_id = create_pool(&mut dex);

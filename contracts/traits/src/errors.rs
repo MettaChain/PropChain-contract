@@ -366,6 +366,10 @@ pub mod dex_codes {
     pub const DEX_INVALID_BRIDGE_ROUTE: u32 = 7013;
     pub const DEX_CROSS_CHAIN_TRADE_NOT_FOUND: u32 = 7014;
     pub const DEX_INSUFFICIENT_GOVERNANCE_BALANCE: u32 = 7015;
+    pub const DEX_TIMELOCK_REQUIRED: u32 = 7016;
+    pub const DEX_TIMELOCK_ACTIVE: u32 = 7017;
+    pub const DEX_ADMIN_ACTION_NOT_FOUND: u32 = 7018;
+    pub const DEX_ADMIN_ACTION_ALREADY_FINALIZED: u32 = 7019;
 }
 
 /// Governance error codes (8000-8999)
