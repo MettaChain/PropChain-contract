@@ -478,14 +478,6 @@ mod api_rate_limit_tests {
     /// 50 concurrent threads each fire 10 requests at t=0.
     /// Only `burst_size` (20) of the 500 total should succeed.
     #[test]
-    fn test_concurrent_burst_only_burst_accepted() {
-        let accepted = Arc::new(AtomicU32::new(0));
-        let rejected = Arc::new(AtomicU32::new(0));
-        // Shared atomic counters stand in for the real limiter under concurrency
-        let burst: u32 = 20;
-        let total_requests: u32 = 500;
-
-        // Simulate: first `burst` wins, rest are rejected
     fn test_concurrent_burst_only() {
         let accepted = Arc::new(AtomicU32::new(0));
         let rejected = Arc::new(AtomicU32::new(0));

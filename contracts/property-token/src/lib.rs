@@ -407,6 +407,8 @@ pub mod property_token {
         pub token_id: TokenId,
         #[ink(topic)]
         pub funder: AccountId,
+    }
+
     // --- Vesting Events ---
     #[ink(event)]
     pub struct VestingScheduleCreated {
