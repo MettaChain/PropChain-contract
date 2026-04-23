@@ -448,6 +448,11 @@ mod api_rate_limit_tests {
     #[test]
     fn test_refill_after_one_second() {
         let mut limiter = RateLimiterSim::new(100, 20);
+        // Drain burst
+        for _ in 0..20 {
+            limiter.try_acquire(0);
+        }
+        // tokens = 0, so after 1s tokens = min(0 + 100, 20) = 20
         for _ in 0..20 {
             limiter.try_acquire(0);
         }
@@ -485,6 +490,7 @@ mod api_rate_limit_tests {
                 let rej = Arc::clone(&rejected);
                 thread::spawn(move || {
                     for _ in 0..10 {
+                        // fetch_add returns old value; if old value < burst → accept
                         let prev = acc.fetch_add(0, Ordering::SeqCst);
                         if prev < burst {
                             if acc.fetch_add(1, Ordering::SeqCst) < burst {
@@ -593,6 +599,8 @@ mod api_rate_limit_tests {
     // ── Simulation helper ────────────────────────────────────────────────────
 
     struct RateLimiterSim {
+        rate_per_second: u64, // tokens added per second
+        burst_size: u64,      // max tokens (bucket capacity)
         rate_per_second: u64,
         burst_size: u64,
         tokens: u64,

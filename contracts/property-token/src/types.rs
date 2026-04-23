@@ -156,6 +156,11 @@ pub struct TaxRecord {
     pub proceeds: u128,
 }
 
+/// Lock period options for staking fractional shares
+#[derive(
+    Debug,
+    Clone,
+    Copy,
 #[derive(
     Debug,
     Clone,
@@ -166,6 +171,35 @@ pub struct TaxRecord {
     ink::storage::traits::StorageLayout,
 )]
 #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub enum ShareLockPeriod {
+    Flexible,
+    ThirtyDays,
+    NinetyDays,
+    OneYear,
+}
+
+impl ShareLockPeriod {
+    pub fn duration_blocks(&self) -> u64 {
+        match self {
+            ShareLockPeriod::Flexible => 0,
+            ShareLockPeriod::ThirtyDays => LOCK_PERIOD_30_DAYS,
+            ShareLockPeriod::NinetyDays => LOCK_PERIOD_90_DAYS,
+            ShareLockPeriod::OneYear => LOCK_PERIOD_1_YEAR,
+        }
+    }
+
+    /// Returns the reward/governance multiplier in basis points (100 = 1×)
+    pub fn multiplier(&self) -> u128 {
+        match self {
+            ShareLockPeriod::Flexible => MULTIPLIER_FLEXIBLE,
+            ShareLockPeriod::ThirtyDays => MULTIPLIER_30_DAYS,
+            ShareLockPeriod::NinetyDays => MULTIPLIER_90_DAYS,
+            ShareLockPeriod::OneYear => MULTIPLIER_1_YEAR,
+        }
+    }
+}
+
+/// Per-account, per-token staking record
 pub enum VestingRole {
     Team,
     Investor,
@@ -181,6 +215,15 @@ pub enum VestingRole {
     ink::storage::traits::StorageLayout,
 )]
 #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub struct ShareStakeInfo {
+    pub staker: AccountId,
+    pub token_id: TokenId,
+    pub amount: u128,
+    pub staked_at: u64,
+    pub lock_until: u64,
+    pub lock_period: ShareLockPeriod,
+    pub reward_debt: u128,
+}
 pub struct VestingSchedule {
     pub role: VestingRole,
     pub total_amount: u128,

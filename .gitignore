@@ -134,3 +134,5 @@ rustfmt.toml.backup
 # Local configuration
 config/
 local.toml
+CLAUDE.md
+plan.md

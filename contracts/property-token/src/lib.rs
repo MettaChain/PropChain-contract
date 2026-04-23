@@ -14,6 +14,7 @@ use scale_info::prelude::vec::Vec;
 #[ink::contract]
 pub mod property_token {
     use super::*;
+    use propchain_traits::constants::*;
 
     // Error types extracted to errors.rs (Issue #101)
     include!("errors.rs");
@@ -81,6 +82,14 @@ pub mod property_token {
         property_management_contract: Option<AccountId>,
         /// On-chain management agent per property token (tokenized property)
         management_agent: Mapping<TokenId, AccountId>,
+
+        // Share staking (Issue #197)
+        share_stakes: Mapping<(AccountId, TokenId), ShareStakeInfo>,
+        share_total_staked: Mapping<TokenId, u128>,
+        share_reward_pool: Mapping<TokenId, u128>,
+        share_acc_reward_per_share: Mapping<TokenId, u128>,
+        share_last_reward_block: Mapping<TokenId, u64>,
+        share_reward_rate_bps: Mapping<TokenId, u128>,
         /// Vesting schedules for tokens (TokenId, AccountId)
         vesting_schedules: Mapping<(TokenId, AccountId), VestingSchedule>,
         /// Custom URI overrides for tokens
@@ -362,6 +371,44 @@ pub mod property_token {
         pub token_id: TokenId,
     }
 
+    // --- Staking Events ---
+    #[ink(event)]
+    pub struct SharesStaked {
+        #[ink(topic)]
+        pub token_id: TokenId,
+        #[ink(topic)]
+        pub staker: AccountId,
+        pub amount: u128,
+        pub lock_period: ShareLockPeriod,
+        pub lock_until: u64,
+    }
+
+    #[ink(event)]
+    pub struct SharesUnstaked {
+        #[ink(topic)]
+        pub token_id: TokenId,
+        #[ink(topic)]
+        pub staker: AccountId,
+        pub amount: u128,
+    }
+
+    #[ink(event)]
+    pub struct StakeRewardsClaimed {
+        #[ink(topic)]
+        pub token_id: TokenId,
+        #[ink(topic)]
+        pub staker: AccountId,
+        pub amount: u128,
+    }
+
+    #[ink(event)]
+    pub struct StakeRewardPoolFunded {
+        #[ink(topic)]
+        pub token_id: TokenId,
+        #[ink(topic)]
+        pub funder: AccountId,
+    }
+
     // --- Vesting Events ---
     #[ink(event)]
     pub struct VestingScheduleCreated {
@@ -467,6 +514,12 @@ pub mod property_token {
                 max_batch_size: 50,
                 property_management_contract: None,
                 management_agent: Mapping::default(),
+                share_stakes: Mapping::default(),
+                share_total_staked: Mapping::default(),
+                share_reward_pool: Mapping::default(),
+                share_acc_reward_per_share: Mapping::default(),
+                share_last_reward_block: Mapping::default(),
+                share_reward_rate_bps: Mapping::default(),
                 vesting_schedules: Mapping::default(),
                 token_uris: Mapping::default(),
             }
@@ -1122,7 +1175,7 @@ pub mod property_token {
             {
                 return Err(Error::Unauthorized);
             }
-            let weight = self.balances.get((voter, token_id)).unwrap_or(0);
+            let weight = self.governance_weight(voter, token_id);
             if support {
                 proposal.for_votes = proposal.for_votes.saturating_add(weight);
             } else {
@@ -1180,6 +1233,12 @@ pub mod property_token {
                 passed,
             });
             Ok(passed)
+        }
+
+        /// Returns the proposal record for `token_id` and `proposal_id`, if it exists.
+        #[ink(message)]
+        pub fn get_proposal(&self, token_id: TokenId, proposal_id: u64) -> Option<Proposal> {
+            self.proposals.get((token_id, proposal_id))
         }
 
         /// Places a sell order (ask) for fractional shares on the marketplace.
@@ -2578,6 +2637,261 @@ pub mod property_token {
             }
 
             errors
+        }
+
+        // ── Staking public interface (Issue #197) ──────────────────────────
+
+        /// Locks `amount` fractional shares of `token_id` for the lock period.
+        ///
+        /// Voting weight for governance is multiplied by the lock-period
+        /// multiplier while the stake is active.
+        #[ink(message)]
+        pub fn stake_shares(
+            &mut self,
+            token_id: TokenId,
+            amount: u128,
+            lock_period: ShareLockPeriod,
+        ) -> Result<(), Error> {
+            if amount == 0 {
+                return Err(Error::InvalidAmount);
+            }
+            let caller = self.env().caller();
+            if self.share_stakes.get((caller, token_id)).is_some() {
+                return Err(Error::AlreadyStaked);
+            }
+            let bal = self.balances.get((caller, token_id)).unwrap_or(0);
+            if bal < amount {
+                return Err(Error::InsufficientBalance);
+            }
+            self.update_dividend_credit_on_change(caller, token_id)?;
+            self.balances
+                .insert((caller, token_id), &(bal.saturating_sub(amount)));
+            self.update_stake_acc_reward(token_id);
+            let acc = self.share_acc_reward_per_share.get(token_id).unwrap_or(0);
+            let now = self.env().block_number() as u64;
+            let lock_until = now.saturating_add(lock_period.duration_blocks());
+            let stake = ShareStakeInfo {
+                staker: caller,
+                token_id,
+                amount,
+                staked_at: now,
+                lock_until,
+                lock_period,
+                reward_debt: acc,
+            };
+            self.share_stakes.insert((caller, token_id), &stake);
+            let total = self.share_total_staked.get(token_id).unwrap_or(0);
+            self.share_total_staked
+                .insert(token_id, &total.saturating_add(amount));
+            self.env().emit_event(SharesStaked {
+                token_id,
+                staker: caller,
+                amount,
+                lock_period,
+                lock_until,
+            });
+            Ok(())
+        }
+
+        /// Unlocks and returns staked shares; pending rewards are auto-claimed.
+        #[ink(message)]
+        pub fn unstake_shares(&mut self, token_id: TokenId) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let stake = self
+                .share_stakes
+                .get((caller, token_id))
+                .ok_or(Error::StakeNotFound)?;
+            let now = self.env().block_number() as u64;
+            if now < stake.lock_until {
+                return Err(Error::LockActive);
+            }
+            self.update_stake_acc_reward(token_id);
+            let stake = self
+                .share_stakes
+                .get((caller, token_id))
+                .ok_or(Error::StakeNotFound)?;
+            let rewards = self.pending_stake_rewards(&stake);
+            if rewards > 0 {
+                let pool = self.share_reward_pool.get(token_id).unwrap_or(0);
+                if pool >= rewards {
+                    self.share_reward_pool
+                        .insert(token_id, &pool.saturating_sub(rewards));
+                    let _ = self.env().transfer(caller, rewards);
+                    self.env().emit_event(StakeRewardsClaimed {
+                        token_id,
+                        staker: caller,
+                        amount: rewards,
+                    });
+                }
+            }
+            let amount = stake.amount;
+            self.update_dividend_credit_on_change(caller, token_id)?;
+            let bal = self.balances.get((caller, token_id)).unwrap_or(0);
+            self.balances
+                .insert((caller, token_id), &bal.saturating_add(amount));
+            self.share_stakes.remove((caller, token_id));
+            let total = self.share_total_staked.get(token_id).unwrap_or(0);
+            self.share_total_staked
+                .insert(token_id, &total.saturating_sub(amount));
+            self.env().emit_event(SharesUnstaked {
+                token_id,
+                staker: caller,
+                amount,
+            });
+            Ok(())
+        }
+
+        /// Claims accrued staking rewards for `token_id` without unstaking.
+        ///
+        /// Returns the amount of rewards transferred.
+        #[ink(message)]
+        pub fn claim_stake_rewards(&mut self, token_id: TokenId) -> Result<u128, Error> {
+            let caller = self.env().caller();
+            if self.share_stakes.get((caller, token_id)).is_none() {
+                return Err(Error::StakeNotFound);
+            }
+            self.update_stake_acc_reward(token_id);
+            let stake = self
+                .share_stakes
+                .get((caller, token_id))
+                .ok_or(Error::StakeNotFound)?;
+            let rewards = self.pending_stake_rewards(&stake);
+            if rewards == 0 {
+                return Err(Error::NoRewards);
+            }
+            let pool = self.share_reward_pool.get(token_id).unwrap_or(0);
+            if pool < rewards {
+                return Err(Error::InsufficientRewardPool);
+            }
+            self.share_reward_pool
+                .insert(token_id, &pool.saturating_sub(rewards));
+            let new_acc = self.share_acc_reward_per_share.get(token_id).unwrap_or(0);
+            let mut updated = stake.clone();
+            updated.reward_debt = new_acc;
+            self.share_stakes.insert((caller, token_id), &updated);
+            let _ = self.env().transfer(caller, rewards);
+            self.env().emit_event(StakeRewardsClaimed {
+                token_id,
+                staker: caller,
+                amount: rewards,
+            });
+            Ok(rewards)
+        }
+
+        /// Adds funds to the staking reward pool for `token_id`.
+        ///
+        /// The transferred value is added to the pool; must be > 0.
+        #[ink(message, payable)]
+        pub fn fund_stake_reward_pool(&mut self, token_id: TokenId) -> Result<(), Error> {
+            if self.token_owner.get(token_id).is_none() {
+                return Err(Error::TokenNotFound);
+            }
+            let amount = self.env().transferred_value();
+            if amount == 0 {
+                return Err(Error::InvalidAmount);
+            }
+            let pool = self.share_reward_pool.get(token_id).unwrap_or(0);
+            self.share_reward_pool
+                .insert(token_id, &pool.saturating_add(amount));
+            let funder = self.env().caller();
+            self.env().emit_event(StakeRewardPoolFunded {
+                token_id,
+                funder,
+                amount,
+            });
+            Ok(())
+        }
+
+        /// Sets the annual reward rate in basis points for `token_id` (admin only).
+        ///
+        /// Flushes accumulated rewards at the previous rate before updating.
+        #[ink(message)]
+        pub fn set_stake_reward_rate(
+            &mut self,
+            token_id: TokenId,
+            rate_bps: u128,
+        ) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            self.update_stake_acc_reward(token_id);
+            self.share_reward_rate_bps.insert(token_id, &rate_bps);
+            Ok(())
+        }
+
+        /// Returns the staking record for `staker` on `token_id`, if any.
+        #[ink(message)]
+        pub fn get_share_stake(
+            &self,
+            staker: AccountId,
+            token_id: TokenId,
+        ) -> Option<ShareStakeInfo> {
+            self.share_stakes.get((staker, token_id))
+        }
+
+        /// Returns the pending (unclaimed) staking rewards for `staker` on `token_id`.
+        #[ink(message)]
+        pub fn get_pending_stake_rewards(&self, staker: AccountId, token_id: TokenId) -> u128 {
+            match self.share_stakes.get((staker, token_id)) {
+                Some(stake) => self.pending_stake_rewards(&stake),
+                None => 0,
+            }
+        }
+
+        /// Returns the effective governance voting weight for `voter` on `token_id`.
+        ///
+        /// Stakers receive their staked amount × lock-period multiplier;
+        /// non-stakers receive their raw share balance (backward compatible).
+        #[ink(message)]
+        pub fn get_governance_weight(&self, voter: AccountId, token_id: TokenId) -> u128 {
+            self.governance_weight(voter, token_id)
+        }
+
+        // ── Staking private helpers (Issue #197) ──────────────────────────
+
+        const STAKE_SCALING: u128 = 1_000_000_000_000;
+
+        fn update_stake_acc_reward(&mut self, token_id: TokenId) {
+            let total = self.share_total_staked.get(token_id).unwrap_or(0);
+            if total == 0 {
+                return;
+            }
+            let now = self.env().block_number() as u64;
+            let last = self.share_last_reward_block.get(token_id).unwrap_or(now);
+            let blocks = (now as u128).saturating_sub(last as u128);
+            if blocks == 0 {
+                return;
+            }
+            let rate = self.share_reward_rate_bps.get(token_id).unwrap_or(0);
+            let reward = total.saturating_mul(rate).saturating_mul(blocks)
+                / REWARD_RATE_PRECISION
+                / 5_256_000;
+            let acc = self.share_acc_reward_per_share.get(token_id).unwrap_or(0);
+            self.share_acc_reward_per_share.insert(
+                token_id,
+                &acc.saturating_add(reward.saturating_mul(Self::STAKE_SCALING) / total),
+            );
+            self.share_last_reward_block.insert(token_id, &now);
+        }
+
+        fn pending_stake_rewards(&self, stake: &ShareStakeInfo) -> u128 {
+            let acc = self
+                .share_acc_reward_per_share
+                .get(stake.token_id)
+                .unwrap_or(0);
+            let base = stake
+                .amount
+                .saturating_mul(acc.saturating_sub(stake.reward_debt))
+                / Self::STAKE_SCALING;
+            base.saturating_mul(stake.lock_period.multiplier()) / 100
+        }
+
+        fn governance_weight(&self, voter: AccountId, token_id: TokenId) -> u128 {
+            if let Some(stake) = self.share_stakes.get((voter, token_id)) {
+                stake.amount.saturating_mul(stake.lock_period.multiplier()) / 100
+            } else {
+                self.balances.get((voter, token_id)).unwrap_or(0)
+            }
         }
 
         // =========================================================================
