@@ -5850,6 +5850,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "propchain-multicall"
+version = "1.0.0"
+dependencies = [
+ "ink 5.1.1",
+ "parity-scale-codec",
+ "propchain-traits",
+ "scale-info",
+]
+
+[[package]]
 name = "propchain-prediction-market"
 version = "1.0.0"
 dependencies = [

@@ -22,6 +22,7 @@ members = [
     "contracts/crowdfunding",
     "contracts/lending",
     "contracts/metadata",
+    "contracts/multicall",
     "contracts/database",
     "contracts/third-party",
     "contracts/staking",
