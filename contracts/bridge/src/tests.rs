@@ -41,7 +41,10 @@ mod tests {
         let mut bridge = setup_bridge();
         let accounts = test::default_accounts::<DefaultEnvironment>();
 
+        // Register alice as a validator before signing (issue #203)
         test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.add_validator(accounts.alice).expect("admin can add validator");
+
         let metadata = PropertyMetadata {
             location: String::from("Test Property"),
             size: 1000,
@@ -54,9 +57,71 @@ mod tests {
             .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata)
             .expect("Bridge initiation should succeed in test");
 
-        let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
         let result = bridge.sign_bridge_request(request_id, true);
+        assert!(result.is_ok());
+    }
+
+    #[ink::test]
+    fn test_non_validator_cannot_sign() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let metadata = PropertyMetadata {
+            location: String::from("Test Property"),
+            size: 1000,
+            legal_description: String::from("Test"),
+            valuation: 100000,
+            documents_url: String::from("ipfs://test"),
+        };
+        let request_id = bridge
+            .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata)
+            .expect("initiation should succeed");
+
+        // bob is a bridge operator but NOT a validator — must be rejected
+        bridge.add_bridge_operator(accounts.bob).expect("admin can add operator");
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let result = bridge.sign_bridge_request(request_id, true);
+        assert_eq!(result, Err(Error::Unauthorized));
+    }
+
+    #[ink::test]
+    fn test_threshold_enforced_at_execution() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Register two validators
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.add_validator(accounts.alice).expect("add validator alice");
+        bridge.add_validator(accounts.bob).expect("add validator bob");
+        bridge.add_bridge_operator(accounts.bob).expect("add operator bob");
+
+        let metadata = PropertyMetadata {
+            location: String::from("Test Property"),
+            size: 1000,
+            legal_description: String::from("Test"),
+            valuation: 100000,
+            documents_url: String::from("ipfs://test"),
+        };
+        let request_id = bridge
+            .initiate_bridge_multisig(1, 2, accounts.charlie, 2, Some(50), metadata)
+            .expect("initiation should succeed");
+
+        // Only one signature — execution must fail
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.sign_bridge_request(request_id, true).expect("alice signs");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = bridge.execute_bridge(request_id);
+        assert_eq!(result, Err(Error::InvalidRequest)); // status not Locked yet
+
+        // Second signature — now threshold met, execution succeeds
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge.sign_bridge_request(request_id, true).expect("bob signs");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = bridge.execute_bridge(request_id);
         assert!(result.is_ok());
     }
 

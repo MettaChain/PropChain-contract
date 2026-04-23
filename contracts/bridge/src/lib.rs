@@ -37,6 +37,10 @@ mod bridge {
         /// Bridge operators
         bridge_operators: Vec<AccountId>,
 
+        /// Registered validators for multi-signature cross-chain transactions.
+        /// Only accounts in this set may sign bridge requests (issue #203).
+        validators: Vec<AccountId>,
+
         /// Request counter
         request_counter: u64,
 
@@ -153,6 +157,7 @@ mod bridge {
                 verified_transactions: Mapping::default(),
                 cross_chain_trades: Mapping::default(),
                 bridge_operators: vec![caller],
+                validators: Vec::new(),
                 request_counter: 0,
                 transaction_counter: 0,
                 cross_chain_trade_counter: 0,
@@ -261,8 +266,8 @@ mod bridge {
         pub fn sign_bridge_request(&mut self, request_id: u64, approve: bool) -> Result<(), Error> {
             let caller = self.env().caller();
 
-            // Check if caller is a bridge operator
-            if !self.bridge_operators.contains(&caller) {
+            // Check if caller is a registered validator (issue #203: only validators may sign)
+            if !self.validators.contains(&caller) {
                 return Err(Error::Unauthorized);
             }
 
@@ -370,6 +375,16 @@ mod bridge {
 
             // Check if enough signatures are collected
             if request.signatures.len() < request.required_signatures as usize {
+                return Err(Error::InsufficientSignatures);
+            }
+
+            // Re-validate that every signer is still a registered validator (issue #203)
+            let valid_sig_count = request
+                .signatures
+                .iter()
+                .filter(|s| self.validators.contains(s))
+                .count();
+            if valid_sig_count < request.required_signatures as usize {
                 return Err(Error::InsufficientSignatures);
             }
 
@@ -668,6 +683,39 @@ mod bridge {
             self.bridge_operators.clone()
         }
 
+        /// Adds a validator (admin only). Only validators may sign bridge requests (issue #203).
+        #[ink(message)]
+        pub fn add_validator(&mut self, validator: AccountId) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            if !self.validators.contains(&validator) {
+                self.validators.push(validator);
+            }
+            Ok(())
+        }
+
+        /// Removes a validator (admin only).
+        #[ink(message)]
+        pub fn remove_validator(&mut self, validator: AccountId) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            self.validators.retain(|v| v != &validator);
+            Ok(())
+        }
+
+        /// Returns all registered validators.
+        #[ink(message)]
+        pub fn get_validators(&self) -> Vec<AccountId> {
+            self.validators.clone()
+        }
+
+        /// Returns whether an account is a registered validator.
+        #[ink(message)]
+        pub fn is_validator(&self, account: AccountId) -> bool {
+            self.validators.contains(&account)
+        }
         /// Updates bridge configuration (admin only)
         #[ink(message)]
         pub fn update_config(&mut self, config: BridgeConfig) -> Result<(), Error> {
