@@ -164,6 +164,7 @@ impl ContractError for Error {
             Error::BatchSizeExceeded => {
                 "The input batch exceeds the maximum allowed size"
             }
+
         }
     }
 

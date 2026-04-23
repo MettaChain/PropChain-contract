@@ -32,6 +32,7 @@ import type {
 } from '../types';
 import { decodeContractError, TransactionError } from '../utils/errors';
 import { decodeTransactionEvents, subscribeToNamedEvent } from '../utils/events';
+import { withExponentialBackoff } from '../utils/connection';
 import type { PropChainEventName, PropChainEventMap } from '../types/events';
 
 export type Signer = KeyringPair | string;
@@ -586,7 +587,8 @@ export class PropertyTokenClient {
   // ==========================================================================
 
   private async query(method: string, args: unknown[]): Promise<unknown> {
-    const queryFn = this.contract.query[method];
+    return withExponentialBackoff(async () => {
+      const queryFn = this.contract.query[method];
     if (!queryFn) {
       throw new Error(`Unknown query method: ${method}`);
     }
@@ -599,7 +601,8 @@ export class PropertyTokenClient {
       throw decodeContractError(errorVariant);
     }
 
-    return output ? output.toJSON() : null;
+      return output ? output.toJSON() : null;
+    });
   }
 
   private async submitTx(
@@ -607,67 +610,69 @@ export class PropertyTokenClient {
     method: string,
     args: unknown[],
   ): Promise<TxResult> {
-    const signerAddress = typeof signer === 'string' ? signer : signer.address;
+    return withExponentialBackoff(async () => {
+      const signerAddress = typeof signer === 'string' ? signer : signer.address;
 
-    const queryFn = this.contract.query[method];
-    if (!queryFn) {
-      throw new Error(`Unknown contract method: ${method}`);
-    }
+      const queryFn = this.contract.query[method];
+      if (!queryFn) {
+        throw new Error(`Unknown contract method: ${method}`);
+      }
 
-    const { gasRequired, result: dryRunResult } = await queryFn(
-      signerAddress,
-      { gasLimit: -1 },
-      ...args,
-    );
+      const { gasRequired, result: dryRunResult } = await queryFn(
+        signerAddress,
+        { gasLimit: -1 },
+        ...args,
+      );
 
-    if (dryRunResult.isErr) {
-      const errorVariant = dryRunResult.asErr?.toString() ?? 'Unknown';
-      throw decodeContractError(errorVariant);
-    }
+      if (dryRunResult.isErr) {
+        const errorVariant = dryRunResult.asErr?.toString() ?? 'Unknown';
+        throw decodeContractError(errorVariant);
+      }
 
-    const txFn = this.contract.tx[method];
-    if (!txFn) {
-      throw new Error(`Unknown tx method: ${method}`);
-    }
+      const txFn = this.contract.tx[method];
+      if (!txFn) {
+        throw new Error(`Unknown tx method: ${method}`);
+      }
 
-    return new Promise<TxResult>((resolve, reject) => {
-      const tx = txFn({ gasLimit: gasRequired }, ...args);
+      return new Promise<TxResult>((resolve, reject) => {
+        const tx = txFn({ gasLimit: gasRequired }, ...args);
 
-      tx.signAndSend(
-        signer as KeyringPair,
-        {},
-        ({ status, events: rawEvents, dispatchError }) => {
-          if (dispatchError) {
-            reject(
-              new TransactionError(
-                `Transaction failed: ${dispatchError.toString()}`,
-                undefined,
-                dispatchError.toString(),
-              ),
-            );
-            return;
-          }
+        tx.signAndSend(
+          signer as KeyringPair,
+          {},
+          ({ status, events: rawEvents, dispatchError }) => {
+            if (dispatchError) {
+              reject(
+                new TransactionError(
+                  `Transaction failed: ${dispatchError.toString()}`,
+                  undefined,
+                  dispatchError.toString(),
+                ),
+              );
+              return;
+            }
 
-          if (status.isFinalized) {
-            const blockHash = status.asFinalized.toString();
-            const decodedEvents: ContractEvent[] = decodeTransactionEvents(
-              this.abi,
-              rawEvents as unknown as Array<{
-                event: { data: Uint8Array; section: string; method: string };
-              }>,
-              this.contractAddress,
-            );
+            if (status.isFinalized) {
+              const blockHash = status.asFinalized.toString();
+              const decodedEvents: ContractEvent[] = decodeTransactionEvents(
+                this.abi,
+                rawEvents as unknown as Array<{
+                  event: { data: Uint8Array; section: string; method: string };
+                }>,
+                this.contractAddress,
+              );
 
-            resolve({
-              txHash: tx.hash.toString(),
-              blockHash,
-              blockNumber: 0,
-              events: decodedEvents,
-              success: true,
-            });
-          }
-        },
-      ).catch(reject);
+              resolve({
+                txHash: tx.hash.toString(),
+                blockHash,
+                blockNumber: 0,
+                events: decodedEvents,
+                success: true,
+              });
+            }
+          },
+        ).catch(reject);
+      });
     });
   }
 

@@ -472,6 +472,8 @@ pub mod property_token {
             }
         }
 
+
+
         /// ERC-721: Returns the balance of tokens owned by an account
         #[ink(message)]
         pub fn balance_of(&self, owner: AccountId) -> u32 {
@@ -529,6 +531,8 @@ pub mod property_token {
             {
                 return Err(Error::Unauthorized);
             }
+
+
 
             // Perform the transfer
             self.remove_token_from_owner(from, token_id)?;
@@ -687,6 +691,7 @@ pub mod property_token {
                 let token_id = ids[i];
                 let amount = amounts[i];
                 let from_balance = self.balances.get((&from, &token_id)).unwrap_or(0);
+
                 self.balances
                     .insert((&from, &token_id), &(from_balance - amount));
                 let to_balance = self.balances.get((&to, &token_id)).unwrap_or(0);

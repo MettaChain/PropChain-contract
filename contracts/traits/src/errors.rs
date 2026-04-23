@@ -268,6 +268,7 @@ pub mod property_token_codes {
     pub const PROPOSAL_CLOSED: u32 = 1023;
     pub const ASK_NOT_FOUND: u32 = 1024;
     pub const BATCH_SIZE_EXCEEDED: u32 = 1025;
+    pub const TOKEN_LOCKED: u32 = 1026;
 }
 
 /// Escrow error codes (2000-2999)

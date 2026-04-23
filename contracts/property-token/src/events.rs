@@ -172,14 +172,7 @@ pub struct DividendsWithdrawn {
     pub amount: u128,
 }
 
-#[ink(event)]
-pub struct VestedTokensClaimed {
-    #[ink(topic)]
-    pub token_id: TokenId,
-    #[ink(topic)]
-    pub account: AccountId,
-    pub amount: u128,
-}
+
 
 // =========================================================================
 // Metadata Events
@@ -205,6 +198,8 @@ pub struct TokenURIUpdated {
 // =========================================================================
 // Governance Events
 // =========================================================================
+
+
 
 #[ink(event)]
 pub struct ProposalCreated {
