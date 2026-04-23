@@ -388,6 +388,59 @@ mod integration_tests {
     }
 
     #[ink::test]
+    fn test_burn_bridged_token_returns_to_source_chain() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let mut token_contract = PropertyToken::new();
+        let metadata = TokenPropertyMetadata {
+            location: String::from("Return Bridge Property"),
+            size: 1400,
+            legal_description: String::from("Property for burn-bridged-token testing"),
+            valuation: 420000,
+            documents_url: String::from("ipfs://return-bridge"),
+        };
+
+        let token_id = token_contract.register_property_with_token(metadata).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(token_contract.admin());
+        token_contract.verify_compliance(token_id, true).unwrap();
+        token_contract.add_bridge_operator(accounts.bob).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let request_id = token_contract.initiate_bridge_multisig(
+            token_id,
+            2,
+            accounts.charlie,
+            1,
+            Some(100),
+        ).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        token_contract.sign_bridge_request(request_id, true).unwrap();
+        token_contract.execute_bridge(request_id).unwrap();
+
+        let history = token_contract.get_bridge_history(accounts.alice);
+        let transaction = &history[0];
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let bridged_token_id = token_contract.receive_bridged_token(
+            transaction.source_chain,
+            token_id,
+            accounts.charlie,
+            metadata.clone(),
+            transaction.transaction_hash,
+        ).unwrap();
+
+        assert_eq!(token_contract.owner_of(bridged_token_id), Some(accounts.charlie));
+
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        let burn_result = token_contract.burn_bridged_token(bridged_token_id, transaction.source_chain, accounts.alice);
+        assert!(burn_result.is_ok());
+        assert_eq!(token_contract.owner_of(bridged_token_id), None);
+    }
+
+    #[ink::test]
     fn test_bridge_gas_estimation() {
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);

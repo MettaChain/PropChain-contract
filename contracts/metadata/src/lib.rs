@@ -809,6 +809,5 @@ mod propchain_metadata {
     // UNIT TESTS
     // ========================================================================
     #[cfg(test)]
-    mod tests {
-    }
+    mod tests {}
 }

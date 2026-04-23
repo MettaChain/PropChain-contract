@@ -623,5 +623,4 @@ mod propchain_fees {
             self.calculate_fee(operation)
         }
     }
-
 }

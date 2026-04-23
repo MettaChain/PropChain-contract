@@ -1,5 +1,5 @@
-use ink::primitives::{AccountId, Hash};
 use ink::prelude::vec::Vec;
+use ink::primitives::{AccountId, Hash};
 
 // ── Error Types ─────────────────────────────────────────────────────────────
 

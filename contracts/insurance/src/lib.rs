@@ -1272,4 +1272,3 @@ mod propchain_insurance {
 pub use crate::propchain_insurance::{InsuranceError, PropertyInsurance};
 
 // Unit tests extracted to tests.rs (Issue #101)
-

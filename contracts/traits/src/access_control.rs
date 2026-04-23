@@ -325,8 +325,8 @@ impl AccessControl {
             return Err(AccessControlError::KeyRotationCooldown);
         }
 
-        let effective_at = block_number
-            .saturating_add(crate::constants::KEY_ROTATION_COOLDOWN_BLOCKS);
+        let effective_at =
+            block_number.saturating_add(crate::constants::KEY_ROTATION_COOLDOWN_BLOCKS);
 
         let request = crate::crypto::KeyRotationRequest {
             old_account: actor,
@@ -379,7 +379,8 @@ impl AccessControl {
         }
 
         // Check expiry
-        let expiry = request.effective_at
+        let expiry = request
+            .effective_at
             .saturating_add(crate::constants::KEY_ROTATION_EXPIRY_BLOCKS);
         if block_number > expiry {
             self.pending_rotations.remove(old_account);
@@ -388,9 +389,14 @@ impl AccessControl {
 
         // Transfer all roles from old_account to new_account
         for role in self.all_roles() {
-            if self.role_assignments.get((old_account, role)).unwrap_or(false) {
+            if self
+                .role_assignments
+                .get((old_account, role))
+                .unwrap_or(false)
+            {
                 self.role_assignments.remove((old_account, role));
-                self.role_assignments.insert((request.new_account, role), &true);
+                self.role_assignments
+                    .insert((request.new_account, role), &true);
             }
         }
 

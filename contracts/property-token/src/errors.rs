@@ -57,6 +57,7 @@ pub enum Error {
     AskNotFound,
     /// Input batch exceeds maximum allowed size
     BatchSizeExceeded,
+
     // KYC-based transfer restriction errors
     /// Sender is not KYC verified
     SenderNotVerified,
@@ -76,6 +77,10 @@ pub enum Error {
     SenderRiskLevelTooHigh,
     /// Recipient risk level too high
     RecipientRiskLevelTooHigh,
+
+    /// Token IDs and amounts vectors have different lengths
+    LengthMismatch,
+
 }
 
 impl core::fmt::Display for Error {
@@ -108,6 +113,7 @@ impl core::fmt::Display for Error {
             Error::ProposalClosed => write!(f, "Proposal is closed"),
             Error::AskNotFound => write!(f, "Ask not found"),
             Error::BatchSizeExceeded => write!(f, "Input batch exceeds maximum allowed size"),
+
             Error::SenderNotVerified => write!(f, "Sender is not KYC verified"),
             Error::RecipientNotVerified => write!(f, "Recipient is not KYC verified"),
             Error::VerificationLevelInsufficient => write!(f, "Verification level is insufficient"),
@@ -117,6 +123,9 @@ impl core::fmt::Display for Error {
             Error::HoldPeriodNotMet => write!(f, "Transfer hold period has not been met"),
             Error::SenderRiskLevelTooHigh => write!(f, "Sender risk level is too high"),
             Error::RecipientRiskLevelTooHigh => write!(f, "Recipient risk level is too high"),
+
+            Error::LengthMismatch => write!(f, "Token IDs and amounts length mismatch"),
+
         }
     }
 }
@@ -149,6 +158,7 @@ impl ContractError for Error {
             Error::ProposalClosed => property_token_codes::PROPOSAL_CLOSED,
             Error::AskNotFound => property_token_codes::ASK_NOT_FOUND,
             Error::BatchSizeExceeded => property_token_codes::BATCH_SIZE_EXCEEDED,
+
             Error::SenderNotVerified => property_token_codes::SENDER_NOT_VERIFIED,
             Error::RecipientNotVerified => property_token_codes::RECIPIENT_NOT_VERIFIED,
             Error::VerificationLevelInsufficient => property_token_codes::VERIFICATION_LEVEL_INSUFFICIENT,
@@ -158,6 +168,9 @@ impl ContractError for Error {
             Error::HoldPeriodNotMet => property_token_codes::HOLD_PERIOD_NOT_MET,
             Error::SenderRiskLevelTooHigh => property_token_codes::SENDER_RISK_LEVEL_TOO_HIGH,
             Error::RecipientRiskLevelTooHigh => property_token_codes::RECIPIENT_RISK_LEVEL_TOO_HIGH,
+
+            Error::LengthMismatch => property_token_codes::BATCH_SIZE_EXCEEDED,
+
         }
     }
 
@@ -193,6 +206,7 @@ impl ContractError for Error {
             Error::ProposalNotFound => "The governance proposal does not exist",
             Error::ProposalClosed => "The governance proposal is closed for voting",
             Error::AskNotFound => "The sell ask does not exist",
+            Error::LengthMismatch => "Token IDs and amounts vectors have different lengths",
             Error::BatchSizeExceeded => {
                 "The input batch exceeds the maximum allowed size"
             }

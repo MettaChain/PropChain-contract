@@ -56,14 +56,17 @@ fn sec_br01_non_operator_cannot_receive_bridged_token() {
     // charlie is not a bridge operator
     test::set_caller::<DefaultEnvironment>(accounts.charlie);
     let result = contract.receive_bridged_token(
-        2,              // source chain
-        1,              // original token id
-        accounts.django,  // recipient
+        2,               // source chain
+        1,               // original token id
+        accounts.django, // recipient
         PropertyMetadata {
-            location: String::from("Bridge"), size: 100,
-            legal_description: String::from(""), valuation: 100, documents_url: String::from("")
+            location: String::from("Bridge"),
+            size: 100,
+            legal_description: String::from(""),
+            valuation: 100,
+            documents_url: String::from(""),
         },
-        ink::primitives::Hash::from([0u8; 32]) // tx_hash
+        ink::primitives::Hash::from([0u8; 32]), // tx_hash
     );
 
     assert_eq!(
@@ -201,7 +204,10 @@ fn sec_br07_only_admin_can_manage_operators() {
     // Admin successfully adds operator
     test::set_caller::<DefaultEnvironment>(accounts.alice);
     let result = contract.add_bridge_operator(accounts.charlie);
-    assert!(result.is_ok(), "Admin should be able to add a bridge operator");
+    assert!(
+        result.is_ok(),
+        "Admin should be able to add a bridge operator"
+    );
 
     // Non-admin tries to remove operator
     test::set_caller::<DefaultEnvironment>(accounts.bob);

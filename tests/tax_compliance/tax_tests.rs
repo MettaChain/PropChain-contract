@@ -48,7 +48,9 @@ fn tax_engine_applies_profile_adjustments() {
             },
         )
         .expect("profile");
-    contract.configure_tax_rule(jurisdiction(), rule()).expect("rule");
+    contract
+        .configure_tax_rule(jurisdiction(), rule())
+        .expect("rule");
     contract
         .set_property_assessment(1, jurisdiction(), owner, 100_000, 0)
         .expect("assessment");

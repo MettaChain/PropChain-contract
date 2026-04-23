@@ -29,7 +29,9 @@ mod propchain_lending {
         InsufficientVotes,
     }
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct CollateralRecord {
         pub property_id: u64,
@@ -38,7 +40,9 @@ mod propchain_lending {
         pub liquidation_threshold: u32,
     }
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct LendingPool {
         pub pool_id: u64,
@@ -47,7 +51,9 @@ mod propchain_lending {
         pub base_rate: u32,
     }
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct MarginPosition {
         pub position_id: u64,
@@ -58,7 +64,9 @@ mod propchain_lending {
         pub entry_price: u128,
     }
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct LoanApplication {
         pub loan_id: u64,
@@ -69,7 +77,9 @@ mod propchain_lending {
         pub approved: bool,
     }
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct YieldPosition {
         pub owner: AccountId,
@@ -78,7 +88,9 @@ mod propchain_lending {
         pub accumulated_rewards: u128,
     }
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct Proposal {
         pub proposal_id: u64,
@@ -278,8 +290,15 @@ mod propchain_lending {
         }
 
         #[ink(message)]
-        pub fn position_pnl(&self, position_id: u64, current_price: u128) -> Result<i128, LendingError> {
-            let pos = self.margin_positions.get(position_id).ok_or(LendingError::PositionNotFound)?;
+        pub fn position_pnl(
+            &self,
+            position_id: u64,
+            current_price: u128,
+        ) -> Result<i128, LendingError> {
+            let pos = self
+                .margin_positions
+                .get(position_id)
+                .ok_or(LendingError::PositionNotFound)?;
             let delta = current_price as i128 - pos.entry_price as i128;
             let signed = if pos.is_short { -delta } else { delta };
             Ok((signed * pos.leverage as i128) / 100)
@@ -310,7 +329,10 @@ mod propchain_lending {
             if self.env().caller() != self.admin {
                 return Err(LendingError::Unauthorized);
             }
-            let mut app = self.loan_applications.get(loan_id).ok_or(LendingError::LoanNotFound)?;
+            let mut app = self
+                .loan_applications
+                .get(loan_id)
+                .ok_or(LendingError::LoanNotFound)?;
             let ltv = (app.requested_amount * 10000) / app.collateral_value.max(1);
             let approved = app.credit_score >= 600 && ltv <= 7500;
             app.approved = approved;
@@ -373,7 +395,10 @@ mod propchain_lending {
 
         #[ink(message)]
         pub fn vote(&mut self, proposal_id: u64, in_favour: bool) -> Result<(), LendingError> {
-            let mut prop = self.proposals.get(proposal_id).ok_or(LendingError::ProposalNotFound)?;
+            let mut prop = self
+                .proposals
+                .get(proposal_id)
+                .ok_or(LendingError::ProposalNotFound)?;
             if in_favour {
                 prop.votes_for += 1;
             } else {
@@ -385,7 +410,10 @@ mod propchain_lending {
 
         #[ink(message)]
         pub fn execute_proposal(&mut self, proposal_id: u64) -> Result<bool, LendingError> {
-            let mut prop = self.proposals.get(proposal_id).ok_or(LendingError::ProposalNotFound)?;
+            let mut prop = self
+                .proposals
+                .get(proposal_id)
+                .ok_or(LendingError::ProposalNotFound)?;
             if prop.votes_for > prop.votes_against && !prop.executed {
                 prop.executed = true;
                 self.proposals.insert(proposal_id, &prop);
@@ -450,7 +478,9 @@ mod tests {
     #[ink::test]
     fn test_assess_collateral() {
         let mut contract = setup();
-        assert!(contract.assess_collateral(1, 1_000_000, 7500, 12000).is_ok());
+        assert!(contract
+            .assess_collateral(1, 1_000_000, 7500, 12000)
+            .is_ok());
         let record = contract.get_collateral(1).unwrap();
         assert_eq!(record.assessed_value, 1_000_000);
     }
@@ -458,7 +488,9 @@ mod tests {
     #[ink::test]
     fn test_liquidation_trigger() {
         let mut contract = setup();
-        contract.assess_collateral(1, 1_000_000, 7500, 12000).unwrap();
+        contract
+            .assess_collateral(1, 1_000_000, 7500, 12000)
+            .unwrap();
         assert!(contract.should_liquidate(1, 800_000));
         assert!(!contract.should_liquidate(1, 1_000_000));
     }

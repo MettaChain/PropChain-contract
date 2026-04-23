@@ -76,6 +76,38 @@ mod propchain_oracle {
         ai_valuation_contract: Option<AccountId>,
         /// Maximum batch size for batch operations
         max_batch_size: u32,
+
+        // ── Circuit Breaker (Issue #316) ──────────────────────────────────────
+        /// When true, valuation updates that exceed `volatility_threshold` are
+        /// automatically blocked until an admin resets the breaker.
+        circuit_breaker_active: bool,
+        /// Percentage change (0–100) beyond which the circuit breaker trips.
+        /// E.g. 20 means a >20% price move triggers a pause.
+        volatility_threshold: u32,
+        /// Property id whose extreme price move last triggered the breaker.
+        circuit_breaker_triggered_by: Option<u64>,
+
+        // ── Multi-Sig Admin (Issue #317) ──────────────────────────────────────
+        /// Accounts authorised to co-sign critical operations.
+        multisig_signers: Vec<AccountId>,
+        /// Required number of approvals for a critical operation to execute.
+        multisig_threshold: u32,
+        /// Pending multi-sig proposals: proposal_id → (action_hash, approvals).
+        multisig_proposals: Mapping<u64, MultiSigProposal>,
+        /// Counter for generating unique proposal ids.
+        multisig_proposal_counter: u64,
+    }
+
+    /// A pending multi-sig proposal for a critical oracle operation.
+    #[derive(scale::Encode, scale::Decode, Clone)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct MultiSigProposal {
+        /// Keccak-256 hash of the encoded action (used to identify what is being approved).
+        pub action_hash: Hash,
+        /// Accounts that have already approved this proposal.
+        pub approvals: Vec<AccountId>,
+        /// Whether the proposal has been executed.
+        pub executed: bool,
     }
 
     /// Events emitted by the oracle
@@ -104,6 +136,48 @@ mod propchain_oracle {
         source_id: String,
         source_type: OracleSourceType,
         weight: u32,
+    }
+
+    /// Emitted when the circuit breaker trips due to extreme price volatility.
+    #[ink(event)]
+    pub struct CircuitBreakerTripped {
+        #[ink(topic)]
+        property_id: u64,
+        old_valuation: u128,
+        new_valuation: u128,
+        change_pct: u32,
+        threshold: u32,
+    }
+
+    /// Emitted when the circuit breaker is manually reset by an admin.
+    #[ink(event)]
+    pub struct CircuitBreakerReset {
+        admin: AccountId,
+    }
+
+    /// Emitted when a new multi-sig proposal is created.
+    #[ink(event)]
+    pub struct MultiSigProposalCreated {
+        #[ink(topic)]
+        proposal_id: u64,
+        proposer: AccountId,
+        action_hash: Hash,
+    }
+
+    /// Emitted when a signer approves a multi-sig proposal.
+    #[ink(event)]
+    pub struct MultiSigProposalApproved {
+        #[ink(topic)]
+        proposal_id: u64,
+        approver: AccountId,
+        approval_count: u32,
+    }
+
+    /// Emitted when a multi-sig proposal reaches threshold and is executed.
+    #[ink(event)]
+    pub struct MultiSigProposalExecuted {
+        #[ink(topic)]
+        proposal_id: u64,
     }
 
     include!("types.rs");
@@ -147,6 +221,15 @@ mod propchain_oracle {
                 request_id_counter: 0,
                 ai_valuation_contract: None,
                 max_batch_size: 50,
+                // Circuit breaker defaults (Issue #316)
+                circuit_breaker_active: false,
+                volatility_threshold: 20, // 20% default threshold
+                circuit_breaker_triggered_by: None,
+                // Multi-sig defaults (Issue #317)
+                multisig_signers: Vec::new(),
+                multisig_threshold: 1,
+                multisig_proposals: Mapping::default(),
+                multisig_proposal_counter: 0,
             }
         }
 
@@ -196,6 +279,28 @@ mod propchain_oracle {
                 return Err(OracleError::InvalidValuation);
             }
 
+            // ── Circuit Breaker check (Issue #316) ────────────────────────────
+            if self.circuit_breaker_active {
+                return Err(OracleError::CircuitBreakerActive);
+            }
+            if let Some(existing) = self.property_valuations.get(&property_id) {
+                let change_pct = self
+                    .calculate_percentage_change(existing.valuation, valuation.valuation)
+                    as u32;
+                if change_pct > self.volatility_threshold {
+                    self.circuit_breaker_active = true;
+                    self.circuit_breaker_triggered_by = Some(property_id);
+                    self.env().emit_event(CircuitBreakerTripped {
+                        property_id,
+                        old_valuation: existing.valuation,
+                        new_valuation: valuation.valuation,
+                        change_pct,
+                        threshold: self.volatility_threshold,
+                    });
+                    return Err(OracleError::CircuitBreakerActive);
+                }
+            }
+
             // Store historical valuation
             self.store_historical_valuation(property_id, valuation.clone());
 
@@ -214,6 +319,183 @@ mod propchain_oracle {
             });
 
             Ok(())
+        }
+
+        // ── Circuit Breaker public API (Issue #316) ───────────────────────────
+
+        /// Returns true if the circuit breaker is currently active.
+        #[ink(message)]
+        pub fn is_circuit_breaker_active(&self) -> bool {
+            self.circuit_breaker_active
+        }
+
+        /// Returns the property id that triggered the circuit breaker, if any.
+        #[ink(message)]
+        pub fn circuit_breaker_triggered_by(&self) -> Option<u64> {
+            self.circuit_breaker_triggered_by
+        }
+
+        /// Returns the current volatility threshold (percentage).
+        #[ink(message)]
+        pub fn volatility_threshold(&self) -> u32 {
+            self.volatility_threshold
+        }
+
+        /// Admin: update the volatility threshold.
+        /// Requires multi-sig approval when signers are configured.
+        #[ink(message)]
+        pub fn set_volatility_threshold(&mut self, new_threshold: u32) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            if new_threshold == 0 || new_threshold > 100 {
+                return Err(OracleError::InvalidValuation);
+            }
+            self.volatility_threshold = new_threshold;
+            Ok(())
+        }
+
+        /// Admin: reset the circuit breaker so that valuation updates are
+        /// accepted again.  Only callable after investigating the price move.
+        #[ink(message)]
+        pub fn reset_circuit_breaker(&mut self) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            self.circuit_breaker_active = false;
+            self.circuit_breaker_triggered_by = None;
+            self.env().emit_event(CircuitBreakerReset {
+                admin: self.env().caller(),
+            });
+            Ok(())
+        }
+
+        // ── Multi-Sig public API (Issue #317) ─────────────────────────────────
+
+        /// Returns the list of authorised multi-sig signers.
+        #[ink(message)]
+        pub fn get_multisig_signers(&self) -> Vec<AccountId> {
+            self.multisig_signers.clone()
+        }
+
+        /// Returns the required approval threshold.
+        #[ink(message)]
+        pub fn get_multisig_threshold(&self) -> u32 {
+            self.multisig_threshold
+        }
+
+        /// Admin: add a signer to the multi-sig set.
+        #[ink(message)]
+        pub fn add_multisig_signer(&mut self, signer: AccountId) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            if !self.multisig_signers.contains(&signer) {
+                self.multisig_signers.push(signer);
+            }
+            Ok(())
+        }
+
+        /// Admin: remove a signer from the multi-sig set.
+        #[ink(message)]
+        pub fn remove_multisig_signer(&mut self, signer: AccountId) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            self.multisig_signers.retain(|s| *s != signer);
+            // Threshold must not exceed signer count
+            if self.multisig_threshold > self.multisig_signers.len() as u32 {
+                self.multisig_threshold = self.multisig_signers.len() as u32;
+            }
+            Ok(())
+        }
+
+        /// Admin: update the required approval threshold (must be ≤ signer count).
+        #[ink(message)]
+        pub fn set_multisig_threshold(&mut self, threshold: u32) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            if threshold == 0 || threshold > self.multisig_signers.len() as u32 {
+                return Err(OracleError::InvalidValuation);
+            }
+            self.multisig_threshold = threshold;
+            Ok(())
+        }
+
+        /// Propose a critical operation identified by `action_hash`.
+        /// The proposer must be a registered signer.
+        #[ink(message)]
+        pub fn propose_multisig_action(&mut self, action_hash: Hash) -> Result<u64, OracleError> {
+            let caller = self.env().caller();
+            if !self.multisig_signers.contains(&caller) {
+                return Err(OracleError::Unauthorized);
+            }
+            let proposal_id = self.multisig_proposal_counter;
+            self.multisig_proposal_counter = self.multisig_proposal_counter.saturating_add(1);
+
+            let mut approvals = Vec::new();
+            approvals.push(caller);
+
+            self.multisig_proposals.insert(
+                &proposal_id,
+                &MultiSigProposal {
+                    action_hash,
+                    approvals,
+                    executed: false,
+                },
+            );
+
+            self.env().emit_event(MultiSigProposalCreated {
+                proposal_id,
+                proposer: caller,
+                action_hash,
+            });
+
+            Ok(proposal_id)
+        }
+
+        /// Approve an existing multi-sig proposal.
+        /// When the approval count reaches `multisig_threshold` the proposal
+        /// is marked executed and the caller is responsible for then submitting
+        /// the actual admin action.
+        #[ink(message)]
+        pub fn approve_multisig_proposal(&mut self, proposal_id: u64) -> Result<bool, OracleError> {
+            let caller = self.env().caller();
+            if !self.multisig_signers.contains(&caller) {
+                return Err(OracleError::Unauthorized);
+            }
+
+            let mut proposal = self
+                .multisig_proposals
+                .get(&proposal_id)
+                .ok_or(OracleError::PropertyNotFound)?;
+
+            if proposal.executed {
+                return Err(OracleError::AlreadyExists);
+            }
+            if proposal.approvals.contains(&caller) {
+                return Err(OracleError::AlreadyExists);
+            }
+
+            proposal.approvals.push(caller);
+            let approval_count = proposal.approvals.len() as u32;
+            let ready = approval_count >= self.multisig_threshold;
+
+            if ready {
+                proposal.executed = true;
+            }
+
+            self.multisig_proposals.insert(&proposal_id, &proposal);
+
+            self.env().emit_event(MultiSigProposalApproved {
+                proposal_id,
+                approver: caller,
+                approval_count,
+            });
+
+            if ready {
+                self.env()
+                    .emit_event(MultiSigProposalExecuted { proposal_id });
+            }
+
+            Ok(ready)
+        }
+
+        /// Query a proposal's current state.
+        #[ink(message)]
+        pub fn get_multisig_proposal(&self, proposal_id: u64) -> Option<MultiSigProposal> {
+            self.multisig_proposals.get(&proposal_id)
         }
 
         /// Update property valuation from oracle sources
@@ -1010,4 +1292,3 @@ mod propchain_oracle {
 
 // Re-export the contract and error type
 pub use propchain_traits::OracleError;
-

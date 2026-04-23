@@ -27,7 +27,11 @@ fn default_metadata() -> PropertyMetadata {
     }
 }
 
-fn setup() -> (PropertyToken, ink::primitives::AccountId, ink::primitives::AccountId) {
+fn setup() -> (
+    PropertyToken,
+    ink::primitives::AccountId,
+    ink::primitives::AccountId,
+) {
     let accounts = test::default_accounts::<DefaultEnvironment>();
     test::set_caller::<DefaultEnvironment>(accounts.alice); // alice = admin
     let contract = PropertyToken::new();
@@ -167,7 +171,9 @@ fn sec_ac06_single_token_approval_cannot_transfer_other_tokens() {
         .expect("Minting token 2 should succeed");
 
     // Approve bob for token 1 only
-    contract.approve(bob, token_id_1).expect("Approval should succeed");
+    contract
+        .approve(bob, token_id_1)
+        .expect("Approval should succeed");
 
     // Bob tries to transfer token 2 — must fail
     test::set_caller::<DefaultEnvironment>(bob);
@@ -237,7 +243,11 @@ fn sec_ac08_operations_on_nonexistent_token_return_not_found() {
         "verify_compliance on ghost token should return TokenNotFound"
     );
     assert_eq!(
-        contract.attach_legal_document(ghost_token_id, ink::primitives::Hash::from([0u8; 32]), String::from("Deed")),
+        contract.attach_legal_document(
+            ghost_token_id,
+            ink::primitives::Hash::from([0u8; 32]),
+            String::from("Deed")
+        ),
         Err(Error::TokenNotFound),
         "attach_legal_document on ghost token should return TokenNotFound"
     );

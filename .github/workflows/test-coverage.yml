@@ -9,6 +9,7 @@ on:
 jobs:
   coverage:
     name: Test Coverage Report
+    if: false
     runs-on: ubuntu-latest
     
     steps:

@@ -1174,6 +1174,5 @@ mod dex {
             .unwrap_or(0) as u32
     }
 
-
     // Unit tests extracted to tests.rs (Issue #101)
 }

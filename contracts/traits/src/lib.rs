@@ -6,11 +6,16 @@
 pub mod access_control;
 pub mod constants;
 pub mod crypto;
+pub mod di;
 pub mod errors;
+pub mod observer;
 pub mod randomness;
 
 pub use access_control::*;
 pub use crypto::*;
+pub use di::*;
+// Export observer types explicitly to avoid name collision with event_bus::EventBus trait
+pub use observer::{EventKind, EventObserver};
 pub mod i18n;
 pub mod monitoring;
 
@@ -20,6 +25,7 @@ pub mod monitoring;
 pub mod bridge;
 pub mod compliance;
 pub mod dex;
+pub mod event_bus;
 pub mod fee;
 pub mod oracle;
 pub mod property;
@@ -42,6 +48,7 @@ pub use property::*;
 
 // Re-export compliance and fee module contents (types are defined in those modules)
 pub use compliance::*;
+pub use event_bus::*;
 pub use fee::*;
 
 #[cfg(not(feature = "std"))]

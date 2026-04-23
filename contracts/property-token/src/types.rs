@@ -242,3 +242,39 @@ pub struct KYCTransferEvent {
     pub from_verification_level: KYCVerificationLevel,
     pub to_verification_level: KYCVerificationLevel,
 }
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    scale::Encode,
+    scale::Decode,
+    ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub enum VestingRole {
+    Team,
+    Investor,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    scale::Encode,
+    scale::Decode,
+    ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub struct VestingSchedule {
+    pub role: VestingRole,
+    pub total_amount: u128,
+    pub claimed_amount: u128,
+    pub start_time: u64,
+    pub cliff_duration: u64,
+    pub vesting_duration: u64,
+}
+
+

@@ -131,6 +131,9 @@ pub struct BridgeConfig {
     pub gas_limit_per_bridge: u64,
     pub emergency_pause: bool,
     pub metadata_preservation: bool,
+    pub rate_limit_enabled: bool,
+    pub max_requests_per_day: u64,
+    pub max_value_per_day: u128,
 }
 
 /// Chain-specific bridge information
@@ -147,6 +150,7 @@ pub struct ChainBridgeInfo {
     pub gas_multiplier: u32,      // Gas cost multiplier for this chain
     pub confirmation_blocks: u32, // Blocks to wait for confirmation
     pub supported_tokens: Vec<TokenId>,
+    pub chain_daily_limit: u128, // Max volume allowed to be routed to this chain per day
 }
 
 /// Bridge fee quote for cross-chain operations

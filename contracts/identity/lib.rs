@@ -330,6 +330,25 @@ pub mod propchain_identity {
         timestamp: u64,
     }
 
+    impl Default for IdentityRegistry {
+        fn default() -> Self {
+            Self {
+                identities: Mapping::default(),
+                did_to_account: Mapping::default(),
+                reputation_metrics: Mapping::default(),
+                trust_assessments: Mapping::default(),
+                verification_requests: Mapping::default(),
+                verification_count: 0,
+                cross_chain_verifications: Mapping::default(),
+                supported_chains: vec![1, 2, 3, 4, 5],
+                admin: AccountId::from([0u8; 32]),
+                authorized_verifiers: Mapping::default(),
+                version: 0,
+                privacy_nonces: Mapping::default(),
+            }
+        }
+    }
+
     impl IdentityRegistry {
         /// Creates a new IdentityRegistry contract
         #[ink(constructor)]
@@ -514,20 +533,20 @@ pub mod propchain_identity {
             }
 
             // Get and update reputation metrics
-            let mut metrics = self
-                .reputation_metrics
-                .get(&target_account)
-                .unwrap_or_else(|| ReputationMetrics {
-                    total_transactions: 0,
-                    successful_transactions: 0,
-                    failed_transactions: 0,
-                    dispute_count: 0,
-                    dispute_resolved_count: 0,
-                    average_transaction_value: 0,
-                    total_value_transacted: 0,
-                    last_updated: timestamp,
-                    reputation_score: 500,
-                });
+            let mut metrics =
+                self.reputation_metrics
+                    .get(&target_account)
+                    .unwrap_or(ReputationMetrics {
+                        total_transactions: 0,
+                        successful_transactions: 0,
+                        failed_transactions: 0,
+                        dispute_count: 0,
+                        dispute_resolved_count: 0,
+                        average_transaction_value: 0,
+                        total_value_transacted: 0,
+                        last_updated: timestamp,
+                        reputation_score: 500,
+                    });
 
             metrics.total_transactions += 1;
             metrics.total_value_transacted += transaction_value;
@@ -585,7 +604,7 @@ pub mod propchain_identity {
             let target_metrics =
                 self.reputation_metrics
                     .get(&target_account)
-                    .unwrap_or_else(|| ReputationMetrics {
+                    .unwrap_or(ReputationMetrics {
                         total_transactions: 0,
                         successful_transactions: 0,
                         failed_transactions: 0,
@@ -928,8 +947,13 @@ pub mod propchain_identity {
             };
 
             // Calculate success rate
+            #[allow(clippy::manual_checked_ops)]
             let success_rate = if metrics.total_transactions > 0 {
-                (metrics.successful_transactions * 100) / metrics.total_transactions
+                metrics
+                    .successful_transactions
+                    .saturating_mul(100)
+                    .checked_div(metrics.total_transactions)
+                    .unwrap_or(50)
             } else {
                 50 // Default for no history
             };
@@ -938,7 +962,7 @@ pub mod propchain_identity {
             ((base_score as u64 * 40)
                 + (reputation_factor as u64 / 10 * 30)
                 + (verification_bonus as u64 * 20)
-                + (success_rate as u64 * 10)) as u32
+                + (success_rate * 10)) as u32
                 / 100
         }
 
