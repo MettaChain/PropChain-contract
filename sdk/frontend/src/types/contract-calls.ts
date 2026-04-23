@@ -457,7 +457,7 @@ export interface BetOnOutcomeParams {
   amount: bigint;
 }
 
-export interface SellSharesParams {
+export interface SellPredictionSharesParams {
   marketId: number;
   outcomeId: number;
   shares: bigint;
