@@ -172,18 +172,34 @@ pub struct DividendsWithdrawn {
     pub amount: u128,
 }
 
+
+
+// =========================================================================
+// Metadata Events
+// =========================================================================
+
+#[ink(event)]
+pub struct MetadataUpdated {
+    #[ink(topic)]
+    pub token_id: TokenId,
+    #[ink(topic)]
+    pub updated_by: AccountId,
+}
+
+#[ink(event)]
+pub struct TokenURIUpdated {
+    #[ink(topic)]
+    pub token_id: TokenId,
+    #[ink(topic)]
+    pub updated_by: AccountId,
+    pub new_uri: String,
+}
+
 // =========================================================================
 // Governance Events
 // =========================================================================
 
-#[ink(event)]
-pub struct VestingScheduleSet {
-    #[ink(topic)]
-    pub token_id: TokenId,
-    #[ink(topic)]
-    pub account: AccountId,
-    pub unlock_time: u64,
-}
+
 
 #[ink(event)]
 pub struct ProposalCreated {
@@ -272,3 +288,30 @@ pub struct ManagementAgentCleared {
     #[ink(topic)]
     pub token_id: TokenId,
 }
+
+// =========================================================================
+// Vesting Events
+// =========================================================================
+
+#[ink(event)]
+pub struct VestingScheduleCreated {
+    #[ink(topic)]
+    pub token_id: TokenId,
+    #[ink(topic)]
+    pub account: AccountId,
+    pub role: crate::property_token::VestingRole,
+    pub total_amount: u128,
+    pub start_time: u64,
+    pub cliff_duration: u64,
+    pub vesting_duration: u64,
+}
+
+#[ink(event)]
+pub struct VestedTokensClaimed {
+    #[ink(topic)]
+    pub token_id: TokenId,
+    #[ink(topic)]
+    pub account: AccountId,
+    pub amount: u128,
+}
+

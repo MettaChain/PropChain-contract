@@ -31,7 +31,16 @@ mod propchain_crowdfunding {
         AlreadyVoted,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum CampaignStatus {
         Draft,
@@ -41,7 +50,16 @@ mod propchain_crowdfunding {
         Cancelled,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum ComplianceStatus {
         Pending,
@@ -49,7 +67,16 @@ mod propchain_crowdfunding {
         Rejected,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum MilestoneStatus {
         Pending,
@@ -57,7 +84,16 @@ mod propchain_crowdfunding {
         Released,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum ProposalStatus {
         Active,
@@ -65,7 +101,16 @@ mod propchain_crowdfunding {
         Rejected,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum RiskRating {
         Low,
@@ -74,7 +119,9 @@ mod propchain_crowdfunding {
         Unrated,
     }
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct Campaign {
         pub campaign_id: u64,
@@ -86,7 +133,9 @@ mod propchain_crowdfunding {
         pub investor_count: u32,
     }
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct InvestorProfile {
         pub investor: AccountId,
@@ -95,7 +144,9 @@ mod propchain_crowdfunding {
         pub jurisdiction: String,
     }
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct Milestone {
         pub milestone_id: u64,
@@ -105,7 +156,9 @@ mod propchain_crowdfunding {
         pub status: MilestoneStatus,
     }
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct Proposal {
         pub proposal_id: u64,
@@ -116,7 +169,9 @@ mod propchain_crowdfunding {
         pub status: ProposalStatus,
     }
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct ShareListing {
         pub listing_id: u64,
@@ -126,7 +181,9 @@ mod propchain_crowdfunding {
         pub price_per_share: u128,
     }
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct RiskProfile {
         pub campaign_id: u64,
@@ -222,7 +279,11 @@ mod propchain_crowdfunding {
         }
 
         #[ink(message)]
-        pub fn create_campaign(&mut self, title: String, target_amount: u128) -> Result<u64, CrowdfundingError> {
+        pub fn create_campaign(
+            &mut self,
+            title: String,
+            target_amount: u128,
+        ) -> Result<u64, CrowdfundingError> {
             self.campaign_count += 1;
             let campaign = Campaign {
                 campaign_id: self.campaign_count,
@@ -244,7 +305,10 @@ mod propchain_crowdfunding {
 
         #[ink(message)]
         pub fn activate_campaign(&mut self, campaign_id: u64) -> Result<(), CrowdfundingError> {
-            let mut campaign = self.campaigns.get(campaign_id).ok_or(CrowdfundingError::CampaignNotFound)?;
+            let mut campaign = self
+                .campaigns
+                .get(campaign_id)
+                .ok_or(CrowdfundingError::CampaignNotFound)?;
             if self.env().caller() != campaign.creator && self.env().caller() != self.admin {
                 return Err(CrowdfundingError::Unauthorized);
             }
@@ -254,7 +318,11 @@ mod propchain_crowdfunding {
         }
 
         #[ink(message)]
-        pub fn onboard_investor(&mut self, jurisdiction: String, accredited: bool) -> Result<(), CrowdfundingError> {
+        pub fn onboard_investor(
+            &mut self,
+            jurisdiction: String,
+            accredited: bool,
+        ) -> Result<(), CrowdfundingError> {
             let caller = self.env().caller();
             let profile = InvestorProfile {
                 investor: caller,
@@ -269,14 +337,20 @@ mod propchain_crowdfunding {
         #[ink(message)]
         pub fn invest(&mut self, campaign_id: u64, amount: u128) -> Result<(), CrowdfundingError> {
             let caller = self.env().caller();
-            let profile = self.investor_profiles.get(caller).ok_or(CrowdfundingError::InvestorNotCompliant)?;
+            let profile = self
+                .investor_profiles
+                .get(caller)
+                .ok_or(CrowdfundingError::InvestorNotCompliant)?;
             if profile.kyc_status != ComplianceStatus::Approved {
                 return Err(CrowdfundingError::InvestorNotCompliant);
             }
             if self.blocked_jurisdictions.contains(&profile.jurisdiction) {
                 return Err(CrowdfundingError::InvestorNotCompliant);
             }
-            let mut campaign = self.campaigns.get(campaign_id).ok_or(CrowdfundingError::CampaignNotFound)?;
+            let mut campaign = self
+                .campaigns
+                .get(campaign_id)
+                .ok_or(CrowdfundingError::CampaignNotFound)?;
             if campaign.status != CampaignStatus::Active {
                 return Err(CrowdfundingError::CampaignNotActive);
             }
@@ -284,7 +358,8 @@ mod propchain_crowdfunding {
             if current == 0 {
                 campaign.investor_count += 1;
             }
-            self.investments.insert((campaign_id, caller), &(current + amount));
+            self.investments
+                .insert((campaign_id, caller), &(current + amount));
             campaign.raised_amount += amount;
             if campaign.raised_amount >= campaign.target_amount {
                 campaign.status = CampaignStatus::Funded;
@@ -292,7 +367,8 @@ mod propchain_crowdfunding {
             self.campaigns.insert(campaign_id, &campaign);
             let shares = (amount / 1000) as u64;
             let current_shares = self.share_holdings.get((campaign_id, caller)).unwrap_or(0);
-            self.share_holdings.insert((campaign_id, caller), &(current_shares + shares));
+            self.share_holdings
+                .insert((campaign_id, caller), &(current_shares + shares));
             self.env().emit_event(InvestmentMade {
                 campaign_id,
                 investor: caller,
@@ -302,8 +378,16 @@ mod propchain_crowdfunding {
         }
 
         #[ink(message)]
-        pub fn add_milestone(&mut self, campaign_id: u64, description: String, release_amount: u128) -> Result<u64, CrowdfundingError> {
-            let campaign = self.campaigns.get(campaign_id).ok_or(CrowdfundingError::CampaignNotFound)?;
+        pub fn add_milestone(
+            &mut self,
+            campaign_id: u64,
+            description: String,
+            release_amount: u128,
+        ) -> Result<u64, CrowdfundingError> {
+            let campaign = self
+                .campaigns
+                .get(campaign_id)
+                .ok_or(CrowdfundingError::CampaignNotFound)?;
             if self.env().caller() != campaign.creator && self.env().caller() != self.admin {
                 return Err(CrowdfundingError::Unauthorized);
             }
@@ -324,7 +408,10 @@ mod propchain_crowdfunding {
             if self.env().caller() != self.admin {
                 return Err(CrowdfundingError::Unauthorized);
             }
-            let mut milestone = self.milestones.get(milestone_id).ok_or(CrowdfundingError::MilestoneNotFound)?;
+            let mut milestone = self
+                .milestones
+                .get(milestone_id)
+                .ok_or(CrowdfundingError::MilestoneNotFound)?;
             milestone.status = MilestoneStatus::Approved;
             self.milestones.insert(milestone_id, &milestone);
             self.env().emit_event(MilestoneApproved {
@@ -336,7 +423,10 @@ mod propchain_crowdfunding {
 
         #[ink(message)]
         pub fn release_milestone(&mut self, milestone_id: u64) -> Result<(), CrowdfundingError> {
-            let mut milestone = self.milestones.get(milestone_id).ok_or(CrowdfundingError::MilestoneNotFound)?;
+            let mut milestone = self
+                .milestones
+                .get(milestone_id)
+                .ok_or(CrowdfundingError::MilestoneNotFound)?;
             if milestone.status != MilestoneStatus::Approved {
                 return Err(CrowdfundingError::MilestoneNotApproved);
             }
@@ -346,7 +436,12 @@ mod propchain_crowdfunding {
         }
 
         #[ink(message)]
-        pub fn distribute_profit(&self, campaign_id: u64, total_profit: u128, investor: AccountId) -> u128 {
+        pub fn distribute_profit(
+            &self,
+            campaign_id: u64,
+            total_profit: u128,
+            investor: AccountId,
+        ) -> u128 {
             let campaign = self.campaigns.get(campaign_id).unwrap_or(Campaign {
                 campaign_id: 0,
                 creator: AccountId::from([0x0; 32]),
@@ -364,8 +459,14 @@ mod propchain_crowdfunding {
         }
 
         #[ink(message)]
-        pub fn create_proposal(&mut self, campaign_id: u64, description: String) -> Result<u64, CrowdfundingError> {
-            self.campaigns.get(campaign_id).ok_or(CrowdfundingError::CampaignNotFound)?;
+        pub fn create_proposal(
+            &mut self,
+            campaign_id: u64,
+            description: String,
+        ) -> Result<u64, CrowdfundingError> {
+            self.campaigns
+                .get(campaign_id)
+                .ok_or(CrowdfundingError::CampaignNotFound)?;
             self.proposal_count += 1;
             let proposal = Proposal {
                 proposal_id: self.proposal_count,
@@ -389,11 +490,17 @@ mod propchain_crowdfunding {
             if self.votes_cast.get((proposal_id, caller)).unwrap_or(false) {
                 return Err(CrowdfundingError::AlreadyVoted);
             }
-            let mut proposal = self.proposals.get(proposal_id).ok_or(CrowdfundingError::ProposalNotFound)?;
+            let mut proposal = self
+                .proposals
+                .get(proposal_id)
+                .ok_or(CrowdfundingError::ProposalNotFound)?;
             if proposal.status != ProposalStatus::Active {
                 return Err(CrowdfundingError::ProposalNotActive);
             }
-            let weight = self.voting_weights.get((proposal.campaign_id, caller)).unwrap_or(1);
+            let weight = self
+                .voting_weights
+                .get((proposal.campaign_id, caller))
+                .unwrap_or(1);
             if in_favour {
                 proposal.votes_for += weight;
             } else {
@@ -405,8 +512,14 @@ mod propchain_crowdfunding {
         }
 
         #[ink(message)]
-        pub fn finalize_proposal(&mut self, proposal_id: u64) -> Result<ProposalStatus, CrowdfundingError> {
-            let mut proposal = self.proposals.get(proposal_id).ok_or(CrowdfundingError::ProposalNotFound)?;
+        pub fn finalize_proposal(
+            &mut self,
+            proposal_id: u64,
+        ) -> Result<ProposalStatus, CrowdfundingError> {
+            let mut proposal = self
+                .proposals
+                .get(proposal_id)
+                .ok_or(CrowdfundingError::ProposalNotFound)?;
             proposal.status = if proposal.votes_for > proposal.votes_against {
                 ProposalStatus::Passed
             } else {
@@ -417,7 +530,12 @@ mod propchain_crowdfunding {
         }
 
         #[ink(message)]
-        pub fn list_shares(&mut self, campaign_id: u64, shares: u64, price_per_share: u128) -> Result<u64, CrowdfundingError> {
+        pub fn list_shares(
+            &mut self,
+            campaign_id: u64,
+            shares: u64,
+            price_per_share: u128,
+        ) -> Result<u64, CrowdfundingError> {
             let caller = self.env().caller();
             let held = self.share_holdings.get((campaign_id, caller)).unwrap_or(0);
             if held < shares {
@@ -442,19 +560,40 @@ mod propchain_crowdfunding {
 
         #[ink(message)]
         pub fn buy_shares(&mut self, listing_id: u64) -> Result<u128, CrowdfundingError> {
-            let listing = self.listings.get(listing_id).ok_or(CrowdfundingError::ListingNotFound)?;
+            let listing = self
+                .listings
+                .get(listing_id)
+                .ok_or(CrowdfundingError::ListingNotFound)?;
             let total_cost = listing.price_per_share * listing.shares as u128;
-            let seller_shares = self.share_holdings.get((listing.campaign_id, listing.seller)).unwrap_or(0);
-            self.share_holdings.insert((listing.campaign_id, listing.seller), &seller_shares.saturating_sub(listing.shares));
+            let seller_shares = self
+                .share_holdings
+                .get((listing.campaign_id, listing.seller))
+                .unwrap_or(0);
+            self.share_holdings.insert(
+                (listing.campaign_id, listing.seller),
+                &seller_shares.saturating_sub(listing.shares),
+            );
             let buyer = self.env().caller();
-            let buyer_shares = self.share_holdings.get((listing.campaign_id, buyer)).unwrap_or(0);
-            self.share_holdings.insert((listing.campaign_id, buyer), &(buyer_shares + listing.shares));
+            let buyer_shares = self
+                .share_holdings
+                .get((listing.campaign_id, buyer))
+                .unwrap_or(0);
+            self.share_holdings.insert(
+                (listing.campaign_id, buyer),
+                &(buyer_shares + listing.shares),
+            );
             self.listings.remove(listing_id);
             Ok(total_cost)
         }
 
         #[ink(message)]
-        pub fn assess_risk(&mut self, campaign_id: u64, ltv: u32, dev_score: u32, volatility: u32) -> Result<(), CrowdfundingError> {
+        pub fn assess_risk(
+            &mut self,
+            campaign_id: u64,
+            ltv: u32,
+            dev_score: u32,
+            volatility: u32,
+        ) -> Result<(), CrowdfundingError> {
             if self.env().caller() != self.admin {
                 return Err(CrowdfundingError::Unauthorized);
             }
@@ -508,7 +647,9 @@ mod propchain_crowdfunding {
 
         #[ink(message)]
         pub fn get_shares(&self, campaign_id: u64, investor: AccountId) -> u64 {
-            self.share_holdings.get((campaign_id, investor)).unwrap_or(0)
+            self.share_holdings
+                .get((campaign_id, investor))
+                .unwrap_or(0)
         }
 
         #[ink(message)]
@@ -541,7 +682,9 @@ mod tests {
     #[ink::test]
     fn test_create_campaign() {
         let mut contract = setup();
-        let campaign_id = contract.create_campaign("Downtown Lofts".into(), 1_000_000).unwrap();
+        let campaign_id = contract
+            .create_campaign("Downtown Lofts".into(), 1_000_000)
+            .unwrap();
         assert_eq!(campaign_id, 1);
         let campaign = contract.get_campaign(1).unwrap();
         assert_eq!(campaign.target_amount, 1_000_000);
@@ -550,7 +693,9 @@ mod tests {
     #[ink::test]
     fn test_activate_campaign() {
         let mut contract = setup();
-        let campaign_id = contract.create_campaign("Harbor View".into(), 500_000).unwrap();
+        let campaign_id = contract
+            .create_campaign("Harbor View".into(), 500_000)
+            .unwrap();
         assert!(contract.activate_campaign(campaign_id).is_ok());
         let campaign = contract.get_campaign(campaign_id).unwrap();
         assert_eq!(campaign.status, CampaignStatus::Active);
@@ -560,7 +705,9 @@ mod tests {
     fn test_invest_in_campaign() {
         let mut contract = setup();
         let accounts = test::default_accounts::<DefaultEnvironment>();
-        let campaign_id = contract.create_campaign("Sunset Villas".into(), 100_000).unwrap();
+        let campaign_id = contract
+            .create_campaign("Sunset Villas".into(), 100_000)
+            .unwrap();
         contract.activate_campaign(campaign_id).unwrap();
         test::set_caller::<DefaultEnvironment>(accounts.bob);
         contract.onboard_investor("US".into(), true).unwrap();
@@ -572,8 +719,12 @@ mod tests {
     #[ink::test]
     fn test_milestone_workflow() {
         let mut contract = setup();
-        let campaign_id = contract.create_campaign("Park Place".into(), 200_000).unwrap();
-        let milestone_id = contract.add_milestone(campaign_id, "Foundation".into(), 50_000).unwrap();
+        let campaign_id = contract
+            .create_campaign("Park Place".into(), 200_000)
+            .unwrap();
+        let milestone_id = contract
+            .add_milestone(campaign_id, "Foundation".into(), 50_000)
+            .unwrap();
         assert!(contract.approve_milestone(milestone_id).is_ok());
         assert!(contract.release_milestone(milestone_id).is_ok());
     }
@@ -596,7 +747,9 @@ mod tests {
         let mut contract = setup();
         let accounts = test::default_accounts::<DefaultEnvironment>();
         let campaign_id = contract.create_campaign("Test".into(), 100_000).unwrap();
-        let proposal_id = contract.create_proposal(campaign_id, "Release funds".into()).unwrap();
+        let proposal_id = contract
+            .create_proposal(campaign_id, "Release funds".into())
+            .unwrap();
         assert!(contract.vote(proposal_id, true).is_ok());
         test::set_caller::<DefaultEnvironment>(accounts.bob);
         assert!(contract.vote(proposal_id, true).is_ok());

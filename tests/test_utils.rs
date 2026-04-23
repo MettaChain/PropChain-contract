@@ -69,7 +69,8 @@ impl PropertyMetadataFixtures {
         PropertyMetadata {
             location: "456 Oak Avenue, Metropolitan City, State 67890".to_string(),
             size: 10_000,
-            legal_description: "Large commercial property with extensive legal description".to_string(),
+            legal_description: "Large commercial property with extensive legal description"
+                .to_string(),
             valuation: 5_000_000,
             documents_url: "https://ipfs.io/ipfs/QmLarge".to_string(),
         }

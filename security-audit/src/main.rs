@@ -21,6 +21,14 @@ enum Commands {
         #[arg(short, long)]
         report: Option<String>,
     },
+    /// Check audit schedule and warn if a third-party audit is overdue
+    CheckSchedule {
+        /// Path to audit schedule JSON (defaults to audit-schedule.json)
+        #[arg(short, long, default_value = "audit-schedule.json")]
+        schedule_file: String,
+    },
+    /// Print a blank audit schedule template to stdout
+    PrintScheduleTemplate,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -53,6 +61,33 @@ struct FuzzingResults {
     proptest_failures: usize,
 }
 
+/// Third-party audit schedule persisted in `audit-schedule.json`.
+#[derive(Serialize, Deserialize, Debug)]
+struct AuditSchedule {
+    /// ISO-8601 date of the most recently completed third-party audit (e.g. "2025-06-01")
+    last_audit_date: String,
+    /// Maximum days allowed between audits before the tool warns
+    max_interval_days: u64,
+    /// Name / firm of the auditor
+    auditor: String,
+    /// Optional link to the published audit report
+    report_url: Option<String>,
+    /// Date of the next scheduled audit, if already booked (ISO-8601)
+    next_audit_date: Option<String>,
+}
+
+impl Default for AuditSchedule {
+    fn default() -> Self {
+        Self {
+            last_audit_date: "1970-01-01".to_string(),
+            max_interval_days: 180,
+            auditor: "TBD".to_string(),
+            report_url: None,
+            next_audit_date: None,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Default)]
 struct StaticAnalysisResults {
     clippy_warnings: usize,
@@ -78,6 +113,63 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::PrintScheduleTemplate => {
+            let template = AuditSchedule {
+                last_audit_date: "2025-01-01".to_string(),
+                max_interval_days: 180,
+                auditor: "Trail of Bits / Oak Security / <firm>".to_string(),
+                report_url: Some("https://example.com/report.pdf".to_string()),
+                next_audit_date: Some("2025-07-01".to_string()),
+            };
+            println!("{}", serde_json::to_string_pretty(&template)?);
+            return Ok(());
+        }
+
+        Commands::CheckSchedule { schedule_file } => {
+            let content = fs::read_to_string(&schedule_file)
+                .context(format!("Cannot read schedule file: {schedule_file}"))?;
+            let schedule: AuditSchedule =
+                serde_json::from_str(&content).context("audit-schedule.json is malformed")?;
+
+            let last = chrono::NaiveDate::parse_from_str(&schedule.last_audit_date, "%Y-%m-%d")
+                .context("last_audit_date must be YYYY-MM-DD")?;
+            let today = chrono::Utc::now().date_naive();
+            let days_since = (today - last).num_days().max(0) as u64;
+            let overdue = days_since > schedule.max_interval_days;
+
+            println!(
+                "Last audit : {} (by {})",
+                schedule.last_audit_date, schedule.auditor
+            );
+            if let Some(url) = &schedule.report_url {
+                println!("Report     : {url}");
+            }
+            if let Some(next) = &schedule.next_audit_date {
+                println!("Next audit : {next}");
+            }
+            println!(
+                "Days since last audit : {days_since} / {} allowed",
+                schedule.max_interval_days
+            );
+
+            if overdue {
+                println!(
+                    "{}",
+                    "WARNING: Third-party audit is overdue! Schedule one immediately."
+                        .red()
+                        .bold()
+                );
+                std::process::exit(1);
+            } else {
+                let remaining = schedule.max_interval_days - days_since;
+                println!(
+                    "{}",
+                    format!("OK: next audit due in {remaining} day(s).").green()
+                );
+            }
+            return Ok(());
+        }
+
         Commands::Audit { report } => {
             println!("{}", "Starting Security Audit Pipeline...".blue().bold());
 

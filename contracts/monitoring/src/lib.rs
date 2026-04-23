@@ -456,7 +456,9 @@ mod monitoring {
                 .min(constants::BASIS_POINTS_DENOMINATOR as u64);
             // Safety: value is clamped to BASIS_POINTS_DENOMINATOR (10_000) which fits in u32
             #[allow(clippy::cast_possible_truncation)]
-            { bips as u32 }
+            {
+                bips as u32
+            }
         }
 
         fn compute_health_status(error_rate_bips: u32) -> HealthStatus {

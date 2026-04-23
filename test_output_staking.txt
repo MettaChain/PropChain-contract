@@ -1,0 +1,8 @@
+   Compiling staking v0.1.0 (/workspaces/PropChain-contract/contracts/staking)
+    Finished `test` profile [optimized + debuginfo] target(s) in 17.23s
+     Running unittests src/lib.rs (/workspaces/PropChain-contract/target/debug/deps/staking-ba98dd91bddd4e4b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

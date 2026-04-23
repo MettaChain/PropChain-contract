@@ -86,7 +86,9 @@ pub struct SecurityAudit {
 
 impl SecurityAudit {
     pub fn new() -> Self {
-        Self { findings: Vec::new() }
+        Self {
+            findings: Vec::new(),
+        }
     }
 
     pub fn add(&mut self, finding: SecurityFinding) {
@@ -102,10 +104,24 @@ impl SecurityAudit {
         println!();
 
         // Summary stats
-        let mitigated = self.findings.iter().filter(|f| f.status == FindingStatus::Mitigated).count();
-        let detected = self.findings.iter().filter(|f| f.status == FindingStatus::Detected).count();
-        let review = self.findings.iter().filter(|f| f.status == FindingStatus::NeedsReview).count();
-        let risk_score: u32 = self.findings.iter()
+        let mitigated = self
+            .findings
+            .iter()
+            .filter(|f| f.status == FindingStatus::Mitigated)
+            .count();
+        let detected = self
+            .findings
+            .iter()
+            .filter(|f| f.status == FindingStatus::Detected)
+            .count();
+        let review = self
+            .findings
+            .iter()
+            .filter(|f| f.status == FindingStatus::NeedsReview)
+            .count();
+        let risk_score: u32 = self
+            .findings
+            .iter()
             .filter(|f| f.status == FindingStatus::Detected)
             .map(|f| f.severity.score())
             .sum();
@@ -129,7 +145,10 @@ impl SecurityAudit {
 
         for category in categories {
             let items = &by_category[category];
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━ {} ━━━━━━━━━━", category.to_uppercase());
+            println!(
+                "━━━━━━━━━━━━━━━━━━━━━━━━━ {} ━━━━━━━━━━",
+                category.to_uppercase()
+            );
             for f in items {
                 println!("  [{}] {} | {}", f.id, f.severity.label(), f.status.label());
                 println!("       Title: {}", f.title);
@@ -151,7 +170,9 @@ impl SecurityAudit {
     }
 
     pub fn assert_no_critical(&self) {
-        let critical_found: Vec<&SecurityFinding> = self.findings.iter()
+        let critical_found: Vec<&SecurityFinding> = self
+            .findings
+            .iter()
             .filter(|f| f.severity == Severity::Critical && f.status == FindingStatus::Detected)
             .collect();
         assert!(
@@ -195,7 +216,8 @@ fn security_audit_report() {
     audit.add(SecurityFinding {
         id: "AC-03".to_string(),
         title: "Unapproved token transfer".to_string(),
-        description: "Verified that third parties without approval cannot transfer tokens.".to_string(),
+        description: "Verified that third parties without approval cannot transfer tokens."
+            .to_string(),
         severity: Severity::Critical,
         category: "Access Control".to_string(),
         status: FindingStatus::Mitigated,
@@ -205,7 +227,8 @@ fn security_audit_report() {
     audit.add(SecurityFinding {
         id: "AC-06".to_string(),
         title: "Approval scope leak between tokens".to_string(),
-        description: "Verified that a token-specific approval cannot be used on a different token.".to_string(),
+        description: "Verified that a token-specific approval cannot be used on a different token."
+            .to_string(),
         severity: Severity::High,
         category: "Access Control".to_string(),
         status: FindingStatus::Mitigated,
@@ -215,7 +238,8 @@ fn security_audit_report() {
     audit.add(SecurityFinding {
         id: "AC-07".to_string(),
         title: "Operator approval cross-owner scope leak".to_string(),
-        description: "Verified that operator approval from Bob cannot access Alice's tokens.".to_string(),
+        description: "Verified that operator approval from Bob cannot access Alice's tokens."
+            .to_string(),
         severity: Severity::Critical,
         category: "Access Control".to_string(),
         status: FindingStatus::Mitigated,
@@ -236,7 +260,9 @@ fn security_audit_report() {
     audit.add(SecurityFinding {
         id: "BR-03".to_string(),
         title: "Bridging non-compliant token".to_string(),
-        description: "Verified that tokens without compliance attestation are blocked at the bridge.".to_string(),
+        description:
+            "Verified that tokens without compliance attestation are blocked at the bridge."
+                .to_string(),
         severity: Severity::High,
         category: "Bridge Security".to_string(),
         status: FindingStatus::Mitigated,
@@ -246,7 +272,8 @@ fn security_audit_report() {
     audit.add(SecurityFinding {
         id: "BR-05".to_string(),
         title: "Double-bridge / token replay".to_string(),
-        description: "Verified that a locked/bridged token cannot be bridged a second time.".to_string(),
+        description: "Verified that a locked/bridged token cannot be bridged a second time."
+            .to_string(),
         severity: Severity::Critical,
         category: "Bridge Security".to_string(),
         status: FindingStatus::Mitigated,
@@ -257,7 +284,8 @@ fn security_audit_report() {
     audit.add(SecurityFinding {
         id: "OV-01".to_string(),
         title: "Zero-amount share transfer".to_string(),
-        description: "Zero-amount share transfers must be rejected to prevent griefing.".to_string(),
+        description: "Zero-amount share transfers must be rejected to prevent griefing."
+            .to_string(),
         severity: Severity::Medium,
         category: "Arithmetic Safety".to_string(),
         status: FindingStatus::Mitigated,
@@ -267,7 +295,8 @@ fn security_audit_report() {
     audit.add(SecurityFinding {
         id: "OV-02".to_string(),
         title: "Over-spend of share balance".to_string(),
-        description: "Verified that accounts cannot transfer more shares than they own.".to_string(),
+        description: "Verified that accounts cannot transfer more shares than they own."
+            .to_string(),
         severity: Severity::Critical,
         category: "Arithmetic Safety".to_string(),
         status: FindingStatus::Mitigated,
@@ -277,7 +306,9 @@ fn security_audit_report() {
     audit.add(SecurityFinding {
         id: "OV-06".to_string(),
         title: "Underpayment for share purchase".to_string(),
-        description: "Verified that purchase_shares validates the transferred value matches price * amount.".to_string(),
+        description:
+            "Verified that purchase_shares validates the transferred value matches price * amount."
+                .to_string(),
         severity: Severity::Critical,
         category: "Arithmetic Safety".to_string(),
         status: FindingStatus::Mitigated,
@@ -288,7 +319,8 @@ fn security_audit_report() {
     audit.add(SecurityFinding {
         id: "CP-01".to_string(),
         title: "Self-certification of compliance".to_string(),
-        description: "Verified that token owners cannot self-certify their own compliance.".to_string(),
+        description: "Verified that token owners cannot self-certify their own compliance."
+            .to_string(),
         severity: Severity::Critical,
         category: "Compliance".to_string(),
         status: FindingStatus::Mitigated,
@@ -298,7 +330,8 @@ fn security_audit_report() {
     audit.add(SecurityFinding {
         id: "CP-04".to_string(),
         title: "Bridging with revoked compliance".to_string(),
-        description: "Verified that revoking compliance blocks subsequent bridge operations.".to_string(),
+        description: "Verified that revoking compliance blocks subsequent bridge operations."
+            .to_string(),
         severity: Severity::High,
         category: "Compliance".to_string(),
         status: FindingStatus::Mitigated,
@@ -308,7 +341,8 @@ fn security_audit_report() {
     audit.add(SecurityFinding {
         id: "CP-06".to_string(),
         title: "Document tampering by non-owner".to_string(),
-        description: "Verified that non-owners cannot attach legal documents to a token.".to_string(),
+        description: "Verified that non-owners cannot attach legal documents to a token."
+            .to_string(),
         severity: Severity::High,
         category: "Compliance".to_string(),
         status: FindingStatus::Mitigated,
@@ -319,7 +353,9 @@ fn security_audit_report() {
     audit.add(SecurityFinding {
         id: "FZ-01".to_string(),
         title: "Ghost token ID handling".to_string(),
-        description: "Proptest verified that random non-existent token IDs always return TokenNotFound.".to_string(),
+        description:
+            "Proptest verified that random non-existent token IDs always return TokenNotFound."
+                .to_string(),
         severity: Severity::Medium,
         category: "Fuzz Testing".to_string(),
         status: FindingStatus::Mitigated,

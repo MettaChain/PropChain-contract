@@ -42,6 +42,10 @@ pub enum OracleError {
     RequestPending,
     /// Input batch exceeds the configured maximum size
     BatchSizeExceeded,
+    /// Circuit breaker is active; transfers are paused due to extreme volatility
+    CircuitBreakerActive,
+    /// The operation has already been performed (e.g. double-approval)
+    AlreadyExists,
 }
 
 impl core::fmt::Display for OracleError {
@@ -63,6 +67,13 @@ impl core::fmt::Display for OracleError {
             OracleError::SourceAlreadyExists => write!(f, "Oracle source already registered"),
             OracleError::RequestPending => write!(f, "Valuation request is still pending"),
             OracleError::BatchSizeExceeded => write!(f, "Batch size exceeds maximum allowed"),
+            OracleError::CircuitBreakerActive => {
+                write!(
+                    f,
+                    "Circuit breaker is active; transfers paused due to extreme price volatility"
+                )
+            }
+            OracleError::AlreadyExists => write!(f, "Operation already performed"),
         }
     }
 }
@@ -83,6 +94,8 @@ impl ContractError for OracleError {
             OracleError::SourceAlreadyExists => oracle_codes::ORACLE_SOURCE_ALREADY_EXISTS,
             OracleError::RequestPending => oracle_codes::ORACLE_REQUEST_PENDING,
             OracleError::BatchSizeExceeded => oracle_codes::ORACLE_BATCH_SIZE_EXCEEDED,
+            OracleError::CircuitBreakerActive => 1013,
+            OracleError::AlreadyExists => 1014,
         }
     }
 
@@ -116,6 +129,10 @@ impl ContractError for OracleError {
             OracleError::BatchSizeExceeded => {
                 "The number of requested items exceeds the configured batch limit"
             }
+            OracleError::CircuitBreakerActive => {
+                "Circuit breaker is active; all transfers are paused due to extreme price volatility"
+            }
+            OracleError::AlreadyExists => "This operation has already been performed",
         }
     }
 
@@ -137,6 +154,8 @@ impl ContractError for OracleError {
             OracleError::SourceAlreadyExists => "oracle.source_already_exists",
             OracleError::RequestPending => "oracle.request_pending",
             OracleError::BatchSizeExceeded => "oracle.batch_size_exceeded",
+            OracleError::CircuitBreakerActive => "oracle.circuit_breaker_active",
+            OracleError::AlreadyExists => "oracle.already_exists",
         }
     }
 }

@@ -6,18 +6,18 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 // Core test modules
-pub mod test_utils;
+pub mod load_tests;
 pub mod tax_compliance;
-pub mod load_tests;                    // Load testing framework
+pub mod test_utils; // Load testing framework
 
 // Re-export commonly used items
-pub use test_utils::*;
 pub use load_tests::{LoadTestConfig, LoadTestMetrics};
+pub use test_utils::*;
 
 // ── Security Test Modules ─────────────────────────────────────────────────
 pub mod security_access_control_tests;
+pub mod security_audit_runner;
 pub mod security_bridge_tests;
 pub mod security_compliance_tests;
-pub mod security_overflow_tests;
 pub mod security_fuzzing_tests;
-pub mod security_audit_runner;
+pub mod security_overflow_tests;

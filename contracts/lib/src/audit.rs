@@ -166,7 +166,12 @@ impl AuditTrail {
     }
 
     /// Get record IDs for a specific event type (paginated).
-    pub fn get_type_records(&self, event_type: SecurityEventType, offset: u64, limit: u64) -> Vec<u64> {
+    pub fn get_type_records(
+        &self,
+        event_type: SecurityEventType,
+        offset: u64,
+        limit: u64,
+    ) -> Vec<u64> {
         let type_key = event_type as u8;
         let count = self.type_record_count.get(type_key).unwrap_or(0);
         let mut result = Vec::new();

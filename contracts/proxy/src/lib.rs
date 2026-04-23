@@ -784,7 +784,6 @@ mod propchain_proxy {
         }
     }
 
-
     #[cfg(test)]
     mod tests {
         use super::*;
