@@ -678,6 +678,51 @@ PropChain errors are organized into categories:
 
 ---
 
+### `Error::ExternalDependencyUnavailable`
+
+```rust
+/// # External Dependency Circuit Breaker Open
+///
+/// ## Description
+/// The registry has temporarily blocked calls to an external dependency because
+/// its circuit breaker is open.
+///
+/// ## Trigger Conditions
+/// - Admin manually tripped the breaker
+/// - Recent failures crossed the configured threshold
+/// - Cooldown window has not yet elapsed
+///
+/// ## Common Scenarios
+///
+/// ### Scenario 1: Oracle Temporarily Isolated
+/// **Context**: Valuation updates are blocked while oracle issues are investigated
+/// ```rust,ignore
+/// let result = contract.update_valuation_from_oracle(property_id);
+/// assert!(matches!(result, Err(Error::ExternalDependencyUnavailable)));
+/// ```
+///
+/// ### Scenario 2: Compliance Registry Held Open
+/// **Context**: Registration and transfer flows fail fast instead of repeatedly
+/// calling an unhealthy compliance contract
+/// ```rust,ignore
+/// let result = contract.register_property(metadata);
+/// assert!(matches!(result, Err(Error::ExternalDependencyUnavailable)));
+/// ```
+///
+/// ## Recovery Steps
+/// 1. Inspect breaker state with `get_external_dependency_breaker(...)`
+/// 2. Restore the unhealthy downstream contract or service
+/// 3. Wait for cooldown, or manually clear it with `reset_external_dependency_breaker(...)`
+/// 4. Re-run the blocked operation
+///
+/// ## Operational Guidance
+/// - Use `trip_external_dependency_breaker(...)` for manual emergency isolation
+/// - Keep `get_dynamic_fee(...)` callers tolerant of a `0` fallback when the fee-manager breaker is open
+/// - Monitor repeated trips as an indicator of downstream instability
+/// ```
+
+---
+
 ### `Error::ContractPaused`
 
 ```rust
