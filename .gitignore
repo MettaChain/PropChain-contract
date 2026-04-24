@@ -136,3 +136,6 @@ config/
 local.toml
 CLAUDE.md
 plan.md
+
+# Codex CLI artifacts
+.codex

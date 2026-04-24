@@ -3,13 +3,18 @@
   "version": "0.1.0",
   "description": "TypeScript SDK for PropChain smart contract integration — property tokenization, escrow, oracle, and more on Substrate/Polkadot",
   "main": "dist/index.js",
-  "module": "dist/index.mjs",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.mjs",
+      "import": "./dist/index.js",
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./federation": {
+      "import": "./dist/federation.js",
+      "require": "./dist/federation.js",
+      "types": "./dist/federation.d.ts"
     }
   },
   "files": [

@@ -29,6 +29,7 @@ import type {
   GasEstimation,
   ContractEvent,
   Subscription,
+  ClientOptions,
 } from '../types';
 import { decodeContractError, TransactionError, GasEstimationError } from '../utils/errors';
 import { decodeTransactionEvents, subscribeToNamedEvent } from '../utils/events';

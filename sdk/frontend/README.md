@@ -46,6 +46,22 @@ await client.propertyRegistry.on('PropertyRegistered', (event) => {
 });
 ```
 
+## Dynamic Contract Modules (Module Federation)
+
+If you want to load contract clients/ABIs on demand (e.g. microfrontends), use `FederatedPropChainClient`:
+
+```typescript
+import { FederatedPropChainClient } from '@propchain/sdk/federation';
+
+const client = await FederatedPropChainClient.create('ws://localhost:9944', {
+  propertyRegistry: '5Grwva...',
+  propertyToken: '5FHnea...',
+});
+
+const registry = await client.contract('propertyRegistry');
+const token = await client.contract('propertyToken');
+```
+
 ## Documentation
 
 See the full [Frontend SDK Guide](../../docs/FRONTEND_SDK_GUIDE.md) for:

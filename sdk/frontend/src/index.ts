@@ -145,10 +145,22 @@ export type {
 // Clients
 // ============================================================================
 export { PropChainClient } from './client/PropChainClient';
+export { FederatedPropChainClient } from './client/FederatedPropChainClient';
 export { PropertyRegistryClient } from './client/PropertyRegistryClient';
 export { PropertyTokenClient } from './client/PropertyTokenClient';
 export { EscrowClient } from './client/EscrowClient';
 export { OracleClient } from './client/OracleClient';
+
+// ============================================================================
+// Contract Module Federation (Dynamic Loading)
+// ============================================================================
+export type { ContractModule, CreateContractClientArgs } from './modules/types';
+export type { BuiltInContractModuleId } from './modules/builtin';
+export {
+  loadContractModule,
+  registerContractModule,
+  listContractModules,
+} from './modules/loader';
 
 // ============================================================================
 // Utilities

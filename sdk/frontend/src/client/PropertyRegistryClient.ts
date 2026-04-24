@@ -36,6 +36,7 @@ import type {
   PortfolioDetails,
   FractionalInfo,
   FeeOperation,
+  ClientOptions,
 } from '../types';
 import { PropChainError, TransactionError, decodeContractError, GasEstimationError } from '../utils/errors';
 import { decodeTransactionEvents, subscribeToNamedEvent } from '../utils/events';

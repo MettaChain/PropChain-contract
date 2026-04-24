@@ -21,6 +21,7 @@ import type {
   OracleSource,
   TxResult,
   ContractEvent,
+  ClientOptions,
 } from '../types';
 import { decodeContractError, TransactionError, GasEstimationError } from '../utils/errors';
 import { decodeTransactionEvents } from '../utils/events';
