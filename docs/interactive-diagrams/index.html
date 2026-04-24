@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PropChain — Interactive Architecture Explorer</title>
+<meta name="description" content="Explore PropChain component interaction diagrams as interactive SVG visualizations.">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg0:#06090f;--bg1:#0a0e1a;--bg2:#111827;--bg3:#1a2332;--bg4:#1e293b;
+  --glass:rgba(17,24,39,.72);--glass-border:rgba(56,189,248,.13);
+  --t1:#e2e8f0;--t2:#94a3b8;--t3:#64748b;
+  --cyan:#38bdf8;--cyan-g:rgba(56,189,248,.25);
+  --purple:#a78bfa;--purple-g:rgba(167,139,250,.25);
+  --orange:#fb923c;--orange-g:rgba(251,146,60,.25);
+  --green:#4ade80;--red:#f87171;
+  --sidebar:300px;--header:56px;
+  --fast:.15s ease;--mid:.25s ease;--slow:.4s cubic-bezier(.4,0,.2,1);
+  --r1:6px;--r2:10px;--r3:14px;
+}
+html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--bg0);color:var(--t1);overflow:hidden}
+a{color:var(--cyan);text-decoration:none}
+
+/* LAYOUT */
+#app{display:grid;grid-template-columns:var(--sidebar) 1fr;grid-template-rows:var(--header) 1fr;height:100vh;transition:grid-template-columns var(--mid)}
+#app.sidebar-closed{grid-template-columns:0 1fr}
+
+/* HEADER */
+header{grid-column:1/-1;display:flex;align-items:center;gap:16px;padding:0 20px;
+  background:var(--glass);border-bottom:1px solid var(--glass-border);backdrop-filter:blur(16px);z-index:100}
+header .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;letter-spacing:-.3px;white-space:nowrap}
+header .logo span{background:linear-gradient(135deg,var(--cyan),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+#search-box{flex:1;max-width:380px;margin-left:auto;position:relative}
+#search-box input{width:100%;padding:7px 12px 7px 34px;background:var(--bg3);border:1px solid var(--glass-border);border-radius:var(--r2);color:var(--t1);font-size:13px;outline:none;transition:border var(--fast)}
+#search-box input:focus{border-color:var(--cyan)}
+#search-box .icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--t3);font-size:14px}
+.header-actions{display:flex;gap:6px;margin-left:12px}
+.btn-icon{width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:var(--bg3);border:1px solid var(--glass-border);border-radius:var(--r1);color:var(--t2);cursor:pointer;font-size:15px;transition:all var(--fast)}
+.btn-icon:hover{background:var(--bg4);color:var(--cyan);border-color:var(--cyan)}
+
+/* SIDEBAR */
+#sidebar{background:var(--bg1);border-right:1px solid var(--glass-border);overflow-y:auto;overflow-x:hidden;padding:12px 0;transition:transform var(--mid);scrollbar-width:thin;scrollbar-color:var(--bg4) transparent}
+#app.sidebar-closed #sidebar{transform:translateX(-100%)}
+.cat-group{margin-bottom:4px}
+.cat-header{display:flex;align-items:center;gap:8px;padding:8px 16px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);cursor:pointer;user-select:none;transition:color var(--fast)}
+.cat-header:hover{color:var(--t2)}
+.cat-header .arrow{transition:transform var(--fast);font-size:10px}
+.cat-header.collapsed .arrow{transform:rotate(-90deg)}
+.cat-items{overflow:hidden;transition:max-height var(--mid);max-height:600px}
+.cat-header.collapsed+.cat-items{max-height:0}
+.dia-item{display:flex;align-items:center;gap:8px;padding:7px 16px 7px 28px;font-size:12.5px;color:var(--t2);cursor:pointer;transition:all var(--fast);border-left:2px solid transparent}
+.dia-item:hover{background:var(--bg3);color:var(--t1)}
+.dia-item.active{background:rgba(56,189,248,.07);color:var(--cyan);border-left-color:var(--cyan)}
+.dia-item .badge{font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;letter-spacing:.3px;flex-shrink:0}
+.badge-seq{background:rgba(56,189,248,.15);color:var(--cyan)}
+.badge-state{background:rgba(167,139,250,.15);color:var(--purple)}
+
+/* MAIN CANVAS */
+#main{position:relative;overflow:hidden;background:var(--bg0);display:flex;flex-direction:column}
+#diagram-header{display:flex;align-items:center;gap:12px;padding:10px 20px;background:var(--bg2);border-bottom:1px solid var(--glass-border);min-height:44px;flex-shrink:0}
+#diagram-title{font-size:14px;font-weight:600;flex:1}
+#diagram-meta{display:flex;gap:12px;font-size:11px;color:var(--t3)}
+#diagram-meta span{display:flex;align-items:center;gap:4px}
+#canvas-wrap{flex:1;position:relative;overflow:hidden;cursor:grab}
+#canvas-wrap:active{cursor:grabbing}
+#canvas{position:absolute;top:0;left:0;width:100%;height:100%;transform-origin:0 0;transition:none}
+#canvas svg{max-width:none!important;height:auto!important}
+
+/* ZOOM CONTROLS */
+#zoom-controls{position:absolute;bottom:16px;right:16px;display:flex;flex-direction:column;gap:4px;z-index:20}
+#zoom-controls button{width:36px;height:36px;display:flex;align-items:center;justify-content:center;
+  background:var(--glass);backdrop-filter:blur(12px);border:1px solid var(--glass-border);border-radius:var(--r1);
+  color:var(--t1);cursor:pointer;font-size:16px;transition:all var(--fast)}
+#zoom-controls button:hover{background:var(--bg4);border-color:var(--cyan)}
+#zoom-level{text-align:center;font-size:10px;color:var(--t3);padding:2px 0}
+
+/* STEP CONTROLS */
+#step-bar{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;
+  padding:6px 14px;background:var(--glass);backdrop-filter:blur(12px);border:1px solid var(--glass-border);border-radius:var(--r3);z-index:20;display:none}
+#step-bar.visible{display:flex}
+#step-bar button{background:none;border:none;color:var(--t1);cursor:pointer;font-size:16px;padding:4px;transition:color var(--fast)}
+#step-bar button:hover{color:var(--cyan)}
+#step-bar .step-info{font-size:11px;color:var(--t2);min-width:60px;text-align:center}
+
+/* INFO PANEL */
+#info-panel{position:absolute;top:0;right:0;width:320px;height:100%;background:var(--glass);backdrop-filter:blur(20px);
+  border-left:1px solid var(--glass-border);transform:translateX(100%);transition:transform var(--slow);z-index:30;overflow-y:auto;padding:16px}
+#info-panel.open{transform:translateX(0)}
+#info-panel h3{font-size:14px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+#info-panel .close-btn{margin-left:auto;cursor:pointer;color:var(--t3);font-size:18px}
+#info-panel .close-btn:hover{color:var(--red)}
+.info-section{margin-bottom:16px}
+.info-section h4{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);margin-bottom:6px}
+.info-section p,.info-section li{font-size:12.5px;color:var(--t2);line-height:1.6}
+.info-section ul{list-style:none;padding:0}
+.info-section li{padding:3px 0;display:flex;align-items:center;gap:6px}
+.info-section li::before{content:'→';color:var(--cyan);font-size:10px}
+.xref-link{cursor:pointer;color:var(--cyan);font-size:12px;padding:4px 8px;border-radius:var(--r1);transition:background var(--fast)}
+.xref-link:hover{background:rgba(56,189,248,.1)}
+
+/* MINIMAP */
+#minimap{position:absolute;bottom:16px;left:16px;width:160px;height:100px;background:var(--bg2);border:1px solid var(--glass-border);
+  border-radius:var(--r2);overflow:hidden;z-index:20;opacity:.8;transition:opacity var(--fast)}
+#minimap:hover{opacity:1}
+#minimap svg{width:100%;height:100%;pointer-events:none}
+#minimap .viewport{position:absolute;border:1.5px solid var(--cyan);background:rgba(56,189,248,.08);pointer-events:none}
+
+/* EMPTY / LOADING */
+#empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;color:var(--t3)}
+#empty-state .icon{font-size:48px;opacity:.5}
+#empty-state p{font-size:14px}
+#loading{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg0);z-index:1000;transition:opacity .5s}
+#loading.hidden{opacity:0;pointer-events:none}
+#loading .spinner{width:40px;height:40px;border:3px solid var(--bg4);border-top-color:var(--cyan);border-radius:50%;animation:spin 1s linear infinite}
+#loading p{margin-top:16px;color:var(--t3);font-size:13px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* FULLSCREEN */
+#app.fullscreen header,#app.fullscreen #sidebar{display:none}
+#app.fullscreen{grid-template-columns:1fr;grid-template-rows:1fr}
+
+/* TOOLTIP */
+.svg-tooltip{position:fixed;padding:6px 10px;background:var(--bg4);border:1px solid var(--glass-border);border-radius:var(--r1);
+  font-size:11px;color:var(--t1);pointer-events:none;z-index:200;opacity:0;transition:opacity var(--fast);white-space:nowrap}
+.svg-tooltip.visible{opacity:1}
+
+/* EXPORT MODAL */
+#export-modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);z-index:500;opacity:0;pointer-events:none;transition:opacity var(--mid)}
+#export-modal.open{opacity:1;pointer-events:auto}
+#export-modal .modal{background:var(--bg2);border:1px solid var(--glass-border);border-radius:var(--r3);padding:24px;min-width:280px}
+#export-modal h3{margin-bottom:16px;font-size:15px}
+#export-modal .actions{display:flex;gap:8px}
+#export-modal .btn{flex:1;padding:10px;text-align:center;border-radius:var(--r2);border:1px solid var(--glass-border);background:var(--bg3);color:var(--t1);cursor:pointer;font-size:13px;font-weight:500;transition:all var(--fast)}
+#export-modal .btn:hover{border-color:var(--cyan);background:var(--bg4)}
+
+/* SVG OVERRIDES */
+#canvas .actor{cursor:pointer;transition:filter .2s}
+#canvas .actor:hover{filter:drop-shadow(0 0 8px var(--cyan-g))}
+#canvas .statediagram-state{cursor:pointer;transition:filter .2s}
+#canvas .statediagram-state:hover{filter:drop-shadow(0 0 8px var(--purple-g))}
+#canvas .messageText{cursor:pointer}
+#canvas .messageText:hover{fill:var(--cyan)!important}
+#canvas .note{cursor:pointer;transition:filter .2s}
+#canvas .note:hover{filter:drop-shadow(0 0 6px var(--orange-g))}
+
+/* RESPONSIVE */
+@media(max-width:768px){
+  :root{--sidebar:260px}
+  #info-panel{width:100%}
+}
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><p>Initializing PropChain Explorer…</p></div>
+
+<div id="app">
+  <header>
+    <button class="btn-icon" id="toggle-sidebar" title="Toggle sidebar">☰</button>
+    <div class="logo">⬡ <span>PropChain</span>&nbsp;Architecture Explorer</div>
+    <div id="search-box"><span class="icon">🔍</span><input type="text" id="search" placeholder="Search diagrams… (Ctrl+K)" autocomplete="off"></div>
+    <div class="header-actions">
+      <button class="btn-icon" id="btn-step" title="Step-through mode">▶</button>
+      <button class="btn-icon" id="btn-export" title="Export diagram">⬇</button>
+      <button class="btn-icon" id="btn-fullscreen" title="Fullscreen (F)">⛶</button>
+    </div>
+  </header>
+
+  <nav id="sidebar"></nav>
+
+  <main id="main">
+    <div id="diagram-header">
+      <div id="diagram-title">Select a diagram</div>
+      <div id="diagram-meta"></div>
+    </div>
+    <div id="canvas-wrap">
+      <div id="canvas">
+        <div id="empty-state"><div class="icon">⬡</div><p>Choose a diagram from the sidebar to explore</p></div>
+      </div>
+      <div id="zoom-controls">
+        <button id="zoom-in" title="Zoom in (+)">+</button>
+        <div id="zoom-level">100%</div>
+        <button id="zoom-out" title="Zoom out (−)">−</button>
+        <button id="zoom-reset" title="Reset (0)">⊙</button>
+      </div>
+      <div id="step-bar">
+        <button id="step-prev" title="Previous">⏮</button>
+        <button id="step-play" title="Play/Pause">▶</button>
+        <button id="step-next" title="Next">⏭</button>
+        <span class="step-info" id="step-info">0 / 0</span>
+      </div>
+      <div id="minimap"></div>
+    </div>
+
+    <div id="info-panel">
+      <h3><span id="info-node-name"></span><span class="close-btn" id="close-info">✕</span></h3>
+      <div class="info-section"><h4>Type</h4><p id="info-type"></p></div>
+      <div class="info-section"><h4>Connections</h4><ul id="info-connections"></ul></div>
+      <div class="info-section"><h4>Also appears in</h4><ul id="info-xrefs"></ul></div>
+    </div>
+  </main>
+</div>
+
+<div id="export-modal">
+  <div class="modal">
+    <h3>Export Diagram</h3>
+    <div class="actions">
+      <button class="btn" id="export-svg">📄 SVG</button>
+      <button class="btn" id="export-png">🖼 PNG</button>
+    </div>
+  </div>
+</div>
+
+<div class="svg-tooltip" id="tooltip"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

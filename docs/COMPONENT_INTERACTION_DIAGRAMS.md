@@ -1,5 +1,7 @@
 # Component Interaction Diagrams
 
+> 🔍 **[Open Interactive Diagram Explorer →](./interactive-diagrams/index.html)** — Click, zoom, pan, and step through these diagrams as interactive SVGs.
+
 This document provides detailed visual representations of how PropChain components interact with each other across different use cases and scenarios.
 
 ## Table of Contents
