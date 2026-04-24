@@ -6,6 +6,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 // Core test modules
+pub mod bridge_load_tests;
 pub mod load_tests;
 pub mod tax_compliance;
 pub mod test_utils; // Load testing framework
