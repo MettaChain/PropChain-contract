@@ -202,6 +202,9 @@ match contract.check_account_compliance(buyer_account) {
 
 Returns the dynamic fee for a specific operation.
 
+If no fee manager is configured, or if the fee manager circuit breaker is open,
+this call returns `0` as a safe fallback.
+
 **Parameters**:
 - `operation` (`FeeOperation`) - Type of operation
 
@@ -307,6 +310,9 @@ Configures or removes the compliance registry contract.
 
 Updates property valuation using oracle price feed.
 
+This call is protected by the oracle circuit breaker. When the breaker is open,
+the function fails fast before attempting the external call.
+
 **Parameters**:
 - `property_id` (`u64`) - ID of property to update
   - **Constraints**: Must exist in registry
@@ -316,6 +322,7 @@ Updates property valuation using oracle price feed.
 - `Err(Error::PropertyNotFound)` - Property doesn't exist
 - `Err(Error::OracleError)` - Oracle call failed
 - `Err(Error::OracleError)` - Oracle not configured
+- `Err(Error::ExternalDependencyUnavailable)` - Oracle circuit breaker is open
 
 **Events Emitted**:
 - Property metadata updated event (indirectly)
@@ -327,6 +334,68 @@ Updates property valuation using oracle price feed.
 contract.update_valuation_from_oracle(property_id)?;
 let valuation = get_current_valuation(property_id);
 ```
+
+---
+
+##### `get_external_dependency_breaker(dependency: ExternalDependency) -> CircuitBreakerState`
+
+Returns the current circuit breaker state for an external dependency.
+
+**Parameters**:
+- `dependency` (`ExternalDependency`) - Dependency to inspect (`Oracle`, `ComplianceRegistry`, `IdentityRegistry`, `FeeManager`)
+
+**Returns**:
+- `CircuitBreakerState` - Current breaker counters and cooldown window
+
+---
+
+##### `get_external_dependency_breaker_config() -> CircuitBreakerConfig`
+
+Returns the global circuit breaker configuration for external calls.
+
+**Returns**:
+- `CircuitBreakerConfig` - Failure threshold and cooldown period
+
+---
+
+##### `configure_external_dependency_breaker(failure_threshold: u8, cooldown_period_secs: u64) -> Result<(), Error>`
+
+Updates the shared circuit breaker configuration for external dependencies.
+
+**Parameters**:
+- `failure_threshold` (`u8`) - Number of consecutive failures before opening the breaker
+- `cooldown_period_secs` (`u64`) - Cooldown period before calls are allowed again
+
+**Returns**:
+- `Ok(())` - Breaker configuration updated
+- `Err(Error::Unauthorized)` - Caller is not admin
+- `Err(Error::ValueOutOfBounds)` - Threshold or cooldown is zero
+
+---
+
+##### `trip_external_dependency_breaker(dependency: ExternalDependency) -> Result<(), Error>`
+
+Opens a dependency breaker immediately. Intended for admin-operated emergency isolation.
+
+**Parameters**:
+- `dependency` (`ExternalDependency`) - Dependency to isolate
+
+**Returns**:
+- `Ok(())` - Breaker opened
+- `Err(Error::Unauthorized)` - Caller is not admin
+
+---
+
+##### `reset_external_dependency_breaker(dependency: ExternalDependency) -> Result<(), Error>`
+
+Clears a dependency breaker after the external service has recovered.
+
+**Parameters**:
+- `dependency` (`ExternalDependency`) - Dependency to restore
+
+**Returns**:
+- `Ok(())` - Breaker reset
+- `Err(Error::Unauthorized)` - Caller is not admin
 
 ---
 
