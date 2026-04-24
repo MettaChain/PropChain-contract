@@ -98,7 +98,14 @@ mod dex {
         pub reward_amount: u128,
     }
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct TradingCompetition {
         pub competition_id: u64,
@@ -779,19 +786,12 @@ mod dex {
         }
 
         #[ink(message)]
-        pub fn get_trading_competition(
-            &self,
-            competition_id: u64,
-        ) -> Option<TradingCompetition> {
+        pub fn get_trading_competition(&self, competition_id: u64) -> Option<TradingCompetition> {
             self.trading_competitions.get(competition_id)
         }
 
         #[ink(message)]
-        pub fn get_competition_score(
-            &self,
-            competition_id: u64,
-            account: AccountId,
-        ) -> u128 {
+        pub fn get_competition_score(&self, competition_id: u64, account: AccountId) -> u128 {
             self.competition_scores
                 .get((competition_id, account))
                 .unwrap_or(0)
@@ -964,7 +964,8 @@ mod dex {
                 .get(competition_id)
                 .ok_or(Error::InvalidRequest)?;
             competition.active = false;
-            self.trading_competitions.insert(competition_id, &competition);
+            self.trading_competitions
+                .insert(competition_id, &competition);
             Ok(())
         }
 
@@ -978,7 +979,8 @@ mod dex {
                 .get(competition_id)
                 .ok_or(Error::InvalidRequest)?;
             competition.active = true;
-            self.trading_competitions.insert(competition_id, &competition);
+            self.trading_competitions
+                .insert(competition_id, &competition);
             Ok(())
         }
 
@@ -993,7 +995,8 @@ mod dex {
                 .ok_or(Error::InvalidRequest)?;
             competition.active = false;
             competition.end_block = u64::from(self.env().block_number());
-            self.trading_competitions.insert(competition_id, &competition);
+            self.trading_competitions
+                .insert(competition_id, &competition);
             Ok(())
         }
 
@@ -1040,7 +1043,8 @@ mod dex {
                 .get(competition_id)
                 .ok_or(Error::InvalidRequest)?;
             competition.min_trade_volume = min_trade_volume;
-            self.trading_competitions.insert(competition_id, &competition);
+            self.trading_competitions
+                .insert(competition_id, &competition);
             Ok(())
         }
 
@@ -1058,7 +1062,8 @@ mod dex {
                 .get(competition_id)
                 .ok_or(Error::InvalidRequest)?;
             competition.reward_amount = reward_amount;
-            self.trading_competitions.insert(competition_id, &competition);
+            self.trading_competitions
+                .insert(competition_id, &competition);
             Ok(())
         }
 
@@ -1096,10 +1101,7 @@ mod dex {
         }
 
         #[ink(message)]
-        pub fn get_competition_details(
-            &self,
-            competition_id: u64,
-        ) -> Option<TradingCompetition> {
+        pub fn get_competition_details(&self, competition_id: u64) -> Option<TradingCompetition> {
             self.trading_competitions.get(competition_id)
         }
 
@@ -1177,7 +1179,8 @@ mod dex {
             let current_block = u64::from(self.env().block_number());
             competition.active = current_block >= competition.start_block
                 && current_block <= competition.end_block;
-            self.trading_competitions.insert(competition_id, &competition);
+            self.trading_competitions
+                .insert(competition_id, &competition);
             Ok(())
         }
 
@@ -1236,7 +1239,13 @@ mod dex {
             if total_score == 0 {
                 return None;
             }
-            Some(competition.reward_amount.saturating_mul(score).checked_div(total_score).unwrap_or(0))
+            Some(
+                competition
+                    .reward_amount
+                    .saturating_mul(score)
+                    .checked_div(total_score)
+                    .unwrap_or(0),
+            )
         }
 
         #[ink(message)]
@@ -1283,10 +1292,7 @@ mod dex {
         }
 
         #[ink(message)]
-        pub fn get_competition_details_by_title(
-            &self,
-            title: String,
-        ) -> Vec<TradingCompetition> {
+        pub fn get_competition_details_by_title(&self, title: String) -> Vec<TradingCompetition> {
             let mut results = Vec::new();
             for competition_id in 1..=self.trade_competition_counter {
                 if let Some(comp) = self.trading_competitions.get(competition_id) {
@@ -1299,10 +1305,7 @@ mod dex {
         }
 
         #[ink(message)]
-        pub fn get_competition_rewards_summary(
-            &self,
-            competition_id: u64,
-        ) -> Option<(u128, bool)> {
+        pub fn get_competition_rewards_summary(&self, competition_id: u64) -> Option<(u128, bool)> {
             self.trading_competitions
                 .get(competition_id)
                 .map(|competition| (competition.reward_amount, competition.active))
@@ -1313,26 +1316,33 @@ mod dex {
             &self,
             competition_id: u64,
         ) -> Option<(bool, u64, u64, u128)> {
-            self.trading_competitions.get(competition_id).map(|competition| {
-                (
-                    competition.active,
-                    competition.start_block,
-                    competition.end_block,
-                    competition.reward_amount,
-                )
-            })
+            self.trading_competitions
+                .get(competition_id)
+                .map(|competition| {
+                    (
+                        competition.active,
+                        competition.start_block,
+                        competition.end_block,
+                        competition.reward_amount,
+                    )
+                })
         }
 
         #[ink(message)]
-        pub fn get_competition_report(&self, competition_id: u64) -> Option<(String, u128, u64, u64)> {
-            self.trading_competitions.get(competition_id).map(|competition| {
-                (
-                    competition.title,
-                    competition.reward_amount,
-                    competition.start_block,
-                    competition.end_block,
-                )
-            })
+        pub fn get_competition_report(
+            &self,
+            competition_id: u64,
+        ) -> Option<(String, u128, u64, u64)> {
+            self.trading_competitions
+                .get(competition_id)
+                .map(|competition| {
+                    (
+                        competition.title,
+                        competition.reward_amount,
+                        competition.start_block,
+                        competition.end_block,
+                    )
+                })
         }
 
         #[ink(message)]
@@ -1381,7 +1391,10 @@ mod dex {
         }
 
         #[ink(message)]
-        pub fn get_competition_reward_distribution(&self, competition_id: u64) -> Option<(u128, u32)> {
+        pub fn get_competition_reward_distribution(
+            &self,
+            competition_id: u64,
+        ) -> Option<(u128, u32)> {
             self.trading_competitions
                 .get(competition_id)
                 .map(|competition| (competition.reward_amount, competition.top_n))
@@ -1392,13 +1405,15 @@ mod dex {
             &self,
             competition_id: u64,
         ) -> Option<(String, bool, u128)> {
-            self.trading_competitions.get(competition_id).map(|competition| {
-                (
-                    competition.title,
-                    competition.active,
-                    competition.reward_amount,
-                )
-            })
+            self.trading_competitions
+                .get(competition_id)
+                .map(|competition| {
+                    (
+                        competition.title,
+                        competition.active,
+                        competition.reward_amount,
+                    )
+                })
         }
 
         #[ink(message)]
@@ -2002,7 +2017,8 @@ mod dex {
                 if order.remaining_amount == 0 || order.price == 0 {
                     continue;
                 }
-                if let Some(existing) = levels.iter_mut().find(|level| level.price == order.price) {
+                if let Some(existing) = levels.iter_mut().find(|level| level.price == order.price)
+                {
                     existing.total_amount =
                         existing.total_amount.saturating_add(order.remaining_amount);
                     existing.order_count = existing.order_count.saturating_add(1);
