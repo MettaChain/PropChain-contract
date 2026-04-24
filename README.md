@@ -125,6 +125,7 @@ TARGET=wasm32-unknown-unknown
 - **[📋 Architecture Index](./docs/ARCHITECTURE_INDEX.md)** - Complete guide to all architecture docs
 - **[🌐 System Architecture Overview](./docs/SYSTEM_ARCHITECTURE_OVERVIEW.md)** - High-level system design and components
 - **[🔗 Component Interaction Diagrams](./docs/COMPONENT_INTERACTION_DIAGRAMS.md)** - Detailed interaction sequences
+- **[🔍 Interactive Diagram Explorer](./docs/interactive-diagrams/index.html)** - Clickable, explorable SVG visualizations
 - **[📐 Architectural Principles](./docs/ARCHITECTURAL_PRINCIPLES.md)** - Design philosophy and decisions
 - **[📝 Documentation Maintenance](./docs/ARCHITECTURE_DOCUMENTATION_MAINTENANCE.md)** - How we keep docs current
 
