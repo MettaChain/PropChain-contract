@@ -1216,11 +1216,7 @@ pub mod property_token {
 
         /// Returns snapshot metadata by token and snapshot ID.
         #[ink(message)]
-        pub fn get_snapshot(
-            &self,
-            token_id: TokenId,
-            snapshot_id: u64,
-        ) -> Option<Snapshot> {
+        pub fn get_snapshot(&self, token_id: TokenId, snapshot_id: u64) -> Option<Snapshot> {
             self.snapshots.get((token_id, snapshot_id))
         }
 

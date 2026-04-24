@@ -68,7 +68,7 @@ pub struct NetworkLatencyConfig {
 impl Default for NetworkLatencyConfig {
     fn default() -> Self {
         Self {
-            base_latency_ms: 50,  // Local network
+            base_latency_ms: 50, // Local network
             jitter_ms: 10,
             packet_loss_percent: 0.0,
             congestion_enabled: false,
@@ -81,9 +81,9 @@ impl NetworkLatencyConfig {
     /// Westend testnet latency simulation
     pub fn westend() -> Self {
         Self {
-            base_latency_ms: 200,  // Typical Westend latency
+            base_latency_ms: 200, // Typical Westend latency
             jitter_ms: 50,
-            packet_loss_percent: 0.5,  // Occasional packet loss
+            packet_loss_percent: 0.5, // Occasional packet loss
             congestion_enabled: true,
             max_congestion_delay_ms: 300,
         }
@@ -92,9 +92,9 @@ impl NetworkLatencyConfig {
     /// Polkadot mainnet latency simulation
     pub fn polkadot() -> Self {
         Self {
-            base_latency_ms: 300,  // Higher latency for mainnet
+            base_latency_ms: 300, // Higher latency for mainnet
             jitter_ms: 100,
-            packet_loss_percent: 1.0,  // Slightly higher packet loss
+            packet_loss_percent: 1.0, // Slightly higher packet loss
             congestion_enabled: true,
             max_congestion_delay_ms: 500,
         }
@@ -1528,7 +1528,8 @@ fn load_test_endurance_sustained_load() {
         "Endurance Test - Sustained Load (Westend Latency)",
         |user_id, config, metrics| {
             // Simulate sustained activity over time
-            let operations_per_user = (config.duration_secs * 1000 / config.operation_delay_ms) as usize;
+            let operations_per_user =
+                (config.duration_secs * 1000 / config.operation_delay_ms) as usize;
             simulate_user_registration(user_id, operations_per_user, config, metrics);
         },
     );
