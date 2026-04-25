@@ -260,13 +260,102 @@ mod tests {
         let mut dex = setup_dex();
         let pair_id = create_pool(&mut dex);
         test::set_block_number::<DefaultEnvironment>(25);
+        let pending = dex
+            .pending_liquidity_rewards(
+                pair_id,
+                test::default_accounts::<DefaultEnvironment>().alice,
+            )
+            .expect("pending rewards should be readable");
+        assert!(pending > 0);
+
         let reward = dex
             .claim_liquidity_rewards(pair_id)
             .expect("reward should accrue");
         assert!(reward > 0);
+        assert_eq!(
+            dex.pending_liquidity_rewards(
+                pair_id,
+                test::default_accounts::<DefaultEnvironment>().alice
+            )
+            .expect("pending after claim"),
+            0
+        );
         assert!(
             dex.get_governance_balance(test::default_accounts::<DefaultEnvironment>().alice)
                 > 1_000_000
+        );
+    }
+
+    #[ink::test]
+    fn liquidity_mining_campaign_window_is_enforced() {
+        let mut dex = setup_dex();
+        let pair_id = create_pool(&mut dex);
+
+        dex.set_liquidity_mining_campaign(100, 10, 20, String::from("PCG"))
+            .expect("admin can configure campaign");
+        let campaign = dex.get_liquidity_mining_campaign();
+        assert_eq!(campaign.emission_rate, 100);
+        assert_eq!(campaign.start_block, 10);
+        assert_eq!(campaign.end_block, 20);
+
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_block_number::<DefaultEnvironment>(5);
+        assert_eq!(
+            dex.pending_liquidity_rewards(pair_id, accounts.alice)
+                .expect("pending before campaign"),
+            0
+        );
+
+        test::set_block_number::<DefaultEnvironment>(15);
+        let first_claim = dex
+            .claim_liquidity_rewards(pair_id)
+            .expect("mid-campaign claim");
+        assert!((499..=500).contains(&first_claim));
+
+        test::set_block_number::<DefaultEnvironment>(25);
+        let second_claim = dex
+            .claim_liquidity_rewards(pair_id)
+            .expect("post-campaign claim only pays until end");
+        assert!((499..=500).contains(&second_claim));
+        assert_eq!(
+            dex.claim_liquidity_rewards(pair_id),
+            Err(Error::RewardUnavailable)
+        );
+    }
+
+    #[ink::test]
+    fn liquidity_mining_rejects_invalid_campaigns_and_non_lp_claims() {
+        let mut dex = setup_dex();
+        let pair_id = create_pool(&mut dex);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        assert_eq!(
+            dex.set_liquidity_mining_campaign(0, 1, 10, String::from("PCG")),
+            Err(Error::InvalidRequest)
+        );
+        assert_eq!(
+            dex.set_liquidity_mining_campaign(10, 10, 10, String::from("PCG")),
+            Err(Error::InvalidRequest)
+        );
+        assert_eq!(
+            dex.set_liquidity_mining_campaign(10, 1, 10, String::new()),
+            Err(Error::InvalidRequest)
+        );
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            dex.set_liquidity_mining_campaign(10, 1, 10, String::from("PCG")),
+            Err(Error::Unauthorized)
+        );
+        test::set_block_number::<DefaultEnvironment>(25);
+        assert_eq!(
+            dex.claim_liquidity_rewards(pair_id),
+            Err(Error::RewardUnavailable)
+        );
+        assert_eq!(
+            dex.pending_liquidity_rewards(pair_id, accounts.bob)
+                .expect("non-LP pending rewards are readable"),
+            0
         );
     }
 
