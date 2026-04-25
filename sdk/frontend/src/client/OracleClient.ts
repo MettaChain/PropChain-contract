@@ -19,11 +19,12 @@ import type {
   VolatilityMetrics,
   PropertyType,
   OracleSource,
+  TxResult,
   ContractEvent,
   ClientOptions,
   TxProgressCallback,
-  TxProgressStatus,
 } from '../types';
+import { TxProgressStatus } from '../types';
 import { decodeContractError, TransactionError, GasEstimationError } from '../utils/errors';
 import { decodeTransactionEvents } from '../utils/events';
 

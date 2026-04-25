@@ -38,8 +38,8 @@ import type {
   FeeOperation,
   ClientOptions,
   TxProgressCallback,
-  TxProgressStatus,
 } from '../types';
+import { TxProgressStatus } from '../types';
 import { PropChainError, TransactionError, decodeContractError, GasEstimationError } from '../utils/errors';
 import { decodeTransactionEvents, subscribeToNamedEvent } from '../utils/events';
 import type { PropChainEventName, PropChainEventMap } from '../types/events';

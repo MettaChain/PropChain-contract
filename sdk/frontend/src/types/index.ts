@@ -998,7 +998,6 @@ export type {
   GovernanceProposal,
   GovernanceTokenConfig,
   VoteDelegation,
-  ProposalStatus,
 
   // Insurance Types
   InsurancePolicy,
@@ -1045,7 +1044,6 @@ export type {
   // Fees & Taxation Types
   DynamicFeeConfig,
   FeeCalculation,
-  TaxRecord,
   TaxPaymentStatus,
 
   // Property Management Types
@@ -1088,7 +1086,6 @@ export type {
   KYCInfo,
   ComplianceRegistryEntry,
   ComplianceStatus,
-  VerificationStatus,
 } from "./contracts";
 
 // Export all comprehensive event types from contract-events.ts

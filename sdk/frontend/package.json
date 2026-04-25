@@ -15,6 +15,11 @@
       "import": "./dist/federation.js",
       "require": "./dist/federation.js",
       "types": "./dist/federation.d.ts"
+    },
+    "./react": {
+      "import": "./dist/react.js",
+      "require": "./dist/react.js",
+      "types": "./dist/react.d.ts"
     }
   },
   "files": [
@@ -55,8 +60,12 @@
     "@polkadot/util": "^13.0.0",
     "@polkadot/util-crypto": "^13.0.0"
   },
+  "peerDependencies": {
+    "react": ">=17.0.0"
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@types/react": "^18.3.28",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   },

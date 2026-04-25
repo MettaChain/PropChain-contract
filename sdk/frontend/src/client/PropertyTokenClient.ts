@@ -31,8 +31,8 @@ import type {
   Subscription,
   ClientOptions,
   TxProgressCallback,
-  TxProgressStatus,
 } from '../types';
+import { TxProgressStatus } from '../types';
 import { decodeContractError, TransactionError, GasEstimationError } from '../utils/errors';
 import { decodeTransactionEvents, subscribeToNamedEvent } from '../utils/events';
 import type { PropChainEventName, PropChainEventMap } from '../types/events';

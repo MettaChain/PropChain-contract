@@ -65,6 +65,8 @@ export type {
   ClientOptions,
   ContractAddresses,
   TxResult,
+  TxStatusUpdate,
+  TxProgressCallback,
   ContractEvent,
   GasEstimation,
   NetworkConfig,
@@ -88,6 +90,8 @@ export {
   PropertyRegistryError,
   PropertyTokenError,
   OracleErrorCode,
+  // Transaction progress
+  TxProgressStatus,
 } from './types';
 
 // ============================================================================
