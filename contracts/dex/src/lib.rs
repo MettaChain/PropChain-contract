@@ -8,12 +8,19 @@ use propchain_traits::*;
 #[ink::contract]
 mod dex {
     use super::*;
+    use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
     const BIPS_DENOMINATOR: u128 = 10_000;
     const REWARD_PRECISION: u128 = 1_000_000_000;
 
     // Error types extracted to errors.rs (Issue #101)
     include!("errors.rs");
+
+    impl From<ReentrancyError> for Error {
+        fn from(_: ReentrancyError) -> Self {
+            Error::ReentrantCall
+        }
+    }
 
     #[ink(event)]
     pub struct PoolCreated {
@@ -160,6 +167,7 @@ mod dex {
         votes_cast: Mapping<(u64, AccountId), bool>,
         liquidity_mining: LiquidityMiningCampaign,
         last_reward_block: Mapping<u64, u64>,
+        reentrancy_guard: ReentrancyGuard,
         trade_competition_counter: u64,
         trading_competitions: Mapping<u64, TradingCompetition>,
         competition_scores: Mapping<(u64, AccountId), u128>,
@@ -210,6 +218,7 @@ mod dex {
                     reward_token_symbol: String::from("GOV"),
                 },
                 last_reward_block: Mapping::default(),
+                reentrancy_guard: ReentrancyGuard::new(),
                 trade_competition_counter: 0,
                 trading_competitions: Mapping::default(),
                 competition_scores: Mapping::default(),
@@ -234,81 +243,83 @@ mod dex {
             initial_base: u128,
             initial_quote: u128,
         ) -> Result<u64, Error> {
-            self.ensure_admin_or_pair_creator()?;
-            if base_token == quote_token
-                || initial_base == 0
-                || initial_quote == 0
-                || fee_bips >= 1_000
-            {
-                return Err(Error::InvalidPair);
-            }
+            non_reentrant!(self, {
+                self.ensure_admin_or_pair_creator()?;
+                if base_token == quote_token
+                    || initial_base == 0
+                    || initial_quote == 0
+                    || fee_bips >= 1_000
+                {
+                    return Err(Error::InvalidPair);
+                }
 
-            let key = ordered_pair(base_token, quote_token);
-            if self.pair_lookup.get(key).unwrap_or(0) != 0 {
-                return Err(Error::InvalidPair);
-            }
+                let key = ordered_pair(base_token, quote_token);
+                if self.pair_lookup.get(key).unwrap_or(0) != 0 {
+                    return Err(Error::InvalidPair);
+                }
 
-            self.pair_counter += 1;
-            let pair_id = self.pair_counter;
-            let last_price = initial_quote
-                .saturating_mul(BIPS_DENOMINATOR)
-                .checked_div(initial_base)
-                .unwrap_or(0);
-            let minted = integer_sqrt(initial_base.saturating_mul(initial_quote));
-            let pool = LiquidityPool {
-                pair_id,
-                base_token,
-                quote_token,
-                reserve_base: initial_base,
-                reserve_quote: initial_quote,
-                total_lp_shares: minted,
-                fee_bips,
-                reward_index: 0,
-                cumulative_volume: 0,
-                last_price,
-                is_active: true,
-            };
-            self.pools.insert(pair_id, &pool);
-            self.pair_lookup.insert(key, &pair_id);
-            self.positions.insert(
-                (pair_id, self.env().caller()),
-                &LiquidityPosition {
-                    lp_shares: minted,
-                    reward_debt: 0,
-                    provided_base: initial_base,
-                    provided_quote: initial_quote,
-                    pending_rewards: 0,
-                },
-            );
-            self.analytics.insert(
-                pair_id,
-                &PairAnalytics {
+                self.pair_counter += 1;
+                let pair_id = self.pair_counter;
+                let last_price = initial_quote
+                    .saturating_mul(BIPS_DENOMINATOR)
+                    .checked_div(initial_base)
+                    .unwrap_or(0);
+                let minted = integer_sqrt(initial_base.saturating_mul(initial_quote));
+                let pool = LiquidityPool {
                     pair_id,
-                    last_price,
-                    twap_price: last_price,
-                    reference_price: last_price,
+                    base_token,
+                    quote_token,
+                    reserve_base: initial_base,
+                    reserve_quote: initial_quote,
+                    total_lp_shares: minted,
+                    fee_bips,
+                    reward_index: 0,
                     cumulative_volume: 0,
-                    trade_count: 0,
-                    best_bid: 0,
-                    best_ask: 0,
-                    volatility_bips: 0,
-                    last_updated: self.env().block_timestamp(),
-                    high_24h: last_price,
-                    low_24h: last_price,
-                    volume_24h: 0,
-                    trade_count_24h: 0,
-                },
-            );
-            self.last_reward_block
-                .insert(pair_id, &u64::from(self.env().block_number()));
+                    last_price,
+                    is_active: true,
+                };
+                self.pools.insert(pair_id, &pool);
+                self.pair_lookup.insert(key, &pair_id);
+                self.positions.insert(
+                    (pair_id, self.env().caller()),
+                    &LiquidityPosition {
+                        lp_shares: minted,
+                        reward_debt: 0,
+                        provided_base: initial_base,
+                        provided_quote: initial_quote,
+                        pending_rewards: 0,
+                    },
+                );
+                self.analytics.insert(
+                    pair_id,
+                    &PairAnalytics {
+                        pair_id,
+                        last_price,
+                        twap_price: last_price,
+                        reference_price: last_price,
+                        cumulative_volume: 0,
+                        trade_count: 0,
+                        best_bid: 0,
+                        best_ask: 0,
+                        volatility_bips: 0,
+                        last_updated: self.env().block_timestamp(),
+                        high_24h: last_price,
+                        low_24h: last_price,
+                        volume_24h: 0,
+                        trade_count_24h: 0,
+                    },
+                );
+                self.last_reward_block
+                    .insert(pair_id, &u64::from(self.env().block_number()));
 
-            self.env().emit_event(PoolCreated {
-                pair_id,
-                base_token,
-                quote_token,
-            });
+                self.env().emit_event(PoolCreated {
+                    pair_id,
+                    base_token,
+                    quote_token,
+                });
 
-            Ok(pair_id)
+                Ok(pair_id)
+            })
         }
 
         #[ink(message)]
@@ -318,55 +329,61 @@ mod dex {
             amount_base: u128,
             amount_quote: u128,
         ) -> Result<u128, Error> {
-            if amount_base == 0 || amount_quote == 0 {
-                return Err(Error::InvalidPair);
-            }
-            self.accrue_rewards(pair_id)?;
-            let mut pool = self.pool(pair_id)?;
-            let minted_shares = if pool.total_lp_shares == 0 {
-                integer_sqrt(amount_base.saturating_mul(amount_quote))
-            } else {
-                let base_shares = amount_base
-                    .saturating_mul(pool.total_lp_shares)
-                    .checked_div(pool.reserve_base)
-                    .unwrap_or(0);
-                let quote_shares = amount_quote
-                    .saturating_mul(pool.total_lp_shares)
-                    .checked_div(pool.reserve_quote)
-                    .unwrap_or(0);
-                core::cmp::min(base_shares, quote_shares)
-            };
-            if minted_shares == 0 {
-                return Err(Error::InsufficientLiquidity);
-            }
+            non_reentrant!(self, {
+                if amount_base == 0 || amount_quote == 0 {
+                    return Err(Error::InvalidPair);
+                }
+                self.accrue_rewards(pair_id)?;
+                let mut pool = self.pool(pair_id)?;
+                let minted_shares = if pool.total_lp_shares == 0 {
+                    integer_sqrt(amount_base.saturating_mul(amount_quote))
+                } else {
+                    let base_shares = amount_base
+                        .saturating_mul(pool.total_lp_shares)
+                        .checked_div(pool.reserve_base)
+                        .unwrap_or(0);
+                    let quote_shares = amount_quote
+                        .saturating_mul(pool.total_lp_shares)
+                        .checked_div(pool.reserve_quote)
+                        .unwrap_or(0);
+                    core::cmp::min(base_shares, quote_shares)
+                };
 
-            pool.reserve_base = pool.reserve_base.saturating_add(amount_base);
-            pool.reserve_quote = pool.reserve_quote.saturating_add(amount_quote);
-            pool.total_lp_shares = pool.total_lp_shares.saturating_add(minted_shares);
-            self.update_pool_price(&mut pool);
-            self.pools.insert(pair_id, &pool);
+                pool.reserve_base = pool.reserve_base.saturating_add(amount_base);
+                pool.reserve_quote = pool.reserve_quote.saturating_add(amount_quote);
+                pool.total_lp_shares = pool.total_lp_shares.saturating_add(minted_shares);
+                self.update_pool_price(&mut pool);
+                self.pools.insert(pair_id, &pool);
 
-            let caller = self.env().caller();
-            let mut position = self.position(pair_id, caller);
-            let accrued =
-                pending_from_indices(position.lp_shares, pool.reward_index, position.reward_debt);
-            position.pending_rewards = position.pending_rewards.saturating_add(accrued);
-            position.reward_debt = scaled_reward_debt(
-                position.lp_shares.saturating_add(minted_shares),
-                pool.reward_index,
-            );
-            position.lp_shares = position.lp_shares.saturating_add(minted_shares);
-            position.provided_base = position.provided_base.saturating_add(amount_base);
-            position.provided_quote = position.provided_quote.saturating_add(amount_quote);
-            self.positions.insert((pair_id, caller), &position);
+                let caller = self.env().caller();
+                let mut position = self.position(pair_id, caller);
+                let accrued = pending_from_indices(
+                    position.lp_shares,
+                    pool.reward_index,
+                    position.reward_debt,
+                );
+                position.pending_rewards = position.pending_rewards.saturating_add(accrued);
+                position.reward_debt = scaled_reward_debt(
+                    position.lp_shares.saturating_add(minted_shares),
+                    pool.reward_index,
+                );
+                position.lp_shares = position.lp_shares.saturating_add(minted_shares);
+                position.provided_base = position.provided_base.saturating_add(amount_base);
+                position.provided_quote = position.provided_quote.saturating_add(amount_quote);
+                self.positions.insert((pair_id, caller), &position);
 
-            self.env().emit_event(LiquidityAdded {
-                pair_id,
-                provider: caller,
-                minted_shares,
-            });
+                let mut analytics = self.analytics_for(pair_id);
+                analytics.last_updated = self.env().block_timestamp();
+                self.analytics.insert(pair_id, &analytics);
 
-            Ok(minted_shares)
+                self.env().emit_event(LiquidityAdded {
+                    pair_id,
+                    provider: caller,
+                    minted_shares,
+                });
+
+                Ok(minted_shares)
+            })
         }
 
         #[ink(message)]
@@ -375,39 +392,44 @@ mod dex {
             pair_id: u64,
             shares: u128,
         ) -> Result<(u128, u128), Error> {
-            if shares == 0 {
-                return Err(Error::InvalidPair);
-            }
-            self.accrue_rewards(pair_id)?;
-            let mut pool = self.pool(pair_id)?;
-            let caller = self.env().caller();
-            let mut position = self.position(pair_id, caller);
-            if shares > position.lp_shares || pool.total_lp_shares == 0 {
-                return Err(Error::InsufficientLiquidity);
-            }
+            non_reentrant!(self, {
+                if shares == 0 {
+                    return Err(Error::InvalidPair);
+                }
+                self.accrue_rewards(pair_id)?;
+                let mut pool = self.pool(pair_id)?;
+                let caller = self.env().caller();
+                let mut position = self.position(pair_id, caller);
+                if shares > position.lp_shares {
+                    return Err(Error::InsufficientLiquidity);
+                }
 
-            let base_out = shares
-                .saturating_mul(pool.reserve_base)
-                .checked_div(pool.total_lp_shares)
-                .unwrap_or(0);
-            let quote_out = shares
-                .saturating_mul(pool.reserve_quote)
-                .checked_div(pool.total_lp_shares)
-                .unwrap_or(0);
-            pool.reserve_base = pool.reserve_base.saturating_sub(base_out);
-            pool.reserve_quote = pool.reserve_quote.saturating_sub(quote_out);
-            pool.total_lp_shares = pool.total_lp_shares.saturating_sub(shares);
-            self.update_pool_price(&mut pool);
-            self.pools.insert(pair_id, &pool);
+                let base_out = shares
+                    .saturating_mul(pool.reserve_base)
+                    .checked_div(pool.total_lp_shares)
+                    .unwrap_or(0);
+                let quote_out = shares
+                    .saturating_mul(pool.reserve_quote)
+                    .checked_div(pool.total_lp_shares)
+                    .unwrap_or(0);
+                pool.reserve_base = pool.reserve_base.saturating_sub(base_out);
+                pool.reserve_quote = pool.reserve_quote.saturating_sub(quote_out);
+                pool.total_lp_shares = pool.total_lp_shares.saturating_sub(shares);
+                self.update_pool_price(&mut pool);
+                self.pools.insert(pair_id, &pool);
 
-            let accrued =
-                pending_from_indices(position.lp_shares, pool.reward_index, position.reward_debt);
-            position.pending_rewards = position.pending_rewards.saturating_add(accrued);
-            position.lp_shares = position.lp_shares.saturating_sub(shares);
-            position.reward_debt = scaled_reward_debt(position.lp_shares, pool.reward_index);
-            self.positions.insert((pair_id, caller), &position);
+                let accrued = pending_from_indices(
+                    position.lp_shares,
+                    pool.reward_index,
+                    position.reward_debt,
+                );
+                position.pending_rewards = position.pending_rewards.saturating_add(accrued);
+                position.lp_shares = position.lp_shares.saturating_sub(shares);
+                position.reward_debt = scaled_reward_debt(position.lp_shares, pool.reward_index);
+                self.positions.insert((pair_id, caller), &position);
 
-            Ok((base_out, quote_out))
+                Ok((base_out, quote_out))
+            })
         }
 
         #[ink(message)]
@@ -417,7 +439,9 @@ mod dex {
             amount_in: u128,
             min_quote_out: u128,
         ) -> Result<u128, Error> {
-            self.swap(pair_id, OrderSide::Sell, amount_in, min_quote_out)
+            non_reentrant!(self, {
+                self.swap(pair_id, OrderSide::Sell, amount_in, min_quote_out)
+            })
         }
 
         #[ink(message)]
@@ -427,7 +451,9 @@ mod dex {
             amount_in: u128,
             min_base_out: u128,
         ) -> Result<u128, Error> {
-            self.swap(pair_id, OrderSide::Buy, amount_in, min_base_out)
+            non_reentrant!(self, {
+                self.swap(pair_id, OrderSide::Buy, amount_in, min_base_out)
+            })
         }
 
         #[ink(message)]
@@ -443,60 +469,62 @@ mod dex {
             twap_interval: Option<u64>,
             reduce_only: bool,
         ) -> Result<u64, Error> {
-            if amount == 0 {
-                return Err(Error::InvalidOrder);
-            }
-            let _ = self.pool(pair_id)?;
-            if matches!(
-                order_type,
-                OrderType::Limit | OrderType::StopLoss | OrderType::TakeProfit
-            ) && price == 0
-            {
-                return Err(Error::InvalidOrder);
-            }
+            non_reentrant!(self, {
+                if amount == 0 {
+                    return Err(Error::InvalidOrder);
+                }
+                let _ = self.pool(pair_id)?;
+                if matches!(
+                    order_type,
+                    OrderType::Limit | OrderType::StopLoss | OrderType::TakeProfit
+                ) && price == 0
+                {
+                    return Err(Error::InvalidOrder);
+                }
 
-            self.order_counter += 1;
-            let now = self.env().block_timestamp();
-            let order_id = self.order_counter;
-            let order = TradingOrder {
-                order_id,
-                pair_id,
-                trader: self.env().caller(),
-                side,
-                order_type,
-                time_in_force,
-                price,
-                amount,
-                remaining_amount: amount,
-                trigger_price,
-                twap_interval,
-                reduce_only,
-                status: OrderStatus::Open,
-                created_at: now,
-                updated_at: now,
-            };
-            self.orders.insert(order_id, &order);
-            let count = self.order_book_count.get(pair_id).unwrap_or(0);
-            self.order_book.insert((pair_id, count), &order_id);
-            self.order_book_count.insert(pair_id, &(count + 1));
+                self.order_counter += 1;
+                let now = self.env().block_timestamp();
+                let order_id = self.order_counter;
+                let order = TradingOrder {
+                    order_id,
+                    pair_id,
+                    trader: self.env().caller(),
+                    side,
+                    order_type,
+                    time_in_force,
+                    price,
+                    amount,
+                    remaining_amount: amount,
+                    trigger_price,
+                    twap_interval,
+                    reduce_only,
+                    status: OrderStatus::Open,
+                    created_at: now,
+                    updated_at: now,
+                };
+                self.orders.insert(order_id, &order);
+                let count = self.order_book_count.get(pair_id).unwrap_or(0);
+                self.order_book.insert((pair_id, count), &order_id);
+                self.order_book_count.insert(pair_id, &(count + 1));
 
-            self.refresh_best_quotes(pair_id);
+                self.refresh_best_quotes(pair_id);
 
-            self.env().emit_event(OrderPlaced {
-                order_id,
-                pair_id,
-                trader: self.env().caller(),
-            });
+                self.env().emit_event(OrderPlaced {
+                    order_id,
+                    pair_id,
+                    trader: self.env().caller(),
+                });
 
-            if matches!(
-                time_in_force,
-                TimeInForce::ImmediateOrCancel | TimeInForce::FillOrKill
-            ) || matches!(order_type, OrderType::Market)
-            {
-                self.execute_order(order_id, amount)?;
-            }
+                if matches!(
+                    time_in_force,
+                    TimeInForce::ImmediateOrCancel | TimeInForce::FillOrKill
+                ) || matches!(order_type, OrderType::Market)
+                {
+                    self.execute_order(order_id, amount)?;
+                }
 
-            Ok(order_id)
+                Ok(order_id)
+            })
         }
 
         #[ink(message)]
@@ -505,41 +533,43 @@ mod dex {
             order_id: u64,
             requested_amount: u128,
         ) -> Result<u128, Error> {
-            let mut order = self.order(order_id)?;
-            if !matches!(
-                order.status,
-                OrderStatus::Open | OrderStatus::PartiallyFilled | OrderStatus::Triggered
-            ) {
-                return Err(Error::OrderNotExecutable);
-            }
+            non_reentrant!(self, {
+                let mut order = self.order(order_id)?;
+                if !matches!(
+                    order.status,
+                    OrderStatus::Open | OrderStatus::PartiallyFilled | OrderStatus::Triggered
+                ) {
+                    return Err(Error::OrderNotExecutable);
+                }
 
-            let executable = self.is_order_executable(&order)?;
-            if !executable {
-                return Err(Error::OrderNotExecutable);
-            }
+                let executable = self.is_order_executable(&order)?;
+                if !executable {
+                    return Err(Error::OrderNotExecutable);
+                }
 
-            let fill_amount = core::cmp::min(requested_amount, order.remaining_amount);
-            if fill_amount == 0 {
-                return Err(Error::InvalidOrder);
-            }
+                let fill_amount = core::cmp::min(requested_amount, order.remaining_amount);
+                if fill_amount == 0 {
+                    return Err(Error::InvalidOrder);
+                }
 
-            let pair_id = order.pair_id;
-            let output = match order.side {
-                OrderSide::Sell => self.swap(pair_id, OrderSide::Sell, fill_amount, 0)?,
-                OrderSide::Buy => self.swap(pair_id, OrderSide::Buy, fill_amount, 0)?,
-            };
+                let pair_id = order.pair_id;
+                let output = match order.side {
+                    OrderSide::Sell => self.swap(pair_id, OrderSide::Sell, fill_amount, 0)?,
+                    OrderSide::Buy => self.swap(pair_id, OrderSide::Buy, fill_amount, 0)?,
+                };
 
-            order.remaining_amount = order.remaining_amount.saturating_sub(fill_amount);
-            order.updated_at = self.env().block_timestamp();
-            order.status = if order.remaining_amount == 0 {
-                OrderStatus::Filled
-            } else {
-                OrderStatus::PartiallyFilled
-            };
-            self.orders.insert(order_id, &order);
-            self.refresh_best_quotes(pair_id);
+                order.remaining_amount = order.remaining_amount.saturating_sub(fill_amount);
+                order.updated_at = self.env().block_timestamp();
+                order.status = if order.remaining_amount == 0 {
+                    OrderStatus::Filled
+                } else {
+                    OrderStatus::PartiallyFilled
+                };
+                self.orders.insert(order_id, &order);
+                self.refresh_best_quotes(pair_id);
 
-            Ok(output)
+                Ok(output)
+            })
         }
 
         #[ink(message)]
@@ -549,75 +579,80 @@ mod dex {
             taker_order_id: u64,
             amount: u128,
         ) -> Result<u128, Error> {
-            let mut maker = self.order(maker_order_id)?;
-            let mut taker = self.order(taker_order_id)?;
-            if maker.pair_id != taker.pair_id || maker.side == taker.side {
-                return Err(Error::InvalidOrder);
-            }
+            non_reentrant!(self, {
+                let mut maker = self.order(maker_order_id)?;
+                let mut taker = self.order(taker_order_id)?;
+                if maker.pair_id != taker.pair_id || maker.side == taker.side {
+                    return Err(Error::InvalidOrder);
+                }
 
-            let fill_amount = core::cmp::min(
-                amount,
-                core::cmp::min(maker.remaining_amount, taker.remaining_amount),
-            );
-            if fill_amount == 0 {
-                return Err(Error::InvalidOrder);
-            }
+                let fill_amount = core::cmp::min(
+                    amount,
+                    core::cmp::min(maker.remaining_amount, taker.remaining_amount),
+                );
+                if fill_amount == 0 {
+                    return Err(Error::InvalidOrder);
+                }
 
-            let execution_price = if maker.price > 0 {
-                maker.price
-            } else {
-                taker.price
-            };
-            let notional = fill_amount
-                .saturating_mul(execution_price)
-                .checked_div(BIPS_DENOMINATOR)
-                .unwrap_or(0);
+                let execution_price = if maker.price > 0 {
+                    maker.price
+                } else {
+                    taker.price
+                };
+                let notional = fill_amount
+                    .saturating_mul(execution_price)
+                    .checked_div(BIPS_DENOMINATOR)
+                    .unwrap_or(0);
 
-            maker.remaining_amount = maker.remaining_amount.saturating_sub(fill_amount);
-            taker.remaining_amount = taker.remaining_amount.saturating_sub(fill_amount);
-            maker.status = if maker.remaining_amount == 0 {
-                OrderStatus::Filled
-            } else {
-                OrderStatus::PartiallyFilled
-            };
-            taker.status = if taker.remaining_amount == 0 {
-                OrderStatus::Filled
-            } else {
-                OrderStatus::PartiallyFilled
-            };
-            maker.updated_at = self.env().block_timestamp();
-            taker.updated_at = maker.updated_at;
-            self.orders.insert(maker_order_id, &maker);
-            self.orders.insert(taker_order_id, &taker);
+                maker.remaining_amount = maker.remaining_amount.saturating_sub(fill_amount);
+                taker.remaining_amount = taker.remaining_amount.saturating_sub(fill_amount);
+                maker.status = if maker.remaining_amount == 0 {
+                    OrderStatus::Filled
+                } else {
+                    OrderStatus::PartiallyFilled
+                };
+                taker.status = if taker.remaining_amount == 0 {
+                    OrderStatus::Filled
+                } else {
+                    OrderStatus::PartiallyFilled
+                };
+                maker.updated_at = self.env().block_timestamp();
+                taker.updated_at = maker.updated_at;
+                self.orders.insert(maker_order_id, &maker);
+                self.orders.insert(taker_order_id, &taker);
 
-            let mut analytics = self.analytics_for(maker.pair_id);
-            let prev = analytics.last_price;
-            analytics.last_price = execution_price;
-            analytics.reference_price =
-                weighted_average(execution_price, analytics.twap_price, 7, 3);
-            analytics.twap_price = weighted_average(execution_price, analytics.twap_price, 1, 1);
-            analytics.cumulative_volume = analytics.cumulative_volume.saturating_add(notional);
-            analytics.trade_count = analytics.trade_count.saturating_add(1);
-            analytics.volatility_bips = volatility_bips(prev, execution_price);
-            analytics.last_updated = self.env().block_timestamp();
-            self.analytics.insert(maker.pair_id, &analytics);
-            self.refresh_best_quotes(maker.pair_id);
+                let mut analytics = self.analytics_for(maker.pair_id);
+                let prev = analytics.last_price;
+                analytics.last_price = execution_price;
+                analytics.reference_price =
+                    weighted_average(execution_price, analytics.twap_price, 7, 3);
+                analytics.twap_price =
+                    weighted_average(execution_price, analytics.twap_price, 1, 1);
+                analytics.cumulative_volume = analytics.cumulative_volume.saturating_add(notional);
+                analytics.trade_count = analytics.trade_count.saturating_add(1);
+                analytics.volatility_bips = volatility_bips(prev, execution_price);
+                analytics.last_updated = self.env().block_timestamp();
+                self.analytics.insert(maker.pair_id, &analytics);
+                self.refresh_best_quotes(maker.pair_id);
 
-            Ok(notional)
+                Ok(notional)
+            })
         }
 
         #[ink(message)]
         pub fn cancel_order(&mut self, order_id: u64) -> Result<(), Error> {
-            let mut order = self.order(order_id)?;
-            let caller = self.env().caller();
-            if caller != order.trader && caller != self.admin {
-                return Err(Error::Unauthorized);
-            }
-            order.status = OrderStatus::Cancelled;
-            order.updated_at = self.env().block_timestamp();
-            self.orders.insert(order_id, &order);
-            self.refresh_best_quotes(order.pair_id);
-            Ok(())
+            non_reentrant!(self, {
+                let mut order = self.order(order_id)?;
+                let caller = self.env().caller();
+                if caller != order.trader && caller != self.admin {
+                    return Err(Error::Unauthorized);
+                }
+                order.status = OrderStatus::Cancelled;
+                order.updated_at = self.env().block_timestamp();
+                self.orders.insert(order_id, &order);
+                self.refresh_best_quotes(order.pair_id);
+                Ok(())
+            })
         }
 
         #[ink(message)]
@@ -657,32 +692,34 @@ mod dex {
             amount_in: u128,
             min_amount_out: u128,
         ) -> Result<u64, Error> {
-            let _ = self.pool(pair_id)?;
-            let quote = self.quote_cross_chain_trade(destination_chain)?;
-            self.cross_chain_trade_counter += 1;
-            let trade_id = self.cross_chain_trade_counter;
-            let intent = CrossChainTradeIntent {
-                trade_id,
-                pair_id,
-                order_id,
-                source_chain: 1,
-                destination_chain,
-                trader: self.env().caller(),
-                recipient,
-                amount_in,
-                min_amount_out,
-                bridge_request_id: None,
-                bridge_fee_quote: quote,
-                status: CrossChainTradeStatus::Pending,
-                created_at: self.env().block_timestamp(),
-            };
-            self.cross_chain_trades.insert(trade_id, &intent);
-            self.env().emit_event(CrossChainTradeCreated {
-                trade_id,
-                pair_id,
-                destination_chain,
-            });
-            Ok(trade_id)
+            non_reentrant!(self, {
+                let _ = self.pool(pair_id)?;
+                let quote = self.quote_cross_chain_trade(destination_chain)?;
+                self.cross_chain_trade_counter += 1;
+                let trade_id = self.cross_chain_trade_counter;
+                let intent = CrossChainTradeIntent {
+                    trade_id,
+                    pair_id,
+                    order_id,
+                    source_chain: 1,
+                    destination_chain,
+                    trader: self.env().caller(),
+                    recipient,
+                    amount_in,
+                    min_amount_out,
+                    bridge_request_id: None,
+                    bridge_fee_quote: quote,
+                    status: CrossChainTradeStatus::Pending,
+                    created_at: self.env().block_timestamp(),
+                };
+                self.cross_chain_trades.insert(trade_id, &intent);
+                self.env().emit_event(CrossChainTradeCreated {
+                    trade_id,
+                    pair_id,
+                    destination_chain,
+                });
+                Ok(trade_id)
+            })
         }
 
         #[ink(message)]
@@ -691,25 +728,29 @@ mod dex {
             trade_id: u64,
             bridge_request_id: u64,
         ) -> Result<(), Error> {
-            let mut trade = self.cross_chain_trade(trade_id)?;
-            if self.env().caller() != trade.trader && self.env().caller() != self.admin {
-                return Err(Error::Unauthorized);
-            }
-            trade.bridge_request_id = Some(bridge_request_id);
-            trade.status = CrossChainTradeStatus::BridgeRequested;
-            self.cross_chain_trades.insert(trade_id, &trade);
-            Ok(())
+            non_reentrant!(self, {
+                let mut trade = self.cross_chain_trade(trade_id)?;
+                if self.env().caller() != trade.trader && self.env().caller() != self.admin {
+                    return Err(Error::Unauthorized);
+                }
+                trade.bridge_request_id = Some(bridge_request_id);
+                trade.status = CrossChainTradeStatus::BridgeRequested;
+                self.cross_chain_trades.insert(trade_id, &trade);
+                Ok(())
+            })
         }
 
         #[ink(message)]
         pub fn finalize_cross_chain_trade(&mut self, trade_id: u64) -> Result<(), Error> {
-            let mut trade = self.cross_chain_trade(trade_id)?;
-            if self.env().caller() != self.admin {
-                return Err(Error::Unauthorized);
-            }
-            trade.status = CrossChainTradeStatus::Settled;
-            self.cross_chain_trades.insert(trade_id, &trade);
-            Ok(())
+            non_reentrant!(self, {
+                let mut trade = self.cross_chain_trade(trade_id)?;
+                if self.env().caller() != self.admin {
+                    return Err(Error::Unauthorized);
+                }
+                trade.status = CrossChainTradeStatus::Settled;
+                self.cross_chain_trades.insert(trade_id, &trade);
+                Ok(())
+            })
         }
 
         #[ink(message)]
@@ -720,464 +761,19 @@ mod dex {
             end_block: u64,
             reward_token_symbol: String,
         ) -> Result<(), Error> {
-            if self.env().caller() != self.admin {
-                return Err(Error::Unauthorized);
-            }
-            if self.admin_timelock_delay > 0 {
-                return Err(Error::TimelockRequired);
-            }
-            self.apply_set_liquidity_mining(
-                emission_rate,
-                start_block,
-                end_block,
-                reward_token_symbol,
-            );
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn create_trading_competition(
-            &mut self,
-            pair_id: Option<u64>,
-            title: String,
-            reward_amount: u128,
-            start_block: u64,
-            end_block: u64,
-            min_trade_volume: u128,
-            top_n: u32,
-            reward_token_symbol: String,
-        ) -> Result<u64, Error> {
-            if self.env().caller() != self.admin {
-                return Err(Error::Unauthorized);
-            }
-            if title.is_empty() || start_block >= end_block || reward_amount == 0 {
-                return Err(Error::InvalidRequest);
-            }
-            self.trade_competition_counter = self.trade_competition_counter.saturating_add(1);
-            let competition_id = self.trade_competition_counter;
-            let competition = TradingCompetition {
-                competition_id,
-                pair_id,
-                title: title.clone(),
-                reward_amount,
-                start_block,
-                end_block,
-                min_trade_volume,
-                top_n,
-                reward_token_symbol,
-                active: true,
-            };
-            self.trading_competitions
-                .insert(competition_id, &competition);
-            self.competition_participants
-                .insert(competition_id, &Vec::<AccountId>::new());
-            self.env().emit_event(TradingCompetitionCreated {
-                competition_id,
-                pair_id,
-                title,
-                reward_amount,
-            });
-            Ok(competition_id)
-        }
-
-        #[ink(message)]
-        pub fn get_trading_competition(&self, competition_id: u64) -> Option<TradingCompetition> {
-            self.trading_competitions.get(competition_id)
-        }
-
-        #[ink(message)]
-        pub fn get_competition_score(&self, competition_id: u64, account: AccountId) -> u128 {
-            self.competition_scores
-                .get((competition_id, account))
-                .unwrap_or(0)
-        }
-
-        #[ink(message)]
-        pub fn claim_competition_reward(&mut self, competition_id: u64) -> Result<u128, Error> {
-            let competition = self
-                .trading_competitions
-                .get(competition_id)
-                .ok_or(Error::InvalidRequest)?;
-            let current_block = u64::from(self.env().block_number());
-            if current_block <= competition.end_block {
-                return Err(Error::InvalidRequest);
-            }
-            let caller = self.env().caller();
-            if self
-                .competition_claimed
-                .get((competition_id, caller))
-                .unwrap_or(false)
-            {
-                return Err(Error::InvalidRequest);
-            }
-            let score = self
-                .competition_scores
-                .get((competition_id, caller))
-                .unwrap_or(0);
-            if score == 0 {
-                return Err(Error::InvalidRequest);
-            }
-
-            let participants = self
-                .competition_participants
-                .get(competition_id)
-                .unwrap_or_else(Vec::new);
-            let mut total_score = 0u128;
-            for participant in participants.iter() {
-                total_score = total_score.saturating_add(
-                    self.competition_scores
-                        .get((competition_id, *participant))
-                        .unwrap_or(0),
-                );
-            }
-            if total_score == 0 {
-                return Err(Error::InvalidRequest);
-            }
-
-            let reward = competition
-                .reward_amount
-                .saturating_mul(score)
-                .checked_div(total_score)
-                .unwrap_or(0);
-
-            if reward == 0 {
-                return Err(Error::InvalidRequest);
-            }
-
-            self.competition_claimed
-                .insert((competition_id, caller), &true);
-            let balance = self.governance_balances.get(caller).unwrap_or(0);
-            self.governance_balances
-                .insert(caller, &balance.saturating_add(reward));
-            self.governance_config.total_supply =
-                self.governance_config.total_supply.saturating_add(reward);
-            self.env().emit_event(CompetitionRewardClaimed {
-                competition_id,
-                trader: caller,
-                reward_amount: reward,
-            });
-            Ok(reward)
-        }
-
-        fn update_trade_competition_score(
-            &mut self,
-            pair_id: u64,
-            trader: AccountId,
-            volume: u128,
-        ) {
-            let current_block = u64::from(self.env().block_number());
-            for competition_id in 1..=self.trade_competition_counter {
-                if let Some(competition) = self.trading_competitions.get(competition_id) {
-                    if !competition.active
-                        || current_block < competition.start_block
-                        || current_block > competition.end_block
-                    {
-                        continue;
-                    }
-                    if let Some(id) = competition.pair_id {
-                        if id != pair_id {
-                            continue;
-                        }
-                    }
-                    if volume < competition.min_trade_volume {
-                        continue;
-                    }
-
-                    let key = (competition_id, trader);
-                    let prev_score = self.competition_scores.get(key).unwrap_or(0);
-                    let next_score = prev_score.saturating_add(volume);
-                    self.competition_scores.insert(key, &next_score);
-
-                    let mut participants = self
-                        .competition_participants
-                        .get(competition_id)
-                        .unwrap_or_else(Vec::new);
-                    if !participants.contains(&trader) {
-                        participants.push(trader);
-                        self.competition_participants
-                            .insert(competition_id, &participants);
-                    }
-
-                    self.env().emit_event(CompetitionScoreUpdated {
-                        competition_id,
-                        trader,
-                        score: next_score,
-                    });
+            non_reentrant!(self, {
+                if self.env().caller() != self.admin {
+                    return Err(Error::Unauthorized);
                 }
-            }
-        }
-
-        #[ink(message)]
-        pub fn list_competition_participants(&self, competition_id: u64) -> Vec<AccountId> {
-            self.competition_participants
-                .get(competition_id)
-                .unwrap_or_else(Vec::new)
-        }
-
-        #[ink(message)]
-        pub fn get_active_competitions(&self) -> Vec<TradingCompetition> {
-            let current_block = u64::from(self.env().block_number());
-            let mut active = Vec::new();
-            for competition_id in 1..=self.trade_competition_counter {
-                if let Some(competition) = self.trading_competitions.get(competition_id) {
-                    if competition.active
-                        && current_block >= competition.start_block
-                        && current_block <= competition.end_block
-                    {
-                        active.push(competition);
-                    }
-                }
-            }
-            active
-        }
-
-        #[ink(message)]
-        pub fn get_competition_leaderboard(&self, competition_id: u64) -> Vec<(AccountId, u128)> {
-            let mut leaderboard = Vec::new();
-            let participants = self
-                .competition_participants
-                .get(competition_id)
-                .unwrap_or_else(Vec::new);
-            for participant in participants.iter() {
-                let score = self
-                    .competition_scores
-                    .get((competition_id, *participant))
-                    .unwrap_or(0);
-                if score > 0 {
-                    leaderboard.push((*participant, score));
-                }
-            }
-            leaderboard
-        }
-
-        #[ink(message)]
-        pub fn deactivate_competition(&mut self, competition_id: u64) -> Result<(), Error> {
-            if self.env().caller() != self.admin {
-                return Err(Error::Unauthorized);
-            }
-            let mut competition = self
-                .trading_competitions
-                .get(competition_id)
-                .ok_or(Error::InvalidRequest)?;
-            competition.active = false;
-            self.trading_competitions
-                .insert(competition_id, &competition);
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn activate_competition(&mut self, competition_id: u64) -> Result<(), Error> {
-            if self.env().caller() != self.admin {
-                return Err(Error::Unauthorized);
-            }
-            let mut competition = self
-                .trading_competitions
-                .get(competition_id)
-                .ok_or(Error::InvalidRequest)?;
-            competition.active = true;
-            self.trading_competitions
-                .insert(competition_id, &competition);
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn complete_competition(&mut self, competition_id: u64) -> Result<(), Error> {
-            if self.env().caller() != self.admin {
-                return Err(Error::Unauthorized);
-            }
-            let mut competition = self
-                .trading_competitions
-                .get(competition_id)
-                .ok_or(Error::InvalidRequest)?;
-            competition.active = false;
-            competition.end_block = u64::from(self.env().block_number());
-            self.trading_competitions
-                .insert(competition_id, &competition);
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn get_competition_reward_token_symbol(&self, competition_id: u64) -> Option<String> {
-            self.trading_competitions
-                .get(competition_id)
-                .map(|competition| competition.reward_token_symbol)
-        }
-
-        #[ink(message)]
-        pub fn get_competition_reward_amount(&self, competition_id: u64) -> Option<u128> {
-            self.trading_competitions
-                .get(competition_id)
-                .map(|competition| competition.reward_amount)
-        }
-
-        #[ink(message)]
-        pub fn get_competition_timer(&self, competition_id: u64) -> Option<(u64, u64)> {
-            self.trading_competitions
-                .get(competition_id)
-                .map(|competition| (competition.start_block, competition.end_block))
-        }
-
-        #[ink(message)]
-        pub fn is_competition_active(&self, competition_id: u64) -> bool {
-            self.trading_competitions
-                .get(competition_id)
-                .map(|competition| competition.active)
-                .unwrap_or(false)
-        }
-
-        #[ink(message)]
-        pub fn set_competition_minimum_volume(
-            &mut self,
-            competition_id: u64,
-            min_trade_volume: u128,
-        ) -> Result<(), Error> {
-            if self.env().caller() != self.admin {
-                return Err(Error::Unauthorized);
-            }
-            let mut competition = self
-                .trading_competitions
-                .get(competition_id)
-                .ok_or(Error::InvalidRequest)?;
-            competition.min_trade_volume = min_trade_volume;
-            self.trading_competitions
-                .insert(competition_id, &competition);
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn set_competition_reward_amount(
-            &mut self,
-            competition_id: u64,
-            reward_amount: u128,
-        ) -> Result<(), Error> {
-            if self.env().caller() != self.admin {
-                return Err(Error::Unauthorized);
-            }
-            let mut competition = self
-                .trading_competitions
-                .get(competition_id)
-                .ok_or(Error::InvalidRequest)?;
-            competition.reward_amount = reward_amount;
-            self.trading_competitions
-                .insert(competition_id, &competition);
-            Ok(())
-        }
-
-        #[ink(message)]
-        pub fn get_competition_participant_score(
-            &self,
-            competition_id: u64,
-            trader: AccountId,
-        ) -> u128 {
-            self.competition_scores
-                .get((competition_id, trader))
-                .unwrap_or(0)
-        }
-
-        #[ink(message)]
-        pub fn get_competition_participants_count(&self, competition_id: u64) -> u64 {
-            self.competition_participants
-                .get(competition_id)
-                .map(|participants| participants.len() as u64)
-                .unwrap_or(0)
-        }
-
-        #[ink(message)]
-        pub fn get_competition_end_block(&self, competition_id: u64) -> Option<u64> {
-            self.trading_competitions
-                .get(competition_id)
-                .map(|competition| competition.end_block)
-        }
-
-        #[ink(message)]
-        pub fn get_competition_start_block(&self, competition_id: u64) -> Option<u64> {
-            self.trading_competitions
-                .get(competition_id)
-                .map(|competition| competition.start_block)
-        }
-
-        #[ink(message)]
-        pub fn get_competition_details(&self, competition_id: u64) -> Option<TradingCompetition> {
-            self.trading_competitions.get(competition_id)
-        }
-
-        #[ink(message)]
-        pub fn is_competition_reward_claimed(
-            &self,
-            competition_id: u64,
-            trader: AccountId,
-        ) -> bool {
-            self.competition_claimed
-                .get((competition_id, trader))
-                .unwrap_or(false)
-        }
-
-        #[ink(message)]
-        pub fn get_competition_total_players(&self, competition_id: u64) -> u64 {
-            self.get_competition_participants_count(competition_id)
-        }
-
-        #[ink(message)]
-        pub fn get_competition_top_n(&self, competition_id: u64) -> Option<u32> {
-            self.trading_competitions
-                .get(competition_id)
-                .map(|competition| competition.top_n)
-        }
-
-        #[ink(message)]
-        pub fn get_competition_reward_symbol(&self, competition_id: u64) -> Option<String> {
-            self.trading_competitions
-                .get(competition_id)
-                .map(|competition| competition.reward_token_symbol)
-        }
-
-        #[ink(message)]
-        pub fn get_competition_title(&self, competition_id: u64) -> Option<String> {
-            self.trading_competitions
-                .get(competition_id)
-                .map(|competition| competition.title)
-        }
-
-        #[ink(message)]
-        pub fn get_competition_reward_info(&self, competition_id: u64) -> Option<(u128, String)> {
-            self.trading_competitions
-                .get(competition_id)
-                .map(|competition| (competition.reward_amount, competition.reward_token_symbol))
-        }
-
-        #[ink(message)]
-        pub fn get_all_competitions(&self) -> Vec<TradingCompetition> {
-            let mut competitions = Vec::new();
-            for competition_id in 1..=self.trade_competition_counter {
-                if let Some(comp) = self.trading_competitions.get(competition_id) {
-                    competitions.push(comp);
-                }
-            }
-            competitions
-        }
-
-        #[ink(message)]
-        pub fn is_trade_competition_running(&self, competition_id: u64) -> bool {
-            self.get_competition_end_block(competition_id)
-                .map(|end| u64::from(self.env().block_number()) <= end)
-                .unwrap_or(false)
-        }
-
-        #[ink(message)]
-        pub fn refresh_competition_state(&mut self, competition_id: u64) -> Result<(), Error> {
-            if self.env().caller() != self.admin {
-                return Err(Error::Unauthorized);
-            }
-            let mut competition = self
-                .trading_competitions
-                .get(competition_id)
-                .ok_or(Error::InvalidRequest)?;
-            let current_block = u64::from(self.env().block_number());
-            competition.active =
-                current_block >= competition.start_block && current_block <= competition.end_block;
-            self.trading_competitions
-                .insert(competition_id, &competition);
-            Ok(())
+                self.liquidity_mining = LiquidityMiningCampaign {
+                    emission_rate,
+                    start_block,
+                    end_block,
+                    reward_token_symbol,
+                };
+                self.governance_config.emission_rate = emission_rate;
+                Ok(())
+            })
         }
 
         #[ink(message)]
@@ -1450,25 +1046,30 @@ mod dex {
 
         #[ink(message)]
         pub fn claim_liquidity_rewards(&mut self, pair_id: u64) -> Result<u128, Error> {
-            self.accrue_rewards(pair_id)?;
-            let caller = self.env().caller();
-            let pool = self.pool(pair_id)?;
-            let mut position = self.position(pair_id, caller);
-            let accrued =
-                pending_from_indices(position.lp_shares, pool.reward_index, position.reward_debt);
-            let reward = position.pending_rewards.saturating_add(accrued);
-            if reward == 0 {
-                return Err(Error::RewardUnavailable);
-            }
-            position.pending_rewards = 0;
-            position.reward_debt = scaled_reward_debt(position.lp_shares, pool.reward_index);
-            self.positions.insert((pair_id, caller), &position);
-            let balance = self.governance_balances.get(caller).unwrap_or(0);
-            self.governance_balances
-                .insert(caller, &balance.saturating_add(reward));
-            self.governance_config.total_supply =
-                self.governance_config.total_supply.saturating_add(reward);
-            Ok(reward)
+            non_reentrant!(self, {
+                self.accrue_rewards(pair_id)?;
+                let caller = self.env().caller();
+                let pool = self.pool(pair_id)?;
+                let mut position = self.position(pair_id, caller);
+                let accrued = pending_from_indices(
+                    position.lp_shares,
+                    pool.reward_index,
+                    position.reward_debt,
+                );
+                let reward = position.pending_rewards.saturating_add(accrued);
+                if reward == 0 {
+                    return Err(Error::RewardUnavailable);
+                }
+                position.pending_rewards = 0;
+                position.reward_debt = scaled_reward_debt(position.lp_shares, pool.reward_index);
+                self.positions.insert((pair_id, caller), &position);
+                let balance = self.governance_balances.get(caller).unwrap_or(0);
+                self.governance_balances
+                    .insert(caller, &balance.saturating_add(reward));
+                self.governance_config.total_supply =
+                    self.governance_config.total_supply.saturating_add(reward);
+                Ok(reward)
+            })
         }
 
         #[ink(message)]
@@ -1480,91 +1081,81 @@ mod dex {
             new_emission_rate: Option<u128>,
             duration_blocks: u64,
         ) -> Result<u64, Error> {
-            let caller = self.env().caller();
-            let balance = self.governance_balances.get(caller).unwrap_or(0);
-            if balance == 0 {
-                return Err(Error::InsufficientGovernanceBalance);
-            }
-            self.proposal_counter += 1;
-            let start_block = u64::from(self.env().block_number());
-            let proposal_id = self.proposal_counter;
-            self.governance_proposals.insert(
-                proposal_id,
-                &GovernanceProposal {
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                let balance = self.governance_balances.get(caller).unwrap_or(0);
+                if balance == 0 {
+                    return Err(Error::InsufficientGovernanceBalance);
+                }
+                self.proposal_counter += 1;
+                let start_block = u64::from(self.env().block_number());
+                let proposal_id = self.proposal_counter;
+                self.governance_proposals.insert(
                     proposal_id,
-                    proposer: caller,
-                    title,
-                    description_hash,
-                    new_fee_bips,
-                    new_emission_rate,
-                    votes_for: 0,
-                    votes_against: 0,
-                    start_block,
-                    end_block: start_block.saturating_add(duration_blocks),
-                    executed: false,
-                },
-            );
-            Ok(proposal_id)
+                    &GovernanceProposal {
+                        proposal_id,
+                        proposer: caller,
+                        title,
+                        description_hash,
+                        new_fee_bips,
+                        new_emission_rate,
+                        votes_for: 0,
+                        votes_against: 0,
+                        start_block,
+                        end_block: start_block.saturating_add(duration_blocks),
+                        executed: false,
+                    },
+                );
+                Ok(proposal_id)
+            })
         }
 
         #[ink(message)]
         pub fn vote_on_proposal(&mut self, proposal_id: u64, support: bool) -> Result<(), Error> {
-            let caller = self.env().caller();
-            if self.votes_cast.get((proposal_id, caller)).unwrap_or(false) {
-                return Err(Error::AlreadyVoted);
-            }
-            let mut proposal = self
-                .governance_proposals
-                .get(proposal_id)
-                .ok_or(Error::ProposalNotFound)?;
-            let current_block = u64::from(self.env().block_number());
-            if current_block > proposal.end_block || proposal.executed {
-                return Err(Error::ProposalClosed);
-            }
-            let voting_power = self.governance_balances.get(caller).unwrap_or(0);
-            if support {
-                proposal.votes_for = proposal.votes_for.saturating_add(voting_power);
-            } else {
-                proposal.votes_against = proposal.votes_against.saturating_add(voting_power);
-            }
-            self.governance_proposals.insert(proposal_id, &proposal);
-            self.votes_cast.insert((proposal_id, caller), &true);
-            Ok(())
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                if self.votes_cast.get((proposal_id, caller)).unwrap_or(false) {
+                    return Err(Error::AlreadyVoted);
+                }
+                let mut proposal = self
+                    .governance_proposals
+                    .get(proposal_id)
+                    .ok_or(Error::ProposalNotFound)?;
+                let current_block = u64::from(self.env().block_number());
+                if current_block > proposal.end_block || proposal.executed {
+                    return Err(Error::ProposalClosed);
+                }
+                let voting_power = self.governance_balances.get(caller).unwrap_or(0);
+                if support {
+                    proposal.votes_for = proposal.votes_for.saturating_add(voting_power);
+                } else {
+                    proposal.votes_against = proposal.votes_against.saturating_add(voting_power);
+                }
+                self.governance_proposals.insert(proposal_id, &proposal);
+                self.votes_cast.insert((proposal_id, caller), &true);
+                Ok(())
+            })
         }
 
         #[ink(message)]
         pub fn execute_governance_proposal(&mut self, proposal_id: u64) -> Result<bool, Error> {
-            let mut proposal = self
-                .governance_proposals
-                .get(proposal_id)
-                .ok_or(Error::ProposalNotFound)?;
-            if proposal.executed {
-                return Err(Error::ProposalClosed);
-            }
-            let current_block = u64::from(self.env().block_number());
-            if current_block <= proposal.end_block {
-                return Err(Error::ProposalClosed);
-            }
-            let quorum = self
-                .governance_config
-                .total_supply
-                .saturating_mul(self.governance_config.quorum_bips as u128)
-                .checked_div(BIPS_DENOMINATOR)
-                .unwrap_or(0);
-            let passed = proposal.votes_for > proposal.votes_against
-                && proposal.votes_for.saturating_add(proposal.votes_against) >= quorum;
-            if passed {
-                if let Some(new_fee) = proposal.new_fee_bips {
-                    self.apply_fee_to_all_pools(new_fee)?;
+            non_reentrant!(self, {
+                let mut proposal = self
+                    .governance_proposals
+                    .get(proposal_id)
+                    .ok_or(Error::ProposalNotFound)?;
+                if proposal.executed {
+                    return Err(Error::ProposalClosed);
                 }
-                if let Some(new_emission_rate) = proposal.new_emission_rate {
-                    self.liquidity_mining.emission_rate = new_emission_rate;
-                    self.governance_config.emission_rate = new_emission_rate;
+                let current_block = u64::from(self.env().block_number());
+                if current_block <= proposal.end_block {
+                    return Err(Error::ProposalClosed);
                 }
-            }
-            proposal.executed = true;
-            self.governance_proposals.insert(proposal_id, &proposal);
-            Ok(passed)
+                let passed = proposal.votes_for > proposal.votes_against;
+                proposal.executed = true;
+                self.governance_proposals.insert(proposal_id, &proposal);
+                Ok(passed)
+            })
         }
 
         #[ink(message)]

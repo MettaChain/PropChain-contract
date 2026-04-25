@@ -3,6 +3,7 @@
 
 use ink::prelude::string::String;
 use ink::storage::Mapping;
+use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
 use propchain_traits::ComplianceChecker;
 
 #[ink::contract]
@@ -31,10 +32,23 @@ mod property_management {
         InspectionNotFound,
         TransferFailed,
         RespondentMismatch,
+        ReentrantCall,
+    }
+
+    impl From<ReentrancyError> for Error {
+        fn from(_: ReentrancyError) -> Self {
+            Error::ReentrantCall
+        }
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum LeaseStatus {
@@ -44,7 +58,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct Lease {
@@ -62,7 +82,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum MaintenanceStatus {
@@ -74,7 +100,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct MaintenanceRequest {
@@ -91,7 +123,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum ScreeningStatus {
@@ -101,7 +139,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct TenantScreening {
@@ -118,7 +162,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum ExpenseStatus {
@@ -127,7 +177,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct Expense {
@@ -143,7 +199,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum InspectionStatus {
@@ -153,7 +215,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct Inspection {
@@ -169,7 +237,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct JurisdictionCompliance {
@@ -182,7 +256,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum DisputeStatus {
@@ -195,7 +275,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct DisputeCase {
@@ -211,7 +297,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct PropertyAnalytics {
@@ -225,7 +317,13 @@ mod property_management {
     }
 
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct ManagementDashboard {
@@ -242,6 +340,7 @@ mod property_management {
         managers: Mapping<AccountId, bool>,
         compliance_registry: Option<AccountId>,
         fee_beneficiary: AccountId,
+        reentrancy_guard: ReentrancyGuard,
         lease_counter: u64,
         leases: Mapping<u64, Lease>,
         maintenance_counter: u64,
@@ -349,6 +448,7 @@ mod property_management {
                 managers: Mapping::default(),
                 compliance_registry: None,
                 fee_beneficiary: caller,
+                reentrancy_guard: ReentrancyGuard::new(),
                 lease_counter: 0,
                 leases: Mapping::default(),
                 maintenance_counter: 0,
@@ -386,7 +486,10 @@ mod property_management {
         }
 
         #[ink(message)]
-        pub fn set_compliance_registry(&mut self, registry: Option<AccountId>) -> Result<(), Error> {
+        pub fn set_compliance_registry(
+            &mut self,
+            registry: Option<AccountId>,
+        ) -> Result<(), Error> {
             self.ensure_admin()?;
             self.compliance_registry = registry;
             Ok(())
@@ -431,7 +534,10 @@ mod property_management {
         }
 
         #[ink(message)]
-        pub fn get_jurisdiction_compliance(&self, token_id: TokenId) -> Option<JurisdictionCompliance> {
+        pub fn get_jurisdiction_compliance(
+            &self,
+            token_id: TokenId,
+        ) -> Option<JurisdictionCompliance> {
             self.legal_by_token.get(token_id)
         }
 
@@ -448,52 +554,56 @@ mod property_management {
             security_deposit: Balance,
             first_due: u64,
         ) -> Result<u64, Error> {
-            let caller = self.env().caller();
-            if caller != landlord && caller != self.admin && !self.is_manager(caller) {
-                return Err(Error::NotLandlordOrManager);
-            }
-            if rent_per_period == 0 || period_secs == 0 {
-                return Err(Error::InvalidAmount);
-            }
-            if management_fee_bps > 10_000 {
-                return Err(Error::InvalidFee);
-            }
-            self.require_compliant(tenant)?;
-            if let Some(legal) = self.legal_by_token.get(token_id) {
-                let periods_per_year: u128 = (365u128 * 86_400) / u128::from(period_secs.max(1));
-                let annual = rent_per_period
-                    .saturating_mul(periods_per_year)
-                    .max(rent_per_period);
-                let max_dep = annual.saturating_mul(legal.max_security_deposit_bps as u128) / 10_000;
-                if security_deposit > max_dep {
-                    return Err(Error::ComplianceViolation);
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                if caller != landlord && caller != self.admin && !self.is_manager(caller) {
+                    return Err(Error::NotLandlordOrManager);
                 }
-            }
+                if rent_per_period == 0 || period_secs == 0 {
+                    return Err(Error::InvalidAmount);
+                }
+                if management_fee_bps > 10_000 {
+                    return Err(Error::InvalidFee);
+                }
+                self.require_compliant(tenant)?;
+                if let Some(legal) = self.legal_by_token.get(token_id) {
+                    let periods_per_year: u128 =
+                        (365u128 * 86_400) / u128::from(period_secs.max(1));
+                    let annual = rent_per_period
+                        .saturating_mul(periods_per_year)
+                        .max(rent_per_period);
+                    let max_dep =
+                        annual.saturating_mul(legal.max_security_deposit_bps as u128) / 10_000;
+                    if security_deposit > max_dep {
+                        return Err(Error::ComplianceViolation);
+                    }
+                }
 
-            self.lease_counter += 1;
-            let id = self.lease_counter;
-            let lease = Lease {
-                id,
-                token_id,
-                tenant,
-                landlord,
-                rent_per_period,
-                period_secs,
-                next_due: first_due,
-                management_fee_bps,
-                security_deposit,
-                status: LeaseStatus::Active,
-                created_at: self.env().block_timestamp(),
-            };
-            self.leases.insert(id, &lease);
-            self.global_active_leases = self.global_active_leases.saturating_add(1);
-            self.env().emit_event(LeaseCreated {
-                lease_id: id,
-                token_id,
-                tenant,
-                rent_per_period,
-            });
-            Ok(id)
+                self.lease_counter += 1;
+                let id = self.lease_counter;
+                let lease = Lease {
+                    id,
+                    token_id,
+                    tenant,
+                    landlord,
+                    rent_per_period,
+                    period_secs,
+                    next_due: first_due,
+                    management_fee_bps,
+                    security_deposit,
+                    status: LeaseStatus::Active,
+                    created_at: self.env().block_timestamp(),
+                };
+                self.leases.insert(id, &lease);
+                self.global_active_leases = self.global_active_leases.saturating_add(1);
+                self.env().emit_event(LeaseCreated {
+                    lease_id: id,
+                    token_id,
+                    tenant,
+                    rent_per_period,
+                });
+                Ok(id)
+            })
         }
 
         #[ink(message)]
@@ -504,41 +614,43 @@ mod property_management {
         /// Tenant pays rent; splits to landlord and fee beneficiary (management fee).
         #[ink(message, payable)]
         pub fn pay_rent(&mut self, lease_id: u64) -> Result<(), Error> {
-            let mut lease = self.leases.get(lease_id).ok_or(Error::NotFound)?;
-            if lease.status != LeaseStatus::Active {
-                return Err(Error::LeaseNotActive);
-            }
-            let caller = self.env().caller();
-            if caller != lease.tenant {
-                return Err(Error::NotTenant);
-            }
-            let paid = self.env().transferred_value();
-            if paid != lease.rent_per_period {
-                return Err(Error::InvalidAmount);
-            }
-            let fee = paid.saturating_mul(lease.management_fee_bps as u128) / 10_000;
-            let to_landlord = paid.saturating_sub(fee);
-            self.env()
-                .transfer(lease.landlord, to_landlord)
-                .map_err(|_| Error::TransferFailed)?;
-            if fee > 0 {
+            non_reentrant!(self, {
+                let mut lease = self.leases.get(lease_id).ok_or(Error::NotFound)?;
+                if lease.status != LeaseStatus::Active {
+                    return Err(Error::LeaseNotActive);
+                }
+                let caller = self.env().caller();
+                if caller != lease.tenant {
+                    return Err(Error::NotTenant);
+                }
+                let paid = self.env().transferred_value();
+                if paid != lease.rent_per_period {
+                    return Err(Error::InvalidAmount);
+                }
+                let fee = paid.saturating_mul(lease.management_fee_bps as u128) / 10_000;
+                let to_landlord = paid.saturating_sub(fee);
                 self.env()
-                    .transfer(self.fee_beneficiary, fee)
+                    .transfer(lease.landlord, to_landlord)
                     .map_err(|_| Error::TransferFailed)?;
-            }
-            lease.next_due = lease.next_due.saturating_add(lease.period_secs);
-            self.leases.insert(lease_id, &lease);
-            let mut a = self.analytics_for(lease.token_id);
-            a.rent_collected = a.rent_collected.saturating_add(paid);
-            self.analytics_by_token.insert(lease.token_id, &a);
-            self.total_rent_collected = self.total_rent_collected.saturating_add(paid);
-            self.env().emit_event(RentPaid {
-                lease_id,
-                tenant: caller,
-                landlord_share: to_landlord,
-                fee_share: fee,
-            });
-            Ok(())
+                if fee > 0 {
+                    self.env()
+                        .transfer(self.fee_beneficiary, fee)
+                        .map_err(|_| Error::TransferFailed)?;
+                }
+                lease.next_due = lease.next_due.saturating_add(lease.period_secs);
+                self.leases.insert(lease_id, &lease);
+                let mut a = self.analytics_for(lease.token_id);
+                a.rent_collected = a.rent_collected.saturating_add(paid);
+                self.analytics_by_token.insert(lease.token_id, &a);
+                self.total_rent_collected = self.total_rent_collected.saturating_add(paid);
+                self.env().emit_event(RentPaid {
+                    lease_id,
+                    tenant: caller,
+                    landlord_share: to_landlord,
+                    fee_share: fee,
+                });
+                Ok(())
+            })
         }
 
         #[ink(message)]
@@ -564,34 +676,36 @@ mod property_management {
             title: String,
             description_hash: Hash,
         ) -> Result<u64, Error> {
-            let caller = self.env().caller();
-            self.require_compliant(caller)?;
-            self.maintenance_counter += 1;
-            let id = self.maintenance_counter;
-            let now = self.env().block_timestamp();
-            let req = MaintenanceRequest {
-                id,
-                token_id,
-                requester: caller,
-                title,
-                description_hash,
-                status: MaintenanceStatus::Submitted,
-                assigned_to: None,
-                resolution_hash: None,
-                created_at: now,
-                updated_at: now,
-            };
-            self.maintenance.insert(id, &req);
-            let mut a = self.analytics_for(token_id);
-            a.maintenance_open = a.maintenance_open.saturating_add(1);
-            self.analytics_by_token.insert(token_id, &a);
-            self.global_open_maintenance = self.global_open_maintenance.saturating_add(1);
-            self.env().emit_event(MaintenanceUpdated {
-                request_id: id,
-                token_id,
-                status: MaintenanceStatus::Submitted,
-            });
-            Ok(id)
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                self.require_compliant(caller)?;
+                self.maintenance_counter += 1;
+                let id = self.maintenance_counter;
+                let now = self.env().block_timestamp();
+                let req = MaintenanceRequest {
+                    id,
+                    token_id,
+                    requester: caller,
+                    title,
+                    description_hash,
+                    status: MaintenanceStatus::Submitted,
+                    assigned_to: None,
+                    resolution_hash: None,
+                    created_at: now,
+                    updated_at: now,
+                };
+                self.maintenance.insert(id, &req);
+                let mut a = self.analytics_for(token_id);
+                a.maintenance_open = a.maintenance_open.saturating_add(1);
+                self.analytics_by_token.insert(token_id, &a);
+                self.global_open_maintenance = self.global_open_maintenance.saturating_add(1);
+                self.env().emit_event(MaintenanceUpdated {
+                    request_id: id,
+                    token_id,
+                    status: MaintenanceStatus::Submitted,
+                });
+                Ok(id)
+            })
         }
 
         #[ink(message)]
@@ -602,7 +716,10 @@ mod property_management {
             assigned_to: Option<AccountId>,
         ) -> Result<(), Error> {
             self.ensure_manager_or_admin()?;
-            let mut req = self.maintenance.get(request_id).ok_or(Error::MaintenanceNotFound)?;
+            let mut req = self
+                .maintenance
+                .get(request_id)
+                .ok_or(Error::MaintenanceNotFound)?;
             let was_open = matches!(
                 req.status,
                 MaintenanceStatus::Submitted
@@ -643,7 +760,10 @@ mod property_management {
             resolution_hash: Hash,
         ) -> Result<(), Error> {
             self.ensure_manager_or_admin()?;
-            let mut req = self.maintenance.get(request_id).ok_or(Error::MaintenanceNotFound)?;
+            let mut req = self
+                .maintenance
+                .get(request_id)
+                .ok_or(Error::MaintenanceNotFound)?;
             let was_open = matches!(
                 req.status,
                 MaintenanceStatus::Submitted
@@ -683,35 +803,36 @@ mod property_management {
             credit_tier: u8,
             income_ratio_bps: u16,
         ) -> Result<u64, Error> {
-            let caller = self.env().caller();
-            self.require_compliant(caller)?;
-            self.screening_counter += 1;
-            let id = self.screening_counter;
-            let s = TenantScreening {
-                id,
-                token_id,
-                applicant: caller,
-                application_hash,
-                credit_tier,
-                income_ratio_bps,
-                status: ScreeningStatus::Pending,
-                reviewer: None,
-                reviewed_at: None,
-                created_at: self.env().block_timestamp(),
-            };
-            self.screenings.insert(id, &s);
-            self.global_pending_screenings = self.global_pending_screenings.saturating_add(1);
-            Ok(id)
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                self.require_compliant(caller)?;
+                self.screening_counter += 1;
+                let id = self.screening_counter;
+                let s = TenantScreening {
+                    id,
+                    token_id,
+                    applicant: caller,
+                    application_hash,
+                    credit_tier,
+                    income_ratio_bps,
+                    status: ScreeningStatus::Pending,
+                    reviewer: None,
+                    reviewed_at: None,
+                    created_at: self.env().block_timestamp(),
+                };
+                self.screenings.insert(id, &s);
+                self.global_pending_screenings = self.global_pending_screenings.saturating_add(1);
+                Ok(id)
+            })
         }
 
         #[ink(message)]
-        pub fn review_screening(
-            &mut self,
-            screening_id: u64,
-            approve: bool,
-        ) -> Result<(), Error> {
+        pub fn review_screening(&mut self, screening_id: u64, approve: bool) -> Result<(), Error> {
             self.ensure_manager_or_admin()?;
-            let mut s = self.screenings.get(screening_id).ok_or(Error::ScreeningNotFound)?;
+            let mut s = self
+                .screenings
+                .get(screening_id)
+                .ok_or(Error::ScreeningNotFound)?;
             if s.status != ScreeningStatus::Pending {
                 return Err(Error::InvalidStatus);
             }
@@ -783,33 +904,38 @@ mod property_management {
         /// Pay a recorded expense to the vendor from the contract operating float (automated payout).
         #[ink(message)]
         pub fn pay_expense(&mut self, expense_id: u64) -> Result<(), Error> {
-            self.ensure_manager_or_admin()?;
-            let mut e = self.expenses.get(expense_id).ok_or(Error::ExpenseNotFound)?;
-            if e.status != ExpenseStatus::Recorded {
-                return Err(Error::InvalidStatus);
-            }
-            if self.operating_float < e.amount {
-                return Err(Error::InvalidAmount);
-            }
-            let spendable_native = self
-                .env()
-                .balance()
-                .saturating_sub(self.dispute_escrow_locked);
-            if spendable_native < e.amount {
-                return Err(Error::InvalidAmount);
-            }
-            self.operating_float = self.operating_float.saturating_sub(e.amount);
-            self.env()
-                .transfer(e.vendor, e.amount)
-                .map_err(|_| Error::TransferFailed)?;
-            e.status = ExpenseStatus::Paid;
-            e.paid_at = Some(self.env().block_timestamp());
-            self.expenses.insert(expense_id, &e);
-            self.env().emit_event(ExpensePaid {
-                expense_id,
-                vendor: e.vendor,
-            });
-            Ok(())
+            non_reentrant!(self, {
+                self.ensure_manager_or_admin()?;
+                let mut e = self
+                    .expenses
+                    .get(expense_id)
+                    .ok_or(Error::ExpenseNotFound)?;
+                if e.status != ExpenseStatus::Recorded {
+                    return Err(Error::InvalidStatus);
+                }
+                if self.operating_float < e.amount {
+                    return Err(Error::InvalidAmount);
+                }
+                let spendable_native = self
+                    .env()
+                    .balance()
+                    .saturating_sub(self.dispute_escrow_locked);
+                if spendable_native < e.amount {
+                    return Err(Error::InvalidAmount);
+                }
+                self.operating_float = self.operating_float.saturating_sub(e.amount);
+                self.env()
+                    .transfer(e.vendor, e.amount)
+                    .map_err(|_| Error::TransferFailed)?;
+                e.status = ExpenseStatus::Paid;
+                e.paid_at = Some(self.env().block_timestamp());
+                self.expenses.insert(expense_id, &e);
+                self.env().emit_event(ExpensePaid {
+                    expense_id,
+                    vendor: e.vendor,
+                });
+                Ok(())
+            })
         }
 
         #[ink(message, payable)]
@@ -905,37 +1031,42 @@ mod property_management {
             respondent: AccountId,
             reason_hash: Hash,
         ) -> Result<u64, Error> {
-            let caller = self.env().caller();
-            self.require_compliant(caller)?;
-            let stake = self.env().transferred_value();
-            if stake == 0 {
-                return Err(Error::InvalidAmount);
-            }
-            self.dispute_counter += 1;
-            let id = self.dispute_counter;
-            let d = DisputeCase {
-                id,
-                token_id,
-                initiator: caller,
-                respondent,
-                reason_hash,
-                initiator_stake: stake,
-                respondent_stake: 0,
-                status: DisputeStatus::AwaitingCounterparty,
-                created_at: self.env().block_timestamp(),
-            };
-            self.disputes.insert(id, &d);
-            self.dispute_escrow_locked = self.dispute_escrow_locked.saturating_add(stake);
-            self.global_open_disputes = self.global_open_disputes.saturating_add(1);
-            let mut a = self.analytics_for(token_id);
-            a.dispute_count = a.dispute_count.saturating_add(1);
-            self.analytics_by_token.insert(token_id, &a);
-            Ok(id)
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                self.require_compliant(caller)?;
+                let stake = self.env().transferred_value();
+                if stake == 0 {
+                    return Err(Error::InvalidAmount);
+                }
+                self.dispute_counter += 1;
+                let id = self.dispute_counter;
+                let d = DisputeCase {
+                    id,
+                    token_id,
+                    initiator: caller,
+                    respondent,
+                    reason_hash,
+                    initiator_stake: stake,
+                    respondent_stake: 0,
+                    status: DisputeStatus::AwaitingCounterparty,
+                    created_at: self.env().block_timestamp(),
+                };
+                self.disputes.insert(id, &d);
+                self.dispute_escrow_locked = self.dispute_escrow_locked.saturating_add(stake);
+                self.global_open_disputes = self.global_open_disputes.saturating_add(1);
+                let mut a = self.analytics_for(token_id);
+                a.dispute_count = a.dispute_count.saturating_add(1);
+                self.analytics_by_token.insert(token_id, &a);
+                Ok(id)
+            })
         }
 
         #[ink(message, payable)]
         pub fn counterparty_stake_dispute(&mut self, dispute_id: u64) -> Result<(), Error> {
-            let mut d = self.disputes.get(dispute_id).ok_or(Error::DisputeNotFound)?;
+            let mut d = self
+                .disputes
+                .get(dispute_id)
+                .ok_or(Error::DisputeNotFound)?;
             let caller = self.env().caller();
             if caller != d.respondent {
                 return Err(Error::RespondentMismatch);
@@ -961,38 +1092,43 @@ mod property_management {
             dispute_id: u64,
             release_to_initiator: Option<bool>,
         ) -> Result<(), Error> {
-            self.ensure_admin()?;
-            let d = self.disputes.get(dispute_id).ok_or(Error::DisputeNotFound)?;
-            if d.status != DisputeStatus::Open {
-                return Err(Error::InvalidStatus);
-            }
-            let total = d.initiator_stake.saturating_add(d.respondent_stake);
-            match release_to_initiator {
-                Some(true) => {
-                    self.env()
-                        .transfer(d.initiator, total)
-                        .map_err(|_| Error::TransferFailed)?;
-                    self.finish_dispute(dispute_id, DisputeStatus::ResolvedInitiator)?;
+            non_reentrant!(self, {
+                self.ensure_admin()?;
+                let d = self
+                    .disputes
+                    .get(dispute_id)
+                    .ok_or(Error::DisputeNotFound)?;
+                if d.status != DisputeStatus::Open {
+                    return Err(Error::InvalidStatus);
                 }
-                Some(false) => {
-                    self.env()
-                        .transfer(d.respondent, total)
-                        .map_err(|_| Error::TransferFailed)?;
-                    self.finish_dispute(dispute_id, DisputeStatus::ResolvedRespondent)?;
+                let total = d.initiator_stake.saturating_add(d.respondent_stake);
+                match release_to_initiator {
+                    Some(true) => {
+                        self.env()
+                            .transfer(d.initiator, total)
+                            .map_err(|_| Error::TransferFailed)?;
+                        self.finish_dispute(dispute_id, DisputeStatus::ResolvedInitiator)?;
+                    }
+                    Some(false) => {
+                        self.env()
+                            .transfer(d.respondent, total)
+                            .map_err(|_| Error::TransferFailed)?;
+                        self.finish_dispute(dispute_id, DisputeStatus::ResolvedRespondent)?;
+                    }
+                    None => {
+                        let half = total / 2;
+                        let rem = total.saturating_sub(half.saturating_mul(2));
+                        self.env()
+                            .transfer(d.initiator, half.saturating_add(rem))
+                            .map_err(|_| Error::TransferFailed)?;
+                        self.env()
+                            .transfer(d.respondent, half)
+                            .map_err(|_| Error::TransferFailed)?;
+                        self.finish_dispute(dispute_id, DisputeStatus::Split)?;
+                    }
                 }
-                None => {
-                    let half = total / 2;
-                    let rem = total.saturating_sub(half.saturating_mul(2));
-                    self.env()
-                        .transfer(d.initiator, half.saturating_add(rem))
-                        .map_err(|_| Error::TransferFailed)?;
-                    self.env()
-                        .transfer(d.respondent, half)
-                        .map_err(|_| Error::TransferFailed)?;
-                    self.finish_dispute(dispute_id, DisputeStatus::Split)?;
-                }
-            }
-            Ok(())
+                Ok(())
+            })
         }
 
         #[ink(message)]
@@ -1018,26 +1154,32 @@ mod property_management {
         }
 
         fn finish_dispute(&mut self, dispute_id: u64, status: DisputeStatus) -> Result<(), Error> {
-            let mut d = self.disputes.get(dispute_id).ok_or(Error::DisputeNotFound)?;
+            let mut d = self
+                .disputes
+                .get(dispute_id)
+                .ok_or(Error::DisputeNotFound)?;
             let released = d.initiator_stake.saturating_add(d.respondent_stake);
             self.dispute_escrow_locked = self.dispute_escrow_locked.saturating_sub(released);
             d.status = status.clone();
             self.disputes.insert(dispute_id, &d);
             self.global_open_disputes = self.global_open_disputes.saturating_sub(1);
-            self.env().emit_event(DisputeResolved { dispute_id, status });
+            self.env()
+                .emit_event(DisputeResolved { dispute_id, status });
             Ok(())
         }
 
         fn analytics_for(&self, token_id: TokenId) -> PropertyAnalytics {
-            self.analytics_by_token.get(token_id).unwrap_or(PropertyAnalytics {
-                rent_collected: 0,
-                maintenance_open: 0,
-                maintenance_resolved: 0,
-                expense_total: 0,
-                inspection_count: 0,
-                dispute_count: 0,
-                screening_approved: 0,
-            })
+            self.analytics_by_token
+                .get(token_id)
+                .unwrap_or(PropertyAnalytics {
+                    rent_collected: 0,
+                    maintenance_open: 0,
+                    maintenance_resolved: 0,
+                    expense_total: 0,
+                    inspection_count: 0,
+                    dispute_count: 0,
+                    screening_approved: 0,
+                })
         }
 
         fn ensure_admin(&self) -> Result<(), Error> {
@@ -1083,16 +1225,7 @@ mod property_management {
             test::set_caller::<DefaultEnvironment>(accounts.alice);
             let mut pm = setup();
             let lease_id = pm
-                .create_lease(
-                    1,
-                    accounts.bob,
-                    accounts.alice,
-                    1000,
-                    86_400,
-                    500,
-                    0,
-                    0,
-                )
+                .create_lease(1, accounts.bob, accounts.alice, 1000, 86_400, 500, 0, 0)
                 .expect("lease");
             test::set_caller::<DefaultEnvironment>(accounts.bob);
             test::set_value_transferred::<DefaultEnvironment>(1000);
@@ -1200,16 +1333,7 @@ mod property_management {
             )
             .expect("legal");
             // 10% of implied annual (1000 * 365) = 36_500 cap
-            let r = pm.create_lease(
-                9,
-                accounts.bob,
-                accounts.alice,
-                1000,
-                86_400,
-                0,
-                40_000,
-                0,
-            );
+            let r = pm.create_lease(9, accounts.bob, accounts.alice, 1000, 86_400, 0, 40_000, 0);
             assert_eq!(r, Err(Error::ComplianceViolation));
         }
 
@@ -1232,16 +1356,7 @@ mod property_management {
             )
             .expect("compliance");
             let lease_id = pm
-                .create_lease(
-                    1,
-                    accounts.bob,
-                    accounts.alice,
-                    2000,
-                    86_400,
-                    250,
-                    100,
-                    0,
-                )
+                .create_lease(1, accounts.bob, accounts.alice, 2000, 86_400, 250, 100, 0)
                 .expect("lease");
             test::set_caller::<DefaultEnvironment>(accounts.bob);
             test::set_value_transferred::<DefaultEnvironment>(2000);
@@ -1294,7 +1409,8 @@ mod property_management {
             test::set_value_transferred::<DefaultEnvironment>(50);
             pm.counterparty_stake_dispute(did).expect("stake");
             test::set_caller::<DefaultEnvironment>(accounts.alice);
-            pm.resolve_dispute(did, Some(true)).expect("resolve dispute");
+            pm.resolve_dispute(did, Some(true))
+                .expect("resolve dispute");
             assert_eq!(
                 pm.get_dispute(did).expect("d").status,
                 DisputeStatus::ResolvedInitiator

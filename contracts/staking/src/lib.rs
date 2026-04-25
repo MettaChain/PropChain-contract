@@ -10,6 +10,12 @@ mod staking {
     include!("errors.rs");
     include!("types.rs");
 
+    impl From<propchain_traits::ReentrancyError> for Error {
+        fn from(_: propchain_traits::ReentrancyError) -> Self {
+            Error::ReentrantCall
+        }
+    }
+
     // =========================================================================
     // Events
     // =========================================================================
@@ -76,6 +82,7 @@ mod staking {
         last_reward_block: u64,
         governance_power: Mapping<AccountId, u128>,
         staker_list: Vec<AccountId>,
+        reentrancy_guard: propchain_traits::ReentrancyGuard,
     }
 
     // =========================================================================
@@ -108,6 +115,7 @@ mod staking {
                 last_reward_block: 0,
                 governance_power: Mapping::default(),
                 staker_list: Vec::new(),
+                reentrancy_guard: propchain_traits::ReentrancyGuard::new(),
             }
         }
 
@@ -211,59 +219,63 @@ mod staking {
         /// Unstake tokens. Fails if the lock period is still active.
         #[ink(message)]
         pub fn unstake(&mut self) -> Result<(), Error> {
-            let caller = self.env().caller();
-            let stake = self.stakes.get(caller).ok_or(Error::StakeNotFound)?;
+            propchain_traits::non_reentrant!(self, {
+                let caller = self.env().caller();
+                let stake = self.stakes.get(caller).ok_or(Error::StakeNotFound)?;
 
-            let now = self.env().block_number() as u64;
-            if now < stake.lock_until {
-                return Err(Error::LockActive);
-            }
+                let now = self.env().block_number() as u64;
+                if now < stake.lock_until {
+                    return Err(Error::LockActive);
+                }
 
-            let amount = stake.amount;
+                let amount = stake.amount;
 
-            // Remove governance power
-            self.remove_governance_power(&stake);
+                // Remove governance power
+                self.remove_governance_power(&stake);
 
-            self.stakes.remove(caller);
-            self.total_staked = self.total_staked.saturating_sub(amount);
+                self.stakes.remove(caller);
+                self.total_staked = self.total_staked.saturating_sub(amount);
 
-            // Remove from staker list
-            if let Some(pos) = self.staker_list.iter().position(|s| *s == caller) {
-                self.staker_list.swap_remove(pos);
-            }
+                // Remove from staker list
+                if let Some(pos) = self.staker_list.iter().position(|s| *s == caller) {
+                    self.staker_list.swap_remove(pos);
+                }
 
-            self.env().emit_event(Unstaked {
-                staker: caller,
-                amount,
-            });
+                self.env().emit_event(Unstaked {
+                    staker: caller,
+                    amount,
+                });
 
-            Ok(())
+                Ok(())
+            })
         }
 
         /// Claim accumulated rewards.
         #[ink(message)]
         pub fn claim_rewards(&mut self) -> Result<u128, Error> {
-            let caller = self.env().caller();
-            let mut stake = self.stakes.get(caller).ok_or(Error::StakeNotFound)?;
+            propchain_traits::non_reentrant!(self, {
+                let caller = self.env().caller();
+                let mut stake = self.stakes.get(caller).ok_or(Error::StakeNotFound)?;
 
-            let rewards = self.calculate_rewards(&stake);
-            if rewards == 0 {
-                return Err(Error::NoRewards);
-            }
-            if rewards > self.reward_pool {
-                return Err(Error::InsufficientPool);
-            }
+                let rewards = self.calculate_rewards(&stake);
+                if rewards == 0 {
+                    return Err(Error::NoRewards);
+                }
+                if rewards > self.reward_pool {
+                    return Err(Error::InsufficientPool);
+                }
 
-            self.reward_pool = self.reward_pool.saturating_sub(rewards);
-            stake.reward_debt = self.acc_reward_per_share;
-            self.stakes.insert(caller, &stake);
+                self.reward_pool = self.reward_pool.saturating_sub(rewards);
+                stake.reward_debt = self.acc_reward_per_share;
+                self.stakes.insert(caller, &stake);
 
-            self.env().emit_event(RewardsClaimed {
-                staker: caller,
-                amount: rewards,
-            });
+                self.env().emit_event(RewardsClaimed {
+                    staker: caller,
+                    amount: rewards,
+                });
 
-            Ok(rewards)
+                Ok(rewards)
+            })
         }
 
         /// Delegate governance power to another address.

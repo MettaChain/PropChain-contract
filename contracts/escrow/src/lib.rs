@@ -12,9 +12,16 @@ pub mod tests;
 #[ink::contract]
 mod propchain_escrow {
     use super::*;
+    use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
     include!("errors.rs");
     include!("types.rs");
+
+    impl From<ReentrancyError> for Error {
+        fn from(_: ReentrancyError) -> Self {
+            Error::ReentrantCall
+        }
+    }
 
     /// Main contract storage
     #[ink(storage)]
@@ -47,6 +54,8 @@ mod propchain_escrow {
         signer_public_keys: Mapping<AccountId, [u8; 33]>,
         /// Pending admin key rotation request
         pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
+        /// Reentrancy protection guard
+        reentrancy_guard: ReentrancyGuard,
     }
 
     // Events
@@ -166,6 +175,7 @@ mod propchain_escrow {
                 min_high_value_threshold,
                 signer_public_keys: Mapping::default(),
                 pending_admin_rotation: None,
+                reentrancy_guard: ReentrancyGuard::new(),
             }
         }
 
@@ -290,114 +300,118 @@ mod propchain_escrow {
         /// Release funds with multi-signature approval
         #[ink(message)]
         pub fn release_funds(&mut self, escrow_id: u64) -> Result<(), Error> {
-            let caller = self.env().caller();
-            let escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                let escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
 
-            // Check status
-            if escrow.status != EscrowStatus::Active {
-                return Err(Error::InvalidStatus);
-            }
-
-            // Check for active dispute
-            if let Some(dispute) = self.disputes.get(&escrow_id) {
-                if !dispute.resolved {
-                    return Err(Error::DisputeActive);
+                // Check status
+                if escrow.status != EscrowStatus::Active {
+                    return Err(Error::InvalidStatus);
                 }
-            }
 
-            // Check time lock
-            if let Some(time_lock) = escrow.release_time_lock {
-                if self.env().block_timestamp() < time_lock {
-                    return Err(Error::TimeLockActive);
+                // Check for active dispute
+                if let Some(dispute) = self.disputes.get(&escrow_id) {
+                    if !dispute.resolved {
+                        return Err(Error::DisputeActive);
+                    }
                 }
-            }
 
-            // Check all conditions are met
-            if !self.check_all_conditions_met(escrow_id)? {
-                return Err(Error::ConditionsNotMet);
-            }
+                // Check time lock
+                if let Some(time_lock) = escrow.release_time_lock {
+                    if self.env().block_timestamp() < time_lock {
+                        return Err(Error::TimeLockActive);
+                    }
+                }
 
-            // Check multi-sig threshold
-            if !self.check_signature_threshold(escrow_id, ApprovalType::Release)? {
-                return Err(Error::SignatureThresholdNotMet);
-            }
+                // Check all conditions are met
+                if !self.check_all_conditions_met(escrow_id)? {
+                    return Err(Error::ConditionsNotMet);
+                }
 
-            // Transfer funds to seller
-            if self
-                .env()
-                .transfer(escrow.seller, escrow.deposited_amount)
-                .is_err()
-            {
-                return Err(Error::InsufficientFunds);
-            }
+                // Check multi-sig threshold
+                if !self.check_signature_threshold(escrow_id, ApprovalType::Release)? {
+                    return Err(Error::SignatureThresholdNotMet);
+                }
 
-            // Update status
-            let mut updated_escrow = escrow.clone();
-            updated_escrow.status = EscrowStatus::Released;
-            self.escrows.insert(&escrow_id, &updated_escrow);
+                // Transfer funds to seller
+                if self
+                    .env()
+                    .transfer(escrow.seller, escrow.deposited_amount)
+                    .is_err()
+                {
+                    return Err(Error::InsufficientFunds);
+                }
 
-            // Add audit entry
-            self.add_audit_entry(
-                escrow_id,
-                caller,
-                "FundsReleased".to_string(),
-                format!("Amount: {} to seller", escrow.deposited_amount),
-            );
+                // Update status AFTER transfer
+                let mut updated_escrow = escrow.clone();
+                updated_escrow.status = EscrowStatus::Released;
+                self.escrows.insert(&escrow_id, &updated_escrow);
 
-            self.env().emit_event(FundsReleased {
-                escrow_id,
-                amount: escrow.deposited_amount,
-                recipient: escrow.seller,
-            });
+                // Add audit entry
+                self.add_audit_entry(
+                    escrow_id,
+                    caller,
+                    "FundsReleased".to_string(),
+                    format!("Amount: {} to seller", escrow.deposited_amount),
+                );
 
-            Ok(())
+                self.env().emit_event(FundsReleased {
+                    escrow_id,
+                    amount: escrow.deposited_amount,
+                    recipient: escrow.seller,
+                });
+
+                Ok(())
+            })
         }
 
         /// Refund funds with multi-signature approval
         #[ink(message)]
         pub fn refund_funds(&mut self, escrow_id: u64) -> Result<(), Error> {
-            let caller = self.env().caller();
-            let escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                let escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
 
-            // Check status
-            if escrow.status != EscrowStatus::Active && escrow.status != EscrowStatus::Funded {
-                return Err(Error::InvalidStatus);
-            }
+                // Check status
+                if escrow.status != EscrowStatus::Active && escrow.status != EscrowStatus::Funded {
+                    return Err(Error::InvalidStatus);
+                }
 
-            // Check multi-sig threshold
-            if !self.check_signature_threshold(escrow_id, ApprovalType::Refund)? {
-                return Err(Error::SignatureThresholdNotMet);
-            }
+                // Check multi-sig threshold
+                if !self.check_signature_threshold(escrow_id, ApprovalType::Refund)? {
+                    return Err(Error::SignatureThresholdNotMet);
+                }
 
-            // Transfer funds back to buyer
-            if self
-                .env()
-                .transfer(escrow.buyer, escrow.deposited_amount)
-                .is_err()
-            {
-                return Err(Error::InsufficientFunds);
-            }
+                // Transfer funds back to buyer
+                if self
+                    .env()
+                    .transfer(escrow.buyer, escrow.deposited_amount)
+                    .is_err()
+                {
+                    return Err(Error::InsufficientFunds);
+                }
 
-            // Update status
-            let mut updated_escrow = escrow.clone();
-            updated_escrow.status = EscrowStatus::Refunded;
-            self.escrows.insert(&escrow_id, &updated_escrow);
+                // Update status AFTER transfer
+                let mut updated_escrow = escrow.clone();
+                updated_escrow.status = EscrowStatus::Refunded;
+                self.escrows.insert(&escrow_id, &updated_escrow);
 
-            // Add audit entry
-            self.add_audit_entry(
-                escrow_id,
-                caller,
-                "FundsRefunded".to_string(),
-                format!("Amount: {} to buyer", escrow.deposited_amount),
-            );
+                // Add audit entry
+                self.add_audit_entry(
+                    escrow_id,
+                    caller,
+                    "FundsRefunded".to_string(),
+                    format!("Amount: {} to buyer", escrow.deposited_amount),
+                );
 
-            self.env().emit_event(FundsRefunded {
-                escrow_id,
-                amount: escrow.deposited_amount,
-                recipient: escrow.buyer,
-            });
+                self.env().emit_event(FundsRefunded {
+                    escrow_id,
+                    amount: escrow.deposited_amount,
+                    recipient: escrow.buyer,
+                });
 
-            Ok(())
+                Ok(())
+            })
         }
 
         /// Upload document hash
@@ -789,53 +803,55 @@ mod propchain_escrow {
             escrow_id: u64,
             release_to_seller: bool,
         ) -> Result<(), Error> {
-            let caller = self.env().caller();
+            non_reentrant!(self, {
+                let caller = self.env().caller();
 
-            // Only admin can perform emergency override
-            if caller != self.admin {
-                return Err(Error::Unauthorized);
-            }
+                // Only admin can perform emergency override
+                if caller != self.admin {
+                    return Err(Error::Unauthorized);
+                }
 
-            let escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
+                let escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
 
-            let recipient = if release_to_seller {
-                escrow.seller
-            } else {
-                escrow.buyer
-            };
+                let recipient = if release_to_seller {
+                    escrow.seller
+                } else {
+                    escrow.buyer
+                };
 
-            // Transfer funds
-            if self
-                .env()
-                .transfer(recipient, escrow.deposited_amount)
-                .is_err()
-            {
-                return Err(Error::InsufficientFunds);
-            }
+                // Transfer funds
+                if self
+                    .env()
+                    .transfer(recipient, escrow.deposited_amount)
+                    .is_err()
+                {
+                    return Err(Error::InsufficientFunds);
+                }
 
-            // Update status
-            let mut updated_escrow = escrow.clone();
-            updated_escrow.status = if release_to_seller {
-                EscrowStatus::Released
-            } else {
-                EscrowStatus::Refunded
-            };
-            self.escrows.insert(&escrow_id, &updated_escrow);
+                // Update status AFTER transfer
+                let mut updated_escrow = escrow.clone();
+                updated_escrow.status = if release_to_seller {
+                    EscrowStatus::Released
+                } else {
+                    EscrowStatus::Refunded
+                };
+                self.escrows.insert(&escrow_id, &updated_escrow);
 
-            // Add audit entry
-            self.add_audit_entry(
-                escrow_id,
-                caller,
-                "EmergencyOverride".to_string(),
-                format!("Funds sent to: {:?}", recipient),
-            );
+                // Add audit entry
+                self.add_audit_entry(
+                    escrow_id,
+                    caller,
+                    "EmergencyOverride".to_string(),
+                    format!("Funds sent to: {:?}", recipient),
+                );
 
-            self.env().emit_event(EmergencyOverride {
-                escrow_id,
-                admin: caller,
-            });
+                self.env().emit_event(EmergencyOverride {
+                    escrow_id,
+                    admin: caller,
+                });
 
-            Ok(())
+                Ok(())
+            })
         }
 
         // Query functions

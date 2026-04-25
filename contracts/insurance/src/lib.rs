@@ -14,9 +14,16 @@ use ink::storage::Mapping;
 mod propchain_insurance {
     use super::*;
     use ink::prelude::{string::String, vec::Vec};
+    use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
     // Error types extracted to errors.rs (Issue #101)
     include!("errors.rs");
+
+    impl From<ReentrancyError> for InsuranceError {
+        fn from(_: ReentrancyError) -> Self {
+            InsuranceError::ReentrantCall
+        }
+    }
 
     // Data types extracted to types.rs (Issue #101)
     include!("types.rs");
@@ -76,6 +83,9 @@ mod propchain_insurance {
         platform_fee_rate: u32,     // Basis points (e.g. 200 = 2%)
         claim_cooldown_period: u64, // In seconds
         min_pool_capital: u128,
+
+        // Reentrancy protection
+        reentrancy_guard: ReentrancyGuard,
     }
 
     // =========================================================================
@@ -235,6 +245,7 @@ mod propchain_insurance {
                 platform_fee_rate: 200,            // 2%
                 claim_cooldown_period: 2_592_000,  // 30 days in seconds
                 min_pool_capital: 100_000_000_000, // Minimum pool capital
+                reentrancy_guard: ReentrancyGuard::new(),
             }
         }
 
@@ -669,67 +680,71 @@ mod propchain_insurance {
             oracle_report_url: String,
             rejection_reason: String,
         ) -> Result<(), InsuranceError> {
-            let caller = self.env().caller();
+            non_reentrant!(self, {
+                let caller = self.env().caller();
 
-            if caller != self.admin && !self.authorized_assessors.get(&caller).unwrap_or(false) {
-                return Err(InsuranceError::Unauthorized);
-            }
+                if caller != self.admin && !self.authorized_assessors.get(&caller).unwrap_or(false)
+                {
+                    return Err(InsuranceError::Unauthorized);
+                }
 
-            let mut claim = self
-                .claims
-                .get(&claim_id)
-                .ok_or(InsuranceError::ClaimNotFound)?;
-            if claim.status != ClaimStatus::Pending && claim.status != ClaimStatus::UnderReview {
-                return Err(InsuranceError::ClaimAlreadyProcessed);
-            }
+                let mut claim = self
+                    .claims
+                    .get(&claim_id)
+                    .ok_or(InsuranceError::ClaimNotFound)?;
+                if claim.status != ClaimStatus::Pending && claim.status != ClaimStatus::UnderReview
+                {
+                    return Err(InsuranceError::ClaimAlreadyProcessed);
+                }
 
-            let now = self.env().block_timestamp();
-            claim.assessor = Some(caller);
-            claim.oracle_report_url = oracle_report_url;
-            claim.processed_at = Some(now);
+                let now = self.env().block_timestamp();
+                claim.assessor = Some(caller);
+                claim.oracle_report_url = oracle_report_url;
+                claim.processed_at = Some(now);
 
-            if approved {
-                let policy = self
-                    .policies
-                    .get(&claim.policy_id)
-                    .ok_or(InsuranceError::PolicyNotFound)?;
+                if approved {
+                    let policy = self
+                        .policies
+                        .get(&claim.policy_id)
+                        .ok_or(InsuranceError::PolicyNotFound)?;
 
-                // Apply deductible
-                let payout = if claim.claim_amount > policy.deductible {
-                    claim.claim_amount.saturating_sub(policy.deductible)
+                    // Apply deductible
+                    let payout = if claim.claim_amount > policy.deductible {
+                        claim.claim_amount.saturating_sub(policy.deductible)
+                    } else {
+                        0
+                    };
+
+                    claim.payout_amount = payout;
+                    claim.status = ClaimStatus::Approved;
+                    self.claims.insert(&claim_id, &claim);
+
+                    // Execute payout
+                    self.execute_payout(claim_id, claim.policy_id, claim.claimant, payout)?;
+
+                    self.env().emit_event(ClaimApproved {
+                        claim_id,
+                        policy_id: claim.policy_id,
+                        payout_amount: payout,
+                        approved_by: caller,
+                        timestamp: now,
+                    });
                 } else {
-                    0
-                };
+                    claim.status = ClaimStatus::Rejected;
+                    claim.rejection_reason = rejection_reason.clone();
+                    self.claims.insert(&claim_id, &claim);
 
-                claim.payout_amount = payout;
-                claim.status = ClaimStatus::Approved;
-                self.claims.insert(&claim_id, &claim);
+                    self.env().emit_event(ClaimRejected {
+                        claim_id,
+                        policy_id: claim.policy_id,
+                        reason: rejection_reason,
+                        rejected_by: caller,
+                        timestamp: now,
+                    });
+                }
 
-                // Execute payout
-                self.execute_payout(claim_id, claim.policy_id, claim.claimant, payout)?;
-
-                self.env().emit_event(ClaimApproved {
-                    claim_id,
-                    policy_id: claim.policy_id,
-                    payout_amount: payout,
-                    approved_by: caller,
-                    timestamp: now,
-                });
-            } else {
-                claim.status = ClaimStatus::Rejected;
-                claim.rejection_reason = rejection_reason.clone();
-                self.claims.insert(&claim_id, &claim);
-
-                self.env().emit_event(ClaimRejected {
-                    claim_id,
-                    policy_id: claim.policy_id,
-                    reason: rejection_reason,
-                    rejected_by: caller,
-                    timestamp: now,
-                });
-            }
-
-            Ok(())
+                Ok(())
+            })
         }
 
         // =====================================================================

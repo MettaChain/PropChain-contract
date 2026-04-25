@@ -64,8 +64,14 @@ let position_id = contract.open_position(collateral, leverage, is_short, entry_p
 ### Apply for Loan
 
 ```rust
-let loan_id = contract.apply_for_loan(amount, collateral_value, credit_score)?;
+let loan_id = contract.apply_for_loan(property_id, amount, collateral_value, credit_score)?;
 let approved = contract.underwrite_loan(loan_id)?;
+```
+
+### Liquidate Loan
+
+```rust
+contract.liquidate_loan(loan_id, current_property_value)?;
 ```
 
 ### Stake for Yield

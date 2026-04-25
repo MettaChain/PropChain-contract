@@ -4,6 +4,7 @@
 mod event_bus_contract {
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
+    use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
     use propchain_traits::event_bus::{
         EventBus, EventBusError, EventPayload, EventSubscriberRef, Topic,
     };
@@ -16,6 +17,14 @@ mod event_bus_contract {
         admin: AccountId,
         /// List of subscribers per topic
         subscribers: Mapping<Topic, Vec<AccountId>>,
+        /// Reentrancy protection guard
+        reentrancy_guard: ReentrancyGuard,
+    }
+
+    impl From<ReentrancyError> for EventBusError {
+        fn from(_: ReentrancyError) -> Self {
+            EventBusError::ReentrantCall
+        }
     }
 
     #[ink(event)]
@@ -46,6 +55,7 @@ mod event_bus_contract {
             Self {
                 admin: Self::env().caller(),
                 subscribers: Mapping::default(),
+                reentrancy_guard: ReentrancyGuard::new(),
             }
         }
     }
@@ -57,32 +67,34 @@ mod event_bus_contract {
             topic: Topic,
             mut payload: EventPayload,
         ) -> Result<(), EventBusError> {
-            // Overwrite emitter to ensure authenticity of the payload
-            payload.emitter = self.env().caller();
+            non_reentrant!(self, {
+                // Overwrite emitter to ensure authenticity of the payload
+                payload.emitter = self.env().caller();
 
-            let subscribers = self.subscribers.get(topic).unwrap_or_default();
+                let subscribers = self.subscribers.get(topic).unwrap_or_default();
 
-            // Loop through each subscriber and deliver the event
-            for subscriber_account in &subscribers {
-                // Call the `on_event_received` method of the subscriber
-                // Note: We use try_call or just instantiate the Ref.
-                // Using builder pattern for safety in ink! 4+
-                let mut subscriber: EventSubscriberRef =
-                    ink::env::call::FromAccountId::from_account_id(*subscriber_account);
+                // Loop through each subscriber and deliver the event
+                for subscriber_account in &subscribers {
+                    // Call the `on_event_received` method of the subscriber
+                    // Note: We use try_call or just instantiate the Ref.
+                    // Using builder pattern for safety in ink! 4+
+                    let mut subscriber: EventSubscriberRef =
+                        ink::env::call::FromAccountId::from_account_id(*subscriber_account);
 
-                // Fire and forget, or handle errors?
-                // If we unwrap, one failing subscriber bricks the entire publish.
-                // We will ignore errors from subscribers to prevent griefing attacks.
-                let _ = subscriber.on_event_received(topic, payload.clone());
-            }
+                    // Fire and forget, or handle errors?
+                    // If we unwrap, one failing subscriber bricks the entire publish.
+                    // We will ignore errors from subscribers to prevent griefing attacks.
+                    let _ = subscriber.on_event_received(topic, payload.clone());
+                }
 
-            self.env().emit_event(EventPublished {
-                topic,
-                emitter: payload.emitter,
-                timestamp: payload.timestamp,
-            });
+                self.env().emit_event(EventPublished {
+                    topic,
+                    emitter: payload.emitter,
+                    timestamp: payload.timestamp,
+                });
 
-            Ok(())
+                Ok(())
+            })
         }
 
         #[ink(message)]
