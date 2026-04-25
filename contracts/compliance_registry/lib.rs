@@ -266,6 +266,10 @@ mod compliance_registry {
         tax_modules: Mapping<AccountId, bool>,
         /// Optional tax compliance state per account
         tax_compliance_status: Mapping<AccountId, TaxComplianceStatus>,
+        /// Global KYC funnel metrics
+        kyc_metrics: KycMetrics,
+        /// KYC funnel metrics scoped by jurisdiction
+        jurisdiction_kyc_metrics: Mapping<Jurisdiction, KycMetrics>,
     }
 
     /// Errors
@@ -523,6 +527,23 @@ mod compliance_registry {
         pub sanctions_checks_count: u64,
     }
 
+    /// KYC funnel metrics used to track conversion and verification rates.
+    #[derive(Debug, Clone, Copy, Default, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub struct KycMetrics {
+        pub requests_created: u64,
+        pub pending_requests: u64,
+        pub verification_attempts: u64,
+        pub successful_verifications: u64,
+        pub failed_verifications: u64,
+        pub converted_requests: u64,
+        pub conversion_rate_bips: u32,
+        pub verification_rate_bips: u32,
+    }
+
     /// Sanctions screening summary (sanction list monitoring - Issue #45)
     #[derive(Debug, Clone, scale::Encode, scale::Decode)]
     #[cfg_attr(
@@ -566,6 +587,8 @@ mod compliance_registry {
                 zk_compliance_contract: None,
                 tax_modules: Mapping::default(),
                 tax_compliance_status: Mapping::default(),
+                kyc_metrics: KycMetrics::default(),
+                jurisdiction_kyc_metrics: Mapping::default(),
             };
 
             // Initialize default jurisdiction rules
@@ -663,6 +686,33 @@ mod compliance_registry {
         ) -> Result<()> {
             self.ensure_verifier()?;
 
+            let result = self.submit_verification_internal(
+                account,
+                jurisdiction,
+                kyc_hash,
+                risk_level,
+                document_type,
+                biometric_method,
+                risk_score,
+            );
+
+            if result.is_err() {
+                self.record_kyc_verification_attempt(jurisdiction, false, false);
+            }
+
+            result
+        }
+
+        fn submit_verification_internal(
+            &mut self,
+            account: AccountId,
+            jurisdiction: Jurisdiction,
+            kyc_hash: [u8; 32],
+            risk_level: RiskLevel,
+            document_type: DocumentType,
+            biometric_method: BiometricMethod,
+            risk_score: u8,
+        ) -> Result<()> {
             if risk_score > 100 {
                 return Err(Error::InvalidRiskScore);
             }
@@ -712,6 +762,8 @@ mod compliance_registry {
             };
 
             self.compliance_data.insert(account, &compliance);
+            let converted_request = self.complete_pending_request(account, jurisdiction);
+            self.record_kyc_verification_attempt(jurisdiction, converted_request, true);
 
             // Log audit event
             self.log_audit_event(account, 0); // 0 = verification
@@ -1097,6 +1149,7 @@ mod compliance_registry {
 
             self.verification_requests.insert(request_id, &request);
             self.account_requests.insert(caller, &request_id);
+            self.record_kyc_request_created(jurisdiction);
 
             self.env().emit_event(VerificationRequestCreated {
                 account: caller,
@@ -1389,16 +1442,30 @@ mod compliance_registry {
             period_start: Timestamp,
             period_end: Timestamp,
         ) -> RegulatoryReport {
-            // Counts would be populated by off-chain indexing or on-chain counters in full deployment
+            let kyc_metrics = self.get_jurisdiction_kyc_metrics(jurisdiction);
             RegulatoryReport {
                 jurisdiction,
                 period_start,
                 period_end,
-                verifications_count: 0,
+                verifications_count: kyc_metrics.successful_verifications,
                 compliant_accounts: 0,
                 aml_checks_count: 0,
                 sanctions_checks_count: 0,
             }
+        }
+
+        /// Get global KYC funnel metrics including conversion and verification rates.
+        #[ink(message)]
+        pub fn get_kyc_metrics(&self) -> KycMetrics {
+            self.kyc_metrics
+        }
+
+        /// Get KYC funnel metrics scoped to a specific jurisdiction.
+        #[ink(message)]
+        pub fn get_jurisdiction_kyc_metrics(&self, jurisdiction: Jurisdiction) -> KycMetrics {
+            self.jurisdiction_kyc_metrics
+                .get(jurisdiction)
+                .unwrap_or_default()
         }
 
         /// Sanction list screening and monitoring: summary of screening activity
@@ -1459,6 +1526,107 @@ mod compliance_registry {
                 }
                 None => true,
             }
+        }
+
+        fn complete_pending_request(
+            &mut self,
+            account: AccountId,
+            jurisdiction: Jurisdiction,
+        ) -> bool {
+            let Some(request_id) = self.account_requests.get(account) else {
+                return false;
+            };
+
+            let Some(mut request) = self.verification_requests.get(request_id) else {
+                return false;
+            };
+
+            if request.status != VerificationStatus::Pending || request.jurisdiction != jurisdiction
+            {
+                return false;
+            }
+
+            request.status = VerificationStatus::Verified;
+            self.verification_requests.insert(request_id, &request);
+            true
+        }
+
+        fn record_kyc_request_created(&mut self, jurisdiction: Jurisdiction) {
+            self.kyc_metrics.requests_created = self.kyc_metrics.requests_created.saturating_add(1);
+            self.kyc_metrics.pending_requests = self.kyc_metrics.pending_requests.saturating_add(1);
+            Self::refresh_kyc_rates(&mut self.kyc_metrics);
+
+            let mut jurisdiction_metrics = self
+                .jurisdiction_kyc_metrics
+                .get(jurisdiction)
+                .unwrap_or_default();
+            jurisdiction_metrics.requests_created =
+                jurisdiction_metrics.requests_created.saturating_add(1);
+            jurisdiction_metrics.pending_requests =
+                jurisdiction_metrics.pending_requests.saturating_add(1);
+            Self::refresh_kyc_rates(&mut jurisdiction_metrics);
+            self.jurisdiction_kyc_metrics
+                .insert(jurisdiction, &jurisdiction_metrics);
+        }
+
+        fn record_kyc_verification_attempt(
+            &mut self,
+            jurisdiction: Jurisdiction,
+            converted_request: bool,
+            success: bool,
+        ) {
+            Self::update_kyc_metrics(&mut self.kyc_metrics, converted_request, success);
+
+            let mut jurisdiction_metrics = self
+                .jurisdiction_kyc_metrics
+                .get(jurisdiction)
+                .unwrap_or_default();
+            Self::update_kyc_metrics(&mut jurisdiction_metrics, converted_request, success);
+            self.jurisdiction_kyc_metrics
+                .insert(jurisdiction, &jurisdiction_metrics);
+        }
+
+        fn update_kyc_metrics(
+            metrics: &mut KycMetrics,
+            converted_request: bool,
+            success: bool,
+        ) {
+            metrics.verification_attempts = metrics.verification_attempts.saturating_add(1);
+
+            if success {
+                metrics.successful_verifications =
+                    metrics.successful_verifications.saturating_add(1);
+                if converted_request {
+                    metrics.converted_requests = metrics.converted_requests.saturating_add(1);
+                    metrics.pending_requests = metrics.pending_requests.saturating_sub(1);
+                }
+            } else {
+                metrics.failed_verifications = metrics.failed_verifications.saturating_add(1);
+            }
+
+            Self::refresh_kyc_rates(metrics);
+        }
+
+        fn refresh_kyc_rates(metrics: &mut KycMetrics) {
+            metrics.conversion_rate_bips = Self::compute_rate_bips(
+                metrics.converted_requests,
+                metrics.requests_created,
+            );
+            metrics.verification_rate_bips = Self::compute_rate_bips(
+                metrics.successful_verifications,
+                metrics.verification_attempts,
+            );
+        }
+
+        fn compute_rate_bips(numerator: u64, denominator: u64) -> u32 {
+            if denominator == 0 {
+                return 0;
+            }
+
+            numerator
+                .saturating_mul(10_000)
+                .checked_div(denominator)
+                .unwrap_or(10_000) as u32
         }
 
         fn log_audit_event(&mut self, account: AccountId, action: u8) {
@@ -1727,11 +1895,31 @@ mod compliance_registry {
 
         #[ink::test]
         fn get_regulatory_report_works() {
-            let contract = ComplianceRegistry::new();
+            let mut contract = ComplianceRegistry::new();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            let request_id = contract
+                .create_verification_request(Jurisdiction::US, [9u8; 32], [8u8; 32])
+                .expect("request");
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract
+                .process_verification_request(
+                    request_id,
+                    [7u8; 32],
+                    RiskLevel::Low,
+                    DocumentType::Passport,
+                    BiometricMethod::FaceRecognition,
+                    10,
+                )
+                .expect("verification");
+
             let report = contract.get_regulatory_report(Jurisdiction::US, 0, 1000);
             assert_eq!(report.jurisdiction, Jurisdiction::US);
             assert_eq!(report.period_start, 0);
             assert_eq!(report.period_end, 1000);
+            assert_eq!(report.verifications_count, 1);
         }
 
         #[ink::test]
@@ -1820,6 +2008,123 @@ mod compliance_registry {
             assert!(contract.is_compliant(user));
             assert!(report.tax_compliant);
             assert_eq!(report.outstanding_tax, 0);
+        }
+
+        #[ink::test]
+        fn kyc_metrics_track_request_conversion_and_verification_rates() {
+            let mut contract = ComplianceRegistry::new();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            let request_id = contract
+                .create_verification_request(Jurisdiction::US, [1u8; 32], [2u8; 32])
+                .expect("request");
+
+            let pending_metrics = contract.get_kyc_metrics();
+            assert_eq!(pending_metrics.requests_created, 1);
+            assert_eq!(pending_metrics.pending_requests, 1);
+            assert_eq!(pending_metrics.verification_attempts, 0);
+            assert_eq!(pending_metrics.conversion_rate_bips, 0);
+            assert_eq!(pending_metrics.verification_rate_bips, 0);
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract
+                .process_verification_request(
+                    request_id,
+                    [3u8; 32],
+                    RiskLevel::Low,
+                    DocumentType::Passport,
+                    BiometricMethod::FaceRecognition,
+                    10,
+                )
+                .expect("verification");
+
+            let metrics = contract.get_kyc_metrics();
+            assert_eq!(metrics.requests_created, 1);
+            assert_eq!(metrics.pending_requests, 0);
+            assert_eq!(metrics.verification_attempts, 1);
+            assert_eq!(metrics.successful_verifications, 1);
+            assert_eq!(metrics.failed_verifications, 0);
+            assert_eq!(metrics.converted_requests, 1);
+            assert_eq!(metrics.conversion_rate_bips, 10_000);
+            assert_eq!(metrics.verification_rate_bips, 10_000);
+
+            let us_metrics = contract.get_jurisdiction_kyc_metrics(Jurisdiction::US);
+            assert_eq!(us_metrics.converted_requests, 1);
+            assert_eq!(us_metrics.successful_verifications, 1);
+        }
+
+        #[ink::test]
+        fn kyc_metrics_track_failed_verification_attempts_without_conversion() {
+            let mut contract = ComplianceRegistry::new();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.charlie);
+            let request_id = contract
+                .create_verification_request(Jurisdiction::UK, [4u8; 32], [5u8; 32])
+                .expect("request");
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            let result = contract.process_verification_request(
+                request_id,
+                [6u8; 32],
+                RiskLevel::Low,
+                DocumentType::Passport,
+                BiometricMethod::FaceRecognition,
+                101,
+            );
+            assert_eq!(result, Err(Error::InvalidRiskScore));
+
+            let metrics = contract.get_kyc_metrics();
+            assert_eq!(metrics.requests_created, 1);
+            assert_eq!(metrics.pending_requests, 1);
+            assert_eq!(metrics.verification_attempts, 1);
+            assert_eq!(metrics.successful_verifications, 0);
+            assert_eq!(metrics.failed_verifications, 1);
+            assert_eq!(metrics.converted_requests, 0);
+            assert_eq!(metrics.conversion_rate_bips, 0);
+            assert_eq!(metrics.verification_rate_bips, 0);
+
+            let request = contract
+                .get_verification_request(request_id)
+                .expect("request should remain available");
+            assert_eq!(request.status, VerificationStatus::Pending);
+        }
+
+        #[ink::test]
+        fn direct_verification_completes_pending_request_for_conversion_tracking() {
+            let mut contract = ComplianceRegistry::new();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.django);
+            let request_id = contract
+                .create_verification_request(Jurisdiction::EU, [7u8; 32], [8u8; 32])
+                .expect("request");
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract
+                .submit_verification(
+                    accounts.django,
+                    Jurisdiction::EU,
+                    [9u8; 32],
+                    RiskLevel::Low,
+                    DocumentType::Passport,
+                    BiometricMethod::FaceRecognition,
+                    15,
+                )
+                .expect("direct verification");
+
+            let request = contract
+                .get_verification_request(request_id)
+                .expect("request should exist");
+            assert_eq!(request.status, VerificationStatus::Verified);
+
+            let metrics = contract.get_jurisdiction_kyc_metrics(Jurisdiction::EU);
+            assert_eq!(metrics.requests_created, 1);
+            assert_eq!(metrics.pending_requests, 0);
+            assert_eq!(metrics.converted_requests, 1);
+            assert_eq!(metrics.successful_verifications, 1);
+            assert_eq!(metrics.verification_rate_bips, 10_000);
         }
     }
 }

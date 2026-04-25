@@ -13,6 +13,7 @@ This document describes the **enhanced compliance and regulatory framework** for
 |-----------|-----------------|
 | Multi-jurisdictional compliance rules engine | `Jurisdiction`, `JurisdictionRules`, `get_jurisdiction_rules`, `update_jurisdiction_rules`, `check_transaction_compliance(account, operation)` |
 | KYC/AML integration with external providers | `create_verification_request`, `process_verification_request`, `register_service_provider`, `submit_verification`, `update_aml_status` |
+| KYC conversion and verification rates | `get_kyc_metrics()`, `get_jurisdiction_kyc_metrics(jurisdiction)`, `KycMetrics` |
 | Compliance reporting and audit trails | `get_audit_logs`, `get_compliance_report(account)`, `AuditLog`, `ComplianceReport` |
 | Automated compliance checking for transactions | `check_transaction_compliance(account, operation)`, PropertyRegistry `check_compliance()` (cross-call to registry) |
 | Sanction list screening and monitoring | `update_sanctions_status`, `batch_sanctions_check`, `SanctionsList`, `get_sanctions_screening_summary()` |
@@ -31,6 +32,7 @@ This document describes the **enhanced compliance and regulatory framework** for
 - **Verification request flow**: User calls `create_verification_request(jurisdiction, document_hash, biometric_hash)`. Off-chain provider calls `process_verification_request(request_id, ...)` after verification.
 - **Service providers**: Register via `register_service_provider(provider, service_type)` (0=KYC, 1=AML, 2=Sanctions, 3=All). Registered KYC providers are added as verifiers.
 - **KYC**: `submit_verification(account, jurisdiction, kyc_hash, risk_level, document_type, biometric_method, risk_score)`.
+- **KYC analytics**: `get_kyc_metrics()` exposes the global funnel, while `get_jurisdiction_kyc_metrics(jurisdiction)` breaks it down per jurisdiction. Rates are returned in basis points (`10_000 = 100%`).
 - **AML**: `update_aml_status(account, passed, risk_factors)`, `batch_aml_check(accounts, risk_factors_list)`.
 - **Sanctions**: `update_sanctions_status(account, passed, list_checked)`, `batch_sanctions_check(accounts, list_checked, results)`.
 
@@ -57,9 +59,19 @@ This document describes the **enhanced compliance and regulatory framework** for
 - **Process**: Verifier calls `process_verification_request(request_id, kyc_hash, risk_level, ...)`.
 - **Status**: `get_verification_workflow_status(request_id)` returns `WorkflowStatus` (Pending, InProgress, Verified, Rejected, Expired).
 
+## KYC Funnel Metrics
+
+- **Global view**: `get_kyc_metrics()` returns `KycMetrics`.
+- **Jurisdiction view**: `get_jurisdiction_kyc_metrics(jurisdiction)` returns the same struct scoped to one jurisdiction.
+- **Tracked fields**: `requests_created`, `pending_requests`, `verification_attempts`, `successful_verifications`, `failed_verifications`, `converted_requests`.
+- **Rates**:
+  `conversion_rate_bips = converted_requests / requests_created`
+  `verification_rate_bips = successful_verifications / verification_attempts`
+- **Direct verifier flow**: A successful `submit_verification(...)` now also closes a matching pending request for the account so conversion tracking stays accurate even when the verifier bypasses `process_verification_request(...)`.
+
 ## Regulatory Reporting Automation
 
-- **Report**: `get_regulatory_report(jurisdiction, period_start, period_end)` returns `RegulatoryReport` (jurisdiction, period, verifications_count, compliant_accounts, aml_checks_count, sanctions_checks_count). Counts can be filled by off-chain indexing or future on-chain counters.
+- **Report**: `get_regulatory_report(jurisdiction, period_start, period_end)` returns `RegulatoryReport` (jurisdiction, period, verifications_count, compliant_accounts, aml_checks_count, sanctions_checks_count). `verifications_count` is now populated from on-chain KYC success tracking for that jurisdiction.
 
 ## PropertyRegistry Integration
 

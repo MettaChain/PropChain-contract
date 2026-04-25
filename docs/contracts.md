@@ -62,6 +62,12 @@ Updates the sanctions screening status.
 ##### `update_consent(account: AccountId, consent: ConsentStatus) -> Result<()>`
 Manages GDPR data processing consent.
 
+##### `get_kyc_metrics() -> KycMetrics`
+Returns global KYC request, conversion, and verification-rate metrics.
+
+##### `get_jurisdiction_kyc_metrics(jurisdiction: Jurisdiction) -> KycMetrics`
+Returns the same KYC funnel metrics scoped to a single jurisdiction.
+
 ---
 
 ### PropertyBridge
@@ -209,6 +215,20 @@ pub struct ComplianceData {
     pub document_type: DocumentType,
     pub biometric_method: BiometricMethod,
     pub risk_score: u8,
+}
+```
+
+### KycMetrics
+```rust
+pub struct KycMetrics {
+    pub requests_created: u64,
+    pub pending_requests: u64,
+    pub verification_attempts: u64,
+    pub successful_verifications: u64,
+    pub failed_verifications: u64,
+    pub converted_requests: u64,
+    pub conversion_rate_bips: u32,
+    pub verification_rate_bips: u32,
 }
 ```
 
