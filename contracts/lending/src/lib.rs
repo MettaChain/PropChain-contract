@@ -81,6 +81,22 @@ mod propchain_lending {
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct LoanPortfolio {
+        pub owner: AccountId,
+        pub loan_ids: Vec<u64>,
+        pub total_loans: u32,
+        pub approved_loans: u32,
+        pub pending_loans: u32,
+        pub total_requested: u128,
+        pub total_approved: u128,
+        pub total_collateral: u128,
+        pub average_credit_score: u32,
+    }
+
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct YieldPosition {
         pub owner: AccountId,
         pub staked: u128,
@@ -109,6 +125,7 @@ mod propchain_lending {
         margin_positions: Mapping<u64, MarginPosition>,
         position_count: u64,
         loan_applications: Mapping<u64, LoanApplication>,
+        borrower_loans: Mapping<AccountId, Vec<u64>>,
         loan_count: u64,
         yield_positions: Mapping<AccountId, YieldPosition>,
         total_staked: u128,
@@ -168,6 +185,7 @@ mod propchain_lending {
                 margin_positions: Mapping::default(),
                 position_count: 0,
                 loan_applications: Mapping::default(),
+                borrower_loans: Mapping::default(),
                 loan_count: 0,
                 yield_positions: Mapping::default(),
                 total_staked: 0,
@@ -321,6 +339,12 @@ mod propchain_lending {
                 approved: false,
             };
             self.loan_applications.insert(self.loan_count, &app);
+            let mut loan_ids = self
+                .borrower_loans
+                .get(self.env().caller())
+                .unwrap_or_default();
+            loan_ids.push(self.loan_count);
+            self.borrower_loans.insert(self.env().caller(), &loan_ids);
             Ok(self.loan_count)
         }
 
@@ -444,6 +468,55 @@ mod propchain_lending {
         }
 
         #[ink(message)]
+        pub fn get_borrower_loan_ids(&self, owner: AccountId) -> Vec<u64> {
+            self.borrower_loans.get(owner).unwrap_or_default()
+        }
+
+        #[ink(message)]
+        pub fn get_loan_portfolio(&self, owner: AccountId) -> LoanPortfolio {
+            let loan_ids = self.get_borrower_loan_ids(owner);
+            let mut approved_loans = 0u32;
+            let mut total_requested = 0u128;
+            let mut total_approved = 0u128;
+            let mut total_collateral = 0u128;
+            let mut total_credit_score = 0u128;
+
+            for loan_id in loan_ids.iter() {
+                if let Some(loan) = self.loan_applications.get(loan_id) {
+                    total_requested = total_requested.saturating_add(loan.requested_amount);
+                    total_collateral = total_collateral.saturating_add(loan.collateral_value);
+                    total_credit_score =
+                        total_credit_score.saturating_add(loan.credit_score as u128);
+                    if loan.approved {
+                        approved_loans = approved_loans.saturating_add(1);
+                        total_approved = total_approved.saturating_add(loan.requested_amount);
+                    }
+                }
+            }
+
+            let total_loans = loan_ids.len() as u32;
+            let average_credit_score = if total_loans == 0 {
+                0
+            } else {
+                total_credit_score
+                    .checked_div(total_loans as u128)
+                    .unwrap_or(0) as u32
+            };
+
+            LoanPortfolio {
+                owner,
+                loan_ids,
+                total_loans,
+                approved_loans,
+                pending_loans: total_loans.saturating_sub(approved_loans),
+                total_requested,
+                total_approved,
+                total_collateral,
+                average_credit_score,
+            }
+        }
+
+        #[ink(message)]
         pub fn get_proposal(&self, proposal_id: u64) -> Option<Proposal> {
             self.proposals.get(proposal_id)
         }
@@ -467,7 +540,7 @@ pub use crate::propchain_lending::{LendingError, PropertyLending};
 mod tests {
     use super::*;
     use ink::env::{test, DefaultEnvironment};
-    use propchain_lending::{LendingError, PropertyLending};
+    use propchain_lending::PropertyLending;
 
     fn setup() -> PropertyLending {
         let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -531,6 +604,51 @@ mod tests {
         let loan_id2 = contract.apply_for_loan(700_000, 1_000_000, 700).unwrap();
         let approved2 = contract.underwrite_loan(loan_id2).unwrap();
         assert!(approved2);
+    }
+
+    #[ink::test]
+    fn test_loan_portfolio_management_tracks_borrower_loans() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        let loan_id = contract.apply_for_loan(700_000, 1_000_000, 700).unwrap();
+        let loan_id2 = contract.apply_for_loan(900_000, 1_000_000, 650).unwrap();
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let bob_loan_id = contract.apply_for_loan(400_000, 800_000, 720).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        assert!(contract.underwrite_loan(loan_id).unwrap());
+        assert!(!contract.underwrite_loan(loan_id2).unwrap());
+        assert!(contract.underwrite_loan(bob_loan_id).unwrap());
+
+        let alice_portfolio = contract.get_loan_portfolio(accounts.alice);
+        assert_eq!(alice_portfolio.loan_ids, vec![loan_id, loan_id2]);
+        assert_eq!(alice_portfolio.total_loans, 2);
+        assert_eq!(alice_portfolio.approved_loans, 1);
+        assert_eq!(alice_portfolio.pending_loans, 1);
+        assert_eq!(alice_portfolio.total_requested, 1_600_000);
+        assert_eq!(alice_portfolio.total_approved, 700_000);
+        assert_eq!(alice_portfolio.total_collateral, 2_000_000);
+        assert_eq!(alice_portfolio.average_credit_score, 675);
+
+        let bob_portfolio = contract.get_loan_portfolio(accounts.bob);
+        assert_eq!(bob_portfolio.loan_ids, vec![bob_loan_id]);
+        assert_eq!(bob_portfolio.total_approved, 400_000);
+    }
+
+    #[ink::test]
+    fn test_empty_loan_portfolio_is_readable() {
+        let contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let portfolio = contract.get_loan_portfolio(accounts.bob);
+
+        assert!(portfolio.loan_ids.is_empty());
+        assert_eq!(portfolio.total_loans, 0);
+        assert_eq!(portfolio.average_credit_score, 0);
+        assert_eq!(
+            contract.get_borrower_loan_ids(accounts.bob),
+            Vec::<u64>::new()
+        );
     }
 
     #[ink::test]
