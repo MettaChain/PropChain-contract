@@ -1,0 +1,56 @@
+    Checking propchain-lending v1.0.0 (C:\Users\dell\Documents\web3\PropChain-contract\contracts\lending)
+error[E0433]: cannot find module or crate `propchain_traits` in this scope
+   --> contracts\lending\src\lib.rs:257:13
+    |
+257 |             propchain_traits::non_reentrant!(self, {
+    |             ^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `propchain_traits`
+
+error[E0433]: cannot find module or crate `propchain_traits` in this scope
+   --> contracts\lending\src\lib.rs:247:13
+    |
+247 |             propchain_traits::non_reentrant!(self, {
+    |             ^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `propchain_traits`
+
+error[E0433]: cannot find module or crate `propchain_traits` in this scope
+   --> contracts\lending\src\lib.rs:185:35
+    |
+185 |                 reentrancy_guard: propchain_traits::ReentrancyGuard::new(),
+    |                                   ^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `propchain_traits`
+    |
+    = help: if you wanted to use a crate named `propchain_traits`, use `cargo add propchain_traits` to add it to your `Cargo.toml`
+
+warning: unused import: `vec::Vec`
+  --> contracts\lending\src\lib.rs:14:40
+   |
+14 |     use ink::prelude::{string::String, vec::Vec};
+   |                                        ^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0433]: cannot find module or crate `propchain_traits` in this scope
+   --> contracts\lending\src\lib.rs:125:27
+    |
+125 |         reentrancy_guard: propchain_traits::ReentrancyGuard,
+    |                           ^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `propchain_traits`
+    |
+    = help: if you wanted to use a crate named `propchain_traits`, use `cargo add propchain_traits` to add it to your `Cargo.toml`
+
+error[E0433]: cannot find module or crate `propchain_traits` in this scope
+  --> contracts\lending\src\lib.rs:33:15
+   |
+33 |     impl From<propchain_traits::ReentrancyError> for LendingError {
+   |               ^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `propchain_traits`
+   |
+   = help: if you wanted to use a crate named `propchain_traits`, use `cargo add propchain_traits` to add it to your `Cargo.toml`
+
+error[E0433]: cannot find module or crate `propchain_traits` in this scope
+  --> contracts\lending\src\lib.rs:34:20
+   |
+34 |         fn from(_: propchain_traits::ReentrancyError) -> Self {
+   |                    ^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `propchain_traits`
+   |
+   = help: if you wanted to use a crate named `propchain_traits`, use `cargo add propchain_traits` to add it to your `Cargo.toml`
+
+For more information about this error, try `rustc --explain E0433`.
+warning: `propchain-lending` (lib) generated 1 warning
+error: could not compile `propchain-lending` (lib) due to 6 previous errors; 1 warning emitted

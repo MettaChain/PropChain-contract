@@ -15,6 +15,9 @@ use ink::storage::Mapping;
 // Re-export traits
 pub use propchain_traits::*;
 
+// Re-export reentrancy protection
+pub use reentrancy_guard::{ReentrancyError, ReentrancyGuard};
+
 // Import identity module
 use propchain_identity::propchain_identity::IdentityRegistryRef;
 
@@ -24,6 +27,9 @@ pub mod error_handling;
 
 // Audit trail module
 pub mod audit;
+
+// Reentrancy protection module
+pub mod reentrancy_guard;
 
 #[ink::contract]
 pub mod propchain_contracts {
@@ -102,6 +108,14 @@ pub mod propchain_contracts {
         SelfTransferNotAllowed,
         /// Range is invalid (min > max)
         InvalidRange,
+        /// Reentrancy guard detected a reentrant call
+        ReentrantCall,
+    }
+
+    impl From<crate::ReentrancyError> for Error {
+        fn from(_: crate::ReentrancyError) -> Self {
+            Error::ReentrantCall
+        }
     }
 
     /// Property Registry contract
@@ -169,6 +183,9 @@ pub mod propchain_contracts {
         /// `identity_registry` fields for new code; those fields are kept for
         /// backward-compatibility with existing callers.
         deps: ContainerConfig,
+
+        /// Reentrancy protection guard
+        reentrancy_guard: ReentrancyGuard,
     }
 
     /// Escrow information
@@ -1105,6 +1122,7 @@ pub mod propchain_contracts {
                     at
                 },
                 deps: ContainerConfig::new(),
+                reentrancy_guard: ReentrancyGuard::new(),
             };
 
             // Emit contract initialization event
@@ -1359,26 +1377,29 @@ pub mod propchain_contracts {
         /// Update property valuation using the oracle
         #[ink(message)]
         pub fn update_valuation_from_oracle(&mut self, property_id: u64) -> Result<(), Error> {
-            let oracle_addr = self.oracle.ok_or(Error::OracleError)?;
+            non_reentrant!(self, {
+                let oracle_addr = self.oracle.ok_or(Error::OracleError)?;
 
-            // Use the Oracle trait to perform the cross-contract call
-            use ink::env::call::FromAccountId;
-            let oracle: ink::contract_ref!(Oracle) = FromAccountId::from_account_id(oracle_addr);
+                // Use the Oracle trait to perform the cross-contract call
+                use ink::env::call::FromAccountId;
+                let oracle: ink::contract_ref!(Oracle) =
+                    FromAccountId::from_account_id(oracle_addr);
 
-            // Fetch valuation from oracle
-            let valuation = oracle
-                .get_valuation(property_id)
-                .map_err(|_| Error::OracleError)?;
+                // Fetch valuation from oracle
+                let valuation = oracle
+                    .get_valuation(property_id)
+                    .map_err(|_| Error::OracleError)?;
 
-            // Update the property's recorded valuation in its metadata
-            if let Some(mut property) = self.properties.get(&property_id) {
-                property.metadata.valuation = valuation.valuation;
-                self.properties.insert(&property_id, &property);
-            } else {
-                return Err(Error::PropertyNotFound);
-            }
+                // Update the property's recorded valuation in its metadata
+                if let Some(mut property) = self.properties.get(&property_id) {
+                    property.metadata.valuation = valuation.valuation;
+                    self.properties.insert(&property_id, &property);
+                } else {
+                    return Err(Error::PropertyNotFound);
+                }
 
-            Ok(())
+                Ok(())
+            })
         }
 
         /// Changes the admin account (only callable by current admin)
@@ -1957,59 +1978,62 @@ pub mod propchain_contracts {
         pub fn register_property(&mut self, metadata: PropertyMetadata) -> Result<u64, Error> {
             self.ensure_not_paused()?;
             Self::validate_metadata(&metadata)?;
-            let caller = self.env().caller();
 
-            // Check identity verification and reputation
-            self.check_identity_requirements(caller)?;
+            non_reentrant!(self, {
+                let caller = self.env().caller();
 
-            // Check compliance for property registration (optional but recommended)
-            self.check_compliance(caller)?;
+                // Check identity verification and reputation
+                self.check_identity_requirements(caller)?;
 
-            self.property_count += 1;
-            let property_id = self.property_count;
+                // Check compliance for property registration (optional but recommended)
+                self.check_compliance(caller)?;
 
-            let property_info = PropertyInfo {
-                id: property_id,
-                owner: caller,
-                metadata,
-                registered_at: self.env().block_timestamp(),
-            };
+                self.property_count += 1;
+                let property_id = self.property_count;
 
-            self.properties.insert(property_id, &property_info);
-            // Optimized: Also store reverse mapping for faster owner lookups
-            self.property_owners.insert(property_id, &caller);
+                let property_info = PropertyInfo {
+                    id: property_id,
+                    owner: caller,
+                    metadata,
+                    registered_at: self.env().block_timestamp(),
+                };
 
-            let mut owner_props = self.owner_properties.get(caller).unwrap_or_default();
-            owner_props.push(property_id);
-            self.owner_properties.insert(caller, &owner_props);
+                self.properties.insert(property_id, &property_info);
+                // Optimized: Also store reverse mapping for faster owner lookups
+                self.property_owners.insert(property_id, &caller);
 
-            // Track gas usage
-            self.track_gas_usage("register_property".as_bytes());
+                let mut owner_props = self.owner_properties.get(caller).unwrap_or_default();
+                owner_props.push(property_id);
+                self.owner_properties.insert(caller, &owner_props);
 
-            // Emit enhanced property registration event
+                // Track gas usage
+                self.track_gas_usage("register_property".as_bytes());
 
-            let transaction_hash: Hash = [0u8; 32].into();
-            self.env().emit_event(PropertyRegistered {
-                property_id,
-                owner: caller,
-                event_version: 1,
-                location: property_info.metadata.location.clone(),
-                size: property_info.metadata.size,
-                valuation: property_info.metadata.valuation,
-                timestamp: property_info.registered_at,
-                block_number: self.env().block_number(),
-                transaction_hash,
-            });
+                // Emit enhanced property registration event
 
-            self.log_audit_event(
-                caller,
-                SecurityEventType::PropertyRegistered,
-                SecuritySeverity::Low,
-                property_id,
-                0,
-            );
+                let transaction_hash: Hash = [0u8; 32].into();
+                self.env().emit_event(PropertyRegistered {
+                    property_id,
+                    owner: caller,
+                    event_version: 1,
+                    location: property_info.metadata.location.clone(),
+                    size: property_info.metadata.size,
+                    valuation: property_info.metadata.valuation,
+                    timestamp: property_info.registered_at,
+                    block_number: self.env().block_number(),
+                    transaction_hash,
+                });
 
-            Ok(property_id)
+                self.log_audit_event(
+                    caller,
+                    SecurityEventType::PropertyRegistered,
+                    SecuritySeverity::Low,
+                    property_id,
+                    0,
+                );
+
+                Ok(property_id)
+            })
         }
 
         /// Transfers property ownership
@@ -2019,91 +2043,94 @@ pub mod propchain_contracts {
         pub fn transfer_property(&mut self, property_id: u64, to: AccountId) -> Result<(), Error> {
             self.ensure_not_paused()?;
             Self::ensure_not_zero_address(to)?;
-            let caller = self.env().caller();
-            Self::ensure_not_self(caller, to)?;
-            let mut property = self
-                .properties
-                .get(property_id)
-                .ok_or(Error::PropertyNotFound)?;
 
-            let approved = self.approvals.get(property_id);
-            if property.owner != caller && Some(caller) != approved {
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                Self::ensure_not_self(caller, to)?;
+                let mut property = self
+                    .properties
+                    .get(property_id)
+                    .ok_or(Error::PropertyNotFound)?;
+
+                let approved = self.approvals.get(property_id);
+                if property.owner != caller && Some(caller) != approved {
+                    self.log_audit_event(
+                        caller,
+                        SecurityEventType::UnauthorizedAccess,
+                        SecuritySeverity::Critical,
+                        property_id,
+                        0,
+                    );
+                    return Err(Error::Unauthorized);
+                }
+
+                // Check compliance for recipient
+                self.check_compliance(to)?;
+
+                // Check identity verification and reputation for recipient
+                self.check_identity_requirements(to)?;
+
+                let from = property.owner;
+
+                // Remove from current owner's properties
+                let mut current_owner_props = self.owner_properties.get(from).unwrap_or_default();
+                current_owner_props.retain(|&id| id != property_id);
+                self.owner_properties.insert(from, &current_owner_props);
+
+                // Add to new owner's properties
+                let mut new_owner_props = self.owner_properties.get(to).unwrap_or_default();
+                new_owner_props.push(property_id);
+                self.owner_properties.insert(to, &new_owner_props);
+
+                // Update property owner
+                property.owner = to;
+                self.properties.insert(property_id, &property);
+                // Optimized: Update reverse mapping
+                self.property_owners.insert(property_id, &to);
+
+                // Clear approval
+                self.approvals.remove(property_id);
+
+                // Update reputation scores for both parties if identity registry is set
+                if let Some(registry_addr) = self.identity_registry {
+                    use ink::env::call::FromAccountId;
+                    let mut registry: IdentityRegistryRef =
+                        FromAccountId::from_account_id(registry_addr);
+
+                    let transaction_value = property.metadata.valuation;
+
+                    // Update reputation for both sender and receiver
+                    let _ = registry.update_reputation(from, true, transaction_value);
+                    let _ = registry.update_reputation(to, true, transaction_value);
+                }
+
+                // Track gas usage
+                self.track_gas_usage("transfer_property".as_bytes());
+
+                // Emit enhanced property transfer event
+
+                let transaction_hash: Hash = [0u8; 32].into();
+                self.env().emit_event(PropertyTransferred {
+                    property_id,
+                    from,
+                    to,
+                    event_version: 1,
+                    timestamp: self.env().block_timestamp(),
+                    block_number: self.env().block_number(),
+                    transaction_hash,
+                    transferred_by: caller,
+                });
+
                 self.log_audit_event(
                     caller,
-                    SecurityEventType::UnauthorizedAccess,
-                    SecuritySeverity::Critical,
+                    SecurityEventType::PropertyTransferred,
+                    SecuritySeverity::Medium,
                     property_id,
                     0,
                 );
-                return Err(Error::Unauthorized);
-            }
 
-            // Check compliance for recipient
-            self.check_compliance(to)?;
-
-            // Check identity verification and reputation for recipient
-            self.check_identity_requirements(to)?;
-
-            let from = property.owner;
-
-            // Remove from current owner's properties
-            let mut current_owner_props = self.owner_properties.get(from).unwrap_or_default();
-            current_owner_props.retain(|&id| id != property_id);
-            self.owner_properties.insert(from, &current_owner_props);
-
-            // Add to new owner's properties
-            let mut new_owner_props = self.owner_properties.get(to).unwrap_or_default();
-            new_owner_props.push(property_id);
-            self.owner_properties.insert(to, &new_owner_props);
-
-            // Update property owner
-            property.owner = to;
-            self.properties.insert(property_id, &property);
-            // Optimized: Update reverse mapping
-            self.property_owners.insert(property_id, &to);
-
-            // Clear approval
-            self.approvals.remove(property_id);
-
-            // Update reputation scores for both parties if identity registry is set
-            if let Some(registry_addr) = self.identity_registry {
-                use ink::env::call::FromAccountId;
-                let mut registry: IdentityRegistryRef =
-                    FromAccountId::from_account_id(registry_addr);
-
-                let transaction_value = property.metadata.valuation;
-
-                // Update reputation for both sender and receiver
-                let _ = registry.update_reputation(from, true, transaction_value);
-                let _ = registry.update_reputation(to, true, transaction_value);
-            }
-
-            // Track gas usage
-            self.track_gas_usage("transfer_property".as_bytes());
-
-            // Emit enhanced property transfer event
-
-            let transaction_hash: Hash = [0u8; 32].into();
-            self.env().emit_event(PropertyTransferred {
-                property_id,
-                from,
-                to,
-                event_version: 1,
-                timestamp: self.env().block_timestamp(),
-                block_number: self.env().block_number(),
-                transaction_hash,
-                transferred_by: caller,
-            });
-
-            self.log_audit_event(
-                caller,
-                SecurityEventType::PropertyTransferred,
-                SecuritySeverity::Medium,
-                property_id,
-                0,
-            );
-
-            Ok(())
+                Ok(())
+            })
         }
 
         /// Gets property information

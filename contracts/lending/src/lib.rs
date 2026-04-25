@@ -28,6 +28,13 @@ mod propchain_lending {
         ProposalNotFound,
         InsufficientVotes,
         PaymentScheduleNotFound,
+        ReentrantCall,
+    }
+
+    impl From<propchain_traits::ReentrancyError> for LendingError {
+        fn from(_: propchain_traits::ReentrancyError) -> Self {
+            LendingError::ReentrantCall
+        }
     }
 
     #[derive(
@@ -72,10 +79,11 @@ mod propchain_lending {
     pub struct LoanApplication {
         pub loan_id: u64,
         pub applicant: AccountId,
+        pub property_id: u64,
         pub requested_amount: u128,
         pub collateral_value: u128,
         pub credit_score: u32,
-        pub approved: bool,
+        pub status: LoanStatus,
     }
 
     #[derive(
@@ -155,6 +163,7 @@ mod propchain_lending {
         reward_per_block: u128,
         proposals: Mapping<u64, Proposal>,
         proposal_count: u64,
+        reentrancy_guard: propchain_traits::ReentrancyGuard,
     }
 
     #[ink(event)]
@@ -209,6 +218,12 @@ mod propchain_lending {
         amount: u128,
         total_paid: u128,
         next_due_block: u64,
+    pub struct LoanLiquidated {
+        #[ink(topic)]
+        loan_id: u64,
+        #[ink(topic)]
+        borrower: AccountId,
+        collateral_seized: u128,
     }
 
     #[ink(event)]
@@ -238,6 +253,7 @@ mod propchain_lending {
                 reward_per_block: 100,
                 proposals: Mapping::default(),
                 proposal_count: 0,
+                reentrancy_guard: propchain_traits::ReentrancyGuard::new(),
             }
         }
 
@@ -299,31 +315,33 @@ mod propchain_lending {
 
         #[ink(message)]
         pub fn deposit(&mut self, pool_id: u64, amount: u128) -> Result<(), LendingError> {
-            let mut pool = self.pools.get(pool_id).ok_or(LendingError::PoolNotFound)?;
-            pool.total_deposits += amount;
-            self.pools.insert(pool_id, &pool);
-            Ok(())
+            propchain_traits::non_reentrant!(self, {
+                let mut pool = self.pools.get(pool_id).ok_or(LendingError::PoolNotFound)?;
+                pool.total_deposits += amount;
+                self.pools.insert(pool_id, &pool);
+                Ok(())
+            })
         }
 
         #[ink(message)]
         pub fn borrow(&mut self, pool_id: u64, amount: u128) -> Result<(), LendingError> {
-            let mut pool = self.pools.get(pool_id).ok_or(LendingError::PoolNotFound)?;
-            if pool.total_deposits < pool.total_borrows + amount {
-                return Err(LendingError::InsufficientLiquidity);
-            }
-            pool.total_borrows += amount;
-            self.pools.insert(pool_id, &pool);
-            Ok(())
+            propchain_traits::non_reentrant!(self, {
+                let mut pool = self.pools.get(pool_id).ok_or(LendingError::PoolNotFound)?;
+                if pool.total_deposits < pool.total_borrows + amount {
+                    return Err(LendingError::InsufficientLiquidity);
+                }
+                pool.total_borrows += amount;
+                self.pools.insert(pool_id, &pool);
+                Ok(())
+            })
         }
 
         #[ink(message)]
         pub fn borrow_rate(&self, pool_id: u64) -> Result<u32, LendingError> {
             let pool = self.pools.get(pool_id).ok_or(LendingError::PoolNotFound)?;
-            let utilisation = if pool.total_deposits == 0 {
-                0
-            } else {
-                (pool.total_borrows * 10000) / pool.total_deposits
-            };
+            let utilisation = (pool.total_borrows * 10000)
+                .checked_div(pool.total_deposits)
+                .unwrap_or(0);
             Ok(pool.base_rate + (utilisation / 50) as u32)
         }
 
@@ -371,6 +389,7 @@ mod propchain_lending {
         #[ink(message)]
         pub fn apply_for_loan(
             &mut self,
+            property_id: u64,
             requested_amount: u128,
             collateral_value: u128,
             credit_score: u32,
@@ -379,10 +398,11 @@ mod propchain_lending {
             let app = LoanApplication {
                 loan_id: self.loan_count,
                 applicant: self.env().caller(),
+                property_id,
                 requested_amount,
                 collateral_value,
                 credit_score,
-                approved: false,
+                status: LoanStatus::Pending,
             };
             self.loan_applications.insert(self.loan_count, &app);
             Ok(self.loan_count)
@@ -399,7 +419,11 @@ mod propchain_lending {
                 .ok_or(LendingError::LoanNotFound)?;
             let ltv = (app.requested_amount * 10000) / app.collateral_value.max(1);
             let approved = app.credit_score >= 600 && ltv <= 7500;
-            app.approved = approved;
+            app.status = if approved {
+                LoanStatus::Active
+            } else {
+                LoanStatus::Pending
+            };
             self.loan_applications.insert(loan_id, &app);
             if approved {
                 self.env().emit_event(LoanApproved {
@@ -536,6 +560,43 @@ mod propchain_lending {
                 .ok_or(LendingError::PaymentScheduleNotFound)?;
             schedule.status = PaymentScheduleStatus::Defaulted;
             self.payment_schedules.insert(schedule_id, &schedule);
+        pub fn liquidate_loan(
+            &mut self,
+            loan_id: u64,
+            current_property_value: u128,
+        ) -> Result<(), LendingError> {
+            let mut app = self
+                .loan_applications
+                .get(loan_id)
+                .ok_or(LendingError::LoanNotFound)?;
+
+            if app.status != LoanStatus::Active {
+                return Err(LendingError::LoanNotActive);
+            }
+
+            let record = self
+                .collateral_records
+                .get(app.property_id)
+                .ok_or(LendingError::PropertyNotFound)?;
+
+            // Calculate current LTV: (loan amount / current property value)
+            let current_ltv = (app.requested_amount * 10000) / current_property_value.max(1);
+
+            // Check if current LTV exceeds the liquidation threshold
+            if current_ltv <= record.liquidation_threshold as u128 {
+                return Err(LendingError::LiquidationThresholdNotMet);
+            }
+
+            // Perform liquidation
+            app.status = LoanStatus::Liquidated;
+            self.loan_applications.insert(loan_id, &app);
+
+            self.env().emit_event(LoanLiquidated {
+                loan_id,
+                borrower: app.applicant,
+                collateral_seized: app.collateral_value,
+            });
+
             Ok(())
         }
 
@@ -667,12 +728,13 @@ mod propchain_lending {
 pub use crate::propchain_lending::{
     LendingError, PaymentSchedule, PaymentScheduleStatus, PropertyLending,
 };
+pub use crate::propchain_lending::{LendingError, LoanStatus, PropertyLending};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use ink::env::{test, DefaultEnvironment};
-    use propchain_lending::{LendingError, PropertyLending};
+    use propchain_lending::PropertyLending;
 
     fn setup() -> PropertyLending {
         let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -730,10 +792,10 @@ mod tests {
     #[ink::test]
     fn test_loan_underwriting() {
         let mut contract = setup();
-        let loan_id = contract.apply_for_loan(900_000, 1_000_000, 700).unwrap();
+        let loan_id = contract.apply_for_loan(1, 900_000, 1_000_000, 700).unwrap();
         let approved = contract.underwrite_loan(loan_id).unwrap();
         assert!(!approved);
-        let loan_id2 = contract.apply_for_loan(700_000, 1_000_000, 700).unwrap();
+        let loan_id2 = contract.apply_for_loan(1, 700_000, 1_000_000, 700).unwrap();
         let approved2 = contract.underwrite_loan(loan_id2).unwrap();
         assert!(approved2);
     }
@@ -798,6 +860,16 @@ mod tests {
             contract.record_scheduled_payment(schedule_id, 110_000),
             Err(LendingError::Unauthorized)
         );
+    fn test_liquidate_loan() {
+        let mut contract = setup();
+        contract
+            .assess_collateral(1, 1_000_000, 7500, 8000)
+            .unwrap();
+        let loan_id = contract.apply_for_loan(1, 700_000, 1_000_000, 700).unwrap();
+        contract.underwrite_loan(loan_id).unwrap();
+        assert!(contract.liquidate_loan(loan_id, 850_000).is_ok());
+        let loan = contract.get_loan(loan_id).unwrap();
+        assert_eq!(loan.status, LoanStatus::Liquidated);
     }
 
     #[ink::test]

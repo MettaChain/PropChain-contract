@@ -8,7 +8,7 @@
  */
 
 import type { PropertyRegistryClient, Signer } from './PropertyRegistryClient';
-import type { EscrowInfo, TxResult } from '../types';
+import type { EscrowInfo, TxResult, TxProgressCallback } from '../types';
 
 /**
  * Focused client for escrow operations.
@@ -56,8 +56,9 @@ export class EscrowClient {
     buyer: string,
     seller: string,
     amount: bigint,
+    onProgress?: TxProgressCallback,
   ): Promise<{ escrowId: number } & TxResult> {
-    return this.registryClient.createEscrow(signer, propertyId, buyer, seller, amount);
+    return this.registryClient.createEscrow(signer, propertyId, buyer, seller, amount, onProgress);
   }
 
   /**
@@ -66,8 +67,8 @@ export class EscrowClient {
    * @param signer - Authorized account
    * @param escrowId - Escrow to release
    */
-  async release(signer: Signer, escrowId: number): Promise<TxResult> {
-    return this.registryClient.releaseEscrow(signer, escrowId);
+  async release(signer: Signer, escrowId: number, onProgress?: TxProgressCallback): Promise<TxResult> {
+    return this.registryClient.releaseEscrow(signer, escrowId, onProgress);
   }
 
   /**
@@ -76,8 +77,8 @@ export class EscrowClient {
    * @param signer - Authorized account
    * @param escrowId - Escrow to refund
    */
-  async refund(signer: Signer, escrowId: number): Promise<TxResult> {
-    return this.registryClient.refundEscrow(signer, escrowId);
+  async refund(signer: Signer, escrowId: number, onProgress?: TxProgressCallback): Promise<TxResult> {
+    return this.registryClient.refundEscrow(signer, escrowId, onProgress);
   }
 
   /**
