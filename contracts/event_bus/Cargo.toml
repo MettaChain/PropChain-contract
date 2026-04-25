@@ -9,6 +9,7 @@ ink = { workspace = true, default-features = false }
 scale = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
 propchain-traits = { path = "../traits", default-features = false }
+propchain-contracts = { path = "../lib", default-features = false }
 
 [lib]
 path = "src/lib.rs"
@@ -20,4 +21,5 @@ std = [
     "scale/std",
     "scale-info/std",
     "propchain-traits/std",
+    "propchain-contracts/std",
 ]

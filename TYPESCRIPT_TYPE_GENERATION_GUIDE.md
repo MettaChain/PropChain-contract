@@ -1584,10 +1584,11 @@ struct MarginPosition {
 struct LoanApplication {
     loan_id: u64,
     applicant: AccountId,
+    property_id: u64,
     requested_amount: u128,
     collateral_value: u128,
     credit_score: u32,
-    approved: bool,
+    status: LoanStatus,
 }
 
 struct YieldPosition {
@@ -1643,10 +1644,17 @@ fn apply_for_loan(
     &mut self,
     property_id: u64,
     amount: u128,
+    collateral_value: u128,
     credit_score: u32,
 ) -> Result<u64, LendingError>
 
-fn approve_loan(&mut self, loan_id: u64) -> Result<(), LendingError>
+fn underwrite_loan(&mut self, loan_id: u64) -> Result<bool, LendingError>
+
+fn liquidate_loan(
+    &mut self,
+    loan_id: u64,
+    current_property_value: u128,
+) -> Result<(), LendingError>
 fn create_proposal(&mut self, description: String) -> Result<u64, LendingError>
 fn vote_on_proposal(&mut self, proposal_id: u64, support: bool) -> Result<(), LendingError>
 ```

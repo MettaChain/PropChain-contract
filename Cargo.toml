@@ -14,6 +14,7 @@ members = [
     "contracts/fees",
     "contracts/dex",
     "contracts/compliance_registry",
+    "contracts/property-management",
     "contracts/tax-compliance",
     "contracts/fractional",
     "contracts/prediction-market",

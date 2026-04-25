@@ -16,6 +16,7 @@ pub enum Error {
     InvalidConfiguration,
     EscrowAlreadyFunded,
     ParticipantNotFound,
+    ReentrantCall,
 }
 
 impl core::fmt::Display for Error {
@@ -34,6 +35,7 @@ impl core::fmt::Display for Error {
             Error::InvalidConfiguration => write!(f, "Invalid configuration parameters"),
             Error::EscrowAlreadyFunded => write!(f, "Escrow already funded"),
             Error::ParticipantNotFound => write!(f, "Participant not found"),
+            Error::ReentrantCall => write!(f, "Reentrant call"),
         }
     }
 }
@@ -70,6 +72,7 @@ impl ContractError for Error {
             Error::ParticipantNotFound => {
                 propchain_traits::errors::escrow_codes::PARTICIPANT_NOT_FOUND
             }
+            Error::ReentrantCall => propchain_traits::errors::escrow_codes::REENTRANT_CALL,
         }
     }
 
@@ -90,6 +93,7 @@ impl ContractError for Error {
             Error::InvalidConfiguration => "The escrow configuration is invalid",
             Error::EscrowAlreadyFunded => "This escrow has already been funded",
             Error::ParticipantNotFound => "The specified participant is not in the escrow",
+            Error::ReentrantCall => "Reentrancy guard detected a reentrant call",
         }
     }
 
