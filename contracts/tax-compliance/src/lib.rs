@@ -2,6 +2,7 @@
 
 use ink::prelude::vec::Vec;
 use ink::storage::Mapping;
+use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
 use propchain_traits::ComplianceChecker;
 use propchain_traits::*;
 
@@ -165,6 +166,13 @@ mod tax_compliance {
         RecordNotFound,
         InactiveRule,
         InvalidRate,
+        ReentrantCall,
+    }
+
+    impl From<ReentrancyError> for Error {
+        fn from(_: ReentrancyError) -> Self {
+            Error::ReentrantCall
+        }
     }
 
     impl core::fmt::Display for Error {
@@ -176,6 +184,7 @@ mod tax_compliance {
                 Self::RecordNotFound => write!(f, "Tax record not found"),
                 Self::InactiveRule => write!(f, "Tax rule is inactive"),
                 Self::InvalidRate => write!(f, "Tax configuration is invalid"),
+                Self::ReentrantCall => write!(f, "Reentrant call"),
             }
         }
     }
@@ -201,6 +210,7 @@ mod tax_compliance {
                 Self::InvalidRate => {
                     propchain_traits::errors::compliance_codes::COMPLIANCE_CHECK_FAILED
                 }
+                Self::ReentrantCall => propchain_traits::errors::compliance_codes::REENTRANT_CALL,
             }
         }
 
@@ -218,6 +228,7 @@ mod tax_compliance {
                 Self::InvalidRate => {
                     "The configured tax rate exceeds the supported deterministic bounds"
                 }
+                Self::ReentrantCall => "Reentrancy guard detected a reentrant call",
             }
         }
 
@@ -296,6 +307,7 @@ mod tax_compliance {
     pub struct TaxComplianceModule {
         admin: AccountId,
         compliance_registry: Option<AccountId>,
+        reentrancy_guard: ReentrancyGuard,
         tax_rules: Mapping<u32, TaxRule>,
         property_assessments: Mapping<(u64, u32), PropertyAssessment>,
         tax_records: Mapping<(u64, u32, u64), TaxRecord>,
@@ -310,6 +322,7 @@ mod tax_compliance {
             Self {
                 admin: Self::env().caller(),
                 compliance_registry,
+                reentrancy_guard: ReentrancyGuard::new(),
                 tax_rules: Mapping::default(),
                 property_assessments: Mapping::default(),
                 tax_records: Mapping::default(),
@@ -385,77 +398,79 @@ mod tax_compliance {
             property_id: u64,
             jurisdiction: Jurisdiction,
         ) -> Result<TaxRecord> {
-            self.ensure_admin()?;
-            let now = self.env().block_timestamp();
-            let rule = self.get_active_rule(jurisdiction.code)?;
-            let assessment = self
-                .property_assessments
-                .get((property_id, jurisdiction.code))
-                .ok_or(Error::AssessmentNotFound)?;
-            let reporting_period = self.reporting_period(now, rule.reporting_frequency);
-            let existing = self
-                .tax_records
-                .get((property_id, jurisdiction.code, reporting_period));
-            let combined_exemption = rule
-                .exemption_amount
-                .saturating_add(assessment.exemption_override);
-            let taxable_value = assessment.assessed_value.saturating_sub(combined_exemption);
-            let base_tax = taxable_value.saturating_mul(rule.rate_basis_points as Balance)
-                / BASIS_POINTS_DENOMINATOR;
-            let tax_due = base_tax.saturating_add(rule.fixed_charge);
-            let mut record = TaxRecord {
-                property_id,
-                jurisdiction_code: jurisdiction.code,
-                reporting_period,
-                assessed_value: assessment.assessed_value,
-                taxable_value,
-                tax_due,
-                paid_amount: existing
-                    .map(|value: TaxRecord| value.paid_amount)
-                    .unwrap_or(0),
-                due_at: now.saturating_add(rule.payment_due_period),
-                last_payment_at: existing
-                    .map(|value: TaxRecord| value.last_payment_at)
-                    .unwrap_or(0),
-                status: TaxStatus::Assessed,
-                payment_reference: existing
-                    .map(|value: TaxRecord| value.payment_reference)
-                    .unwrap_or([0u8; 32]),
-                report_hash: existing
-                    .map(|value: TaxRecord| value.report_hash)
-                    .unwrap_or([0u8; 32]),
-            };
-            record.status = self.resolve_status(&record, now);
-            self.tax_records
-                .insert((property_id, jurisdiction.code, reporting_period), &record);
-            self.latest_reporting_period
-                .insert((property_id, jurisdiction.code), &reporting_period);
+            non_reentrant!(self, {
+                self.ensure_admin()?;
+                let now = self.env().block_timestamp();
+                let rule = self.get_active_rule(jurisdiction.code)?;
+                let assessment = self
+                    .property_assessments
+                    .get((property_id, jurisdiction.code))
+                    .ok_or(Error::AssessmentNotFound)?;
+                let reporting_period = self.reporting_period(now, rule.reporting_frequency);
+                let existing =
+                    self.tax_records
+                        .get((property_id, jurisdiction.code, reporting_period));
+                let combined_exemption = rule
+                    .exemption_amount
+                    .saturating_add(assessment.exemption_override);
+                let taxable_value = assessment.assessed_value.saturating_sub(combined_exemption);
+                let base_tax = taxable_value.saturating_mul(rule.rate_basis_points as Balance)
+                    / BASIS_POINTS_DENOMINATOR;
+                let tax_due = base_tax.saturating_add(rule.fixed_charge);
+                let mut record = TaxRecord {
+                    property_id,
+                    jurisdiction_code: jurisdiction.code,
+                    reporting_period,
+                    assessed_value: assessment.assessed_value,
+                    taxable_value,
+                    tax_due,
+                    paid_amount: existing
+                        .map(|value: TaxRecord| value.paid_amount)
+                        .unwrap_or(0),
+                    due_at: now.saturating_add(rule.payment_due_period),
+                    last_payment_at: existing
+                        .map(|value: TaxRecord| value.last_payment_at)
+                        .unwrap_or(0),
+                    status: TaxStatus::Assessed,
+                    payment_reference: existing
+                        .map(|value: TaxRecord| value.payment_reference)
+                        .unwrap_or([0u8; 32]),
+                    report_hash: existing
+                        .map(|value: TaxRecord| value.report_hash)
+                        .unwrap_or([0u8; 32]),
+                };
+                record.status = self.resolve_status(&record, now);
+                self.tax_records
+                    .insert((property_id, jurisdiction.code, reporting_period), &record);
+                self.latest_reporting_period
+                    .insert((property_id, jurisdiction.code), &reporting_period);
 
-            self.log_audit(
-                property_id,
-                jurisdiction.code,
-                reporting_period,
-                AuditAction::TaxCalculated,
-                tax_due,
-                [0u8; 32],
-            );
-            self.env().emit_event(TaxCalculated {
-                property_id,
-                jurisdiction_code: jurisdiction.code,
-                reporting_period,
-                tax_due,
-            });
+                self.log_audit(
+                    property_id,
+                    jurisdiction.code,
+                    reporting_period,
+                    AuditAction::TaxCalculated,
+                    tax_due,
+                    [0u8; 32],
+                );
+                self.env().emit_event(TaxCalculated {
+                    property_id,
+                    jurisdiction_code: jurisdiction.code,
+                    reporting_period,
+                    tax_due,
+                });
 
-            let snapshot = self.build_snapshot(
-                property_id,
-                jurisdiction.code,
-                &rule,
-                &assessment,
-                Some(record),
-            );
-            self.emit_registry_sync_requested(snapshot);
+                let snapshot = self.build_snapshot(
+                    property_id,
+                    jurisdiction.code,
+                    &rule,
+                    &assessment,
+                    Some(record),
+                );
+                self.emit_registry_sync_requested(snapshot);
 
-            Ok(record)
+                Ok(record)
+            })
         }
 
         #[ink(message)]
@@ -467,50 +482,52 @@ mod tax_compliance {
             amount: Balance,
             payment_reference: [u8; 32],
         ) -> Result<TaxRecord> {
-            self.ensure_admin()?;
-            let now = self.env().block_timestamp();
-            let rule = self.get_active_rule(jurisdiction.code)?;
-            let assessment = self
-                .property_assessments
-                .get((property_id, jurisdiction.code))
-                .ok_or(Error::AssessmentNotFound)?;
-            let mut record = self
-                .tax_records
-                .get((property_id, jurisdiction.code, reporting_period))
-                .ok_or(Error::RecordNotFound)?;
-            record.paid_amount = record.paid_amount.saturating_add(amount);
-            record.last_payment_at = now;
-            record.payment_reference = payment_reference;
-            record.status = self.resolve_status(&record, now);
-            self.tax_records
-                .insert((property_id, jurisdiction.code, reporting_period), &record);
+            non_reentrant!(self, {
+                self.ensure_admin()?;
+                let now = self.env().block_timestamp();
+                let rule = self.get_active_rule(jurisdiction.code)?;
+                let assessment = self
+                    .property_assessments
+                    .get((property_id, jurisdiction.code))
+                    .ok_or(Error::AssessmentNotFound)?;
+                let mut record = self
+                    .tax_records
+                    .get((property_id, jurisdiction.code, reporting_period))
+                    .ok_or(Error::RecordNotFound)?;
+                record.paid_amount = record.paid_amount.saturating_add(amount);
+                record.last_payment_at = now;
+                record.payment_reference = payment_reference;
+                record.status = self.resolve_status(&record, now);
 
-            self.log_audit(
-                property_id,
-                jurisdiction.code,
-                reporting_period,
-                AuditAction::TaxPaid,
-                amount,
-                payment_reference,
-            );
-            self.env().emit_event(TaxPaid {
-                property_id,
-                jurisdiction_code: jurisdiction.code,
-                reporting_period,
-                amount,
-                outstanding_tax: self.outstanding_tax(&record),
-            });
+                self.tax_records
+                    .insert((property_id, jurisdiction.code, reporting_period), &record);
+                self.log_audit(
+                    property_id,
+                    jurisdiction.code,
+                    reporting_period,
+                    AuditAction::TaxPaid,
+                    amount,
+                    payment_reference,
+                );
+                self.env().emit_event(TaxPaid {
+                    property_id,
+                    jurisdiction_code: jurisdiction.code,
+                    reporting_period,
+                    amount,
+                    outstanding_tax: self.outstanding_tax(&record),
+                });
 
-            let snapshot = self.build_snapshot(
-                property_id,
-                jurisdiction.code,
-                &rule,
-                &assessment,
-                Some(record),
-            );
-            self.emit_registry_sync_requested(snapshot);
+                let snapshot = self.build_snapshot(
+                    property_id,
+                    jurisdiction.code,
+                    &rule,
+                    &assessment,
+                    Some(record),
+                );
+                self.emit_registry_sync_requested(snapshot);
 
-            Ok(record)
+                Ok(record)
+            })
         }
 
         #[ink(message)]
@@ -521,49 +538,53 @@ mod tax_compliance {
             reporting_period: u64,
             report_hash: [u8; 32],
         ) -> Result<()> {
-            self.ensure_admin()?;
-            let rule = self.get_active_rule(jurisdiction.code)?;
-            let mut assessment = self
-                .property_assessments
-                .get((property_id, jurisdiction.code))
-                .ok_or(Error::AssessmentNotFound)?;
-            assessment.reporting_submitted = true;
-            self.property_assessments
-                .insert((property_id, jurisdiction.code), &assessment);
+            non_reentrant!(self, {
+                self.ensure_admin()?;
+                let now = self.env().block_timestamp();
+                let rule = self.get_active_rule(jurisdiction.code)?;
+                let mut assessment = self
+                    .property_assessments
+                    .get((property_id, jurisdiction.code))
+                    .ok_or(Error::AssessmentNotFound)?;
+                assessment.reporting_submitted = true;
+                self.property_assessments
+                    .insert((property_id, jurisdiction.code), &assessment);
 
-            let mut record = self
-                .tax_records
-                .get((property_id, jurisdiction.code, reporting_period))
-                .ok_or(Error::RecordNotFound)?;
-            record.report_hash = report_hash;
-            self.tax_records
-                .insert((property_id, jurisdiction.code, reporting_period), &record);
+                let mut record = self
+                    .tax_records
+                    .get((property_id, jurisdiction.code, reporting_period))
+                    .ok_or(Error::RecordNotFound)?;
+                record.report_hash = report_hash;
+                record.status = self.resolve_status(&record, now);
+                self.tax_records
+                    .insert((property_id, jurisdiction.code, reporting_period), &record);
 
-            self.log_audit(
-                property_id,
-                jurisdiction.code,
-                reporting_period,
-                AuditAction::ReportingSubmitted,
-                0,
-                report_hash,
-            );
-            self.env().emit_event(ReportingHookTriggered {
-                property_id,
-                jurisdiction_code: jurisdiction.code,
-                reporting_period,
-                report_hash,
-            });
+                self.log_audit(
+                    property_id,
+                    jurisdiction.code,
+                    reporting_period,
+                    AuditAction::ReportingSubmitted,
+                    0,
+                    report_hash,
+                );
+                self.env().emit_event(ReportingHookTriggered {
+                    property_id,
+                    jurisdiction_code: jurisdiction.code,
+                    reporting_period,
+                    report_hash,
+                });
 
-            let snapshot = self.build_snapshot(
-                property_id,
-                jurisdiction.code,
-                &rule,
-                &assessment,
-                Some(record),
-            );
-            self.emit_registry_sync_requested(snapshot);
+                let snapshot = self.build_snapshot(
+                    property_id,
+                    jurisdiction.code,
+                    &rule,
+                    &assessment,
+                    Some(record),
+                );
+                self.emit_registry_sync_requested(snapshot);
 
-            Ok(())
+                Ok(())
+            })
         }
 
         #[ink(message)]
@@ -574,44 +595,47 @@ mod tax_compliance {
             document_hash: [u8; 32],
             verified: bool,
         ) -> Result<()> {
-            self.ensure_admin()?;
-            let rule = self.get_active_rule(jurisdiction.code)?;
-            let mut assessment = self
-                .property_assessments
-                .get((property_id, jurisdiction.code))
-                .ok_or(Error::AssessmentNotFound)?;
-            assessment.legal_documents_verified = verified;
-            self.property_assessments
-                .insert((property_id, jurisdiction.code), &assessment);
+            non_reentrant!(self, {
+                self.ensure_admin()?;
+                let now = self.env().block_timestamp();
+                let rule = self.get_active_rule(jurisdiction.code)?;
+                let mut assessment = self
+                    .property_assessments
+                    .get((property_id, jurisdiction.code))
+                    .ok_or(Error::AssessmentNotFound)?;
+                assessment.legal_documents_verified = verified;
+                self.property_assessments
+                    .insert((property_id, jurisdiction.code), &assessment);
 
-            let reporting_period = self
-                .latest_reporting_period
-                .get((property_id, jurisdiction.code))
-                .unwrap_or(0);
-            let record = self
-                .tax_records
-                .get((property_id, jurisdiction.code, reporting_period));
+                let reporting_period = self
+                    .latest_reporting_period
+                    .get((property_id, jurisdiction.code))
+                    .unwrap_or(self.reporting_period(now, rule.reporting_frequency));
+                let record =
+                    self.tax_records
+                        .get((property_id, jurisdiction.code, reporting_period));
 
-            self.log_audit(
-                property_id,
-                jurisdiction.code,
-                reporting_period,
-                AuditAction::LegalDocumentUpdated,
-                0,
-                document_hash,
-            );
-            self.env().emit_event(LegalDocumentHookTriggered {
-                property_id,
-                jurisdiction_code: jurisdiction.code,
-                document_hash,
-                verified,
-            });
+                self.log_audit(
+                    property_id,
+                    jurisdiction.code,
+                    reporting_period,
+                    AuditAction::LegalDocumentUpdated,
+                    0,
+                    document_hash,
+                );
+                self.env().emit_event(LegalDocumentHookTriggered {
+                    property_id,
+                    jurisdiction_code: jurisdiction.code,
+                    document_hash,
+                    verified,
+                });
 
-            let snapshot =
-                self.build_snapshot(property_id, jurisdiction.code, &rule, &assessment, record);
-            self.emit_registry_sync_requested(snapshot);
+                let snapshot =
+                    self.build_snapshot(property_id, jurisdiction.code, &rule, &assessment, record);
+                self.emit_registry_sync_requested(snapshot);
 
-            Ok(())
+                Ok(())
+            })
         }
 
         #[ink(message)]
@@ -620,51 +644,57 @@ mod tax_compliance {
             property_id: u64,
             jurisdiction: Jurisdiction,
         ) -> Result<ComplianceSnapshot> {
+            self.ensure_admin()?;
+            let now = self.env().block_timestamp();
+            let rule = self.get_active_rule(jurisdiction.code)?;
             let assessment = self
                 .property_assessments
                 .get((property_id, jurisdiction.code))
                 .ok_or(Error::AssessmentNotFound)?;
-            let rule = self.get_active_rule(jurisdiction.code)?;
             let reporting_period = self
                 .latest_reporting_period
                 .get((property_id, jurisdiction.code))
-                .unwrap_or(
-                    self.reporting_period(self.env().block_timestamp(), rule.reporting_frequency),
-                );
+                .unwrap_or(self.reporting_period(now, rule.reporting_frequency));
             let record = self
                 .tax_records
                 .get((property_id, jurisdiction.code, reporting_period));
-            let snapshot =
-                self.build_snapshot(property_id, jurisdiction.code, &rule, &assessment, record);
 
-            self.log_audit(
-                property_id,
-                jurisdiction.code,
-                reporting_period,
-                AuditAction::ComplianceChecked,
-                snapshot.outstanding_tax,
-                [0u8; 32],
-            );
+            non_reentrant!(self, {
+                let snapshot =
+                    self.build_snapshot(property_id, jurisdiction.code, &rule, &assessment, record);
 
-            if !snapshot.tax_current || !snapshot.registry_compliant {
+                let mut outstanding_ref = [0u8; 32];
+                outstanding_ref[16..].copy_from_slice(&snapshot.outstanding_tax.to_be_bytes());
+
                 self.log_audit(
                     property_id,
                     jurisdiction.code,
-                    reporting_period,
-                    AuditAction::ComplianceViolation,
+                    snapshot.reporting_period,
+                    AuditAction::ComplianceChecked,
                     snapshot.outstanding_tax,
-                    [0u8; 32],
+                    outstanding_ref,
                 );
-                self.env().emit_event(ComplianceViolation {
-                    property_id,
-                    jurisdiction_code: jurisdiction.code,
-                    reporting_period,
-                    outstanding_tax: snapshot.outstanding_tax,
-                    registry_compliant: snapshot.registry_compliant,
-                });
-            }
 
-            Ok(snapshot)
+                if !snapshot.registry_compliant || snapshot.outstanding_tax > 0 {
+                    self.env().emit_event(ComplianceViolation {
+                        property_id,
+                        jurisdiction_code: jurisdiction.code,
+                        reporting_period: snapshot.reporting_period,
+                        outstanding_tax: snapshot.outstanding_tax,
+                        registry_compliant: snapshot.registry_compliant,
+                    });
+                    self.log_audit(
+                        property_id,
+                        jurisdiction.code,
+                        snapshot.reporting_period,
+                        AuditAction::ComplianceViolation,
+                        snapshot.outstanding_tax,
+                        outstanding_ref,
+                    );
+                }
+
+                Ok(snapshot)
+            })
         }
 
         #[ink(message)]

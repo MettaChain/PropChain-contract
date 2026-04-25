@@ -31,6 +31,7 @@ pub enum EventBusError {
     NotSubscribed,
     MaxSubscribersReached,
     SubscriberCallFailed,
+    ReentrantCall,
 }
 
 impl fmt::Display for EventBusError {
@@ -48,6 +49,7 @@ impl fmt::Display for EventBusError {
             EventBusError::SubscriberCallFailed => {
                 write!(f, "Failed to deliver event to one or more subscribers")
             }
+            EventBusError::ReentrantCall => write!(f, "Reentrant call"),
         }
     }
 }
@@ -65,6 +67,7 @@ impl ContractError for EventBusError {
             EventBusError::SubscriberCallFailed => {
                 event_bus_codes::EVENT_BUS_SUBSCRIBER_CALL_FAILED
             }
+            EventBusError::ReentrantCall => event_bus_codes::EVENT_BUS_REENTRANT_CALL,
         }
     }
 
@@ -78,6 +81,7 @@ impl ContractError for EventBusError {
             EventBusError::NotSubscribed => "The caller is not a subscriber of this topic",
             EventBusError::MaxSubscribersReached => "Cannot add more subscribers to this topic",
             EventBusError::SubscriberCallFailed => "Event delivery to a subscriber failed",
+            EventBusError::ReentrantCall => "Reentrancy guard detected a reentrant call",
         }
     }
 
@@ -93,6 +97,7 @@ impl ContractError for EventBusError {
             EventBusError::NotSubscribed => "event_bus.not_subscribed",
             EventBusError::MaxSubscribersReached => "event_bus.max_subscribers_reached",
             EventBusError::SubscriberCallFailed => "event_bus.subscriber_call_failed",
+            EventBusError::ReentrantCall => "event_bus.reentrant_call",
         }
     }
 }

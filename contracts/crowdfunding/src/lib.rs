@@ -29,6 +29,13 @@ mod propchain_crowdfunding {
         ProposalNotActive,
         InvalidParameters,
         AlreadyVoted,
+        ReentrantCall,
+    }
+
+    impl From<propchain_traits::ReentrancyError> for CrowdfundingError {
+        fn from(_: propchain_traits::ReentrancyError) -> Self {
+            CrowdfundingError::ReentrantCall
+        }
     }
 
     #[derive(
@@ -211,6 +218,7 @@ mod propchain_crowdfunding {
         listing_count: u64,
         risk_profiles: Mapping<u64, RiskProfile>,
         blocked_jurisdictions: Vec<String>,
+        reentrancy_guard: propchain_traits::ReentrancyGuard,
     }
 
     #[ink(event)]
@@ -275,6 +283,7 @@ mod propchain_crowdfunding {
                 listing_count: 0,
                 risk_profiles: Mapping::default(),
                 blocked_jurisdictions: Vec::new(),
+                reentrancy_guard: propchain_traits::ReentrancyGuard::new(),
             }
         }
 
@@ -423,16 +432,18 @@ mod propchain_crowdfunding {
 
         #[ink(message)]
         pub fn release_milestone(&mut self, milestone_id: u64) -> Result<(), CrowdfundingError> {
-            let mut milestone = self
-                .milestones
-                .get(milestone_id)
-                .ok_or(CrowdfundingError::MilestoneNotFound)?;
-            if milestone.status != MilestoneStatus::Approved {
-                return Err(CrowdfundingError::MilestoneNotApproved);
-            }
-            milestone.status = MilestoneStatus::Released;
-            self.milestones.insert(milestone_id, &milestone);
-            Ok(())
+            propchain_traits::non_reentrant!(self, {
+                let mut milestone = self
+                    .milestones
+                    .get(milestone_id)
+                    .ok_or(CrowdfundingError::MilestoneNotFound)?;
+                if milestone.status != MilestoneStatus::Approved {
+                    return Err(CrowdfundingError::MilestoneNotApproved);
+                }
+                milestone.status = MilestoneStatus::Released;
+                self.milestones.insert(milestone_id, &milestone);
+                Ok(())
+            })
         }
 
         #[ink(message)]
