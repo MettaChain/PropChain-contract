@@ -19,6 +19,7 @@ pub enum Error {
     InvalidBridgeRoute,
     CrossChainTradeNotFound,
     InsufficientGovernanceBalance,
+    ReentrantCall,
     TimelockRequired,
     TimelockActive,
     AdminActionNotFound,
@@ -46,6 +47,7 @@ impl core::fmt::Display for Error {
             Error::InsufficientGovernanceBalance => {
                 write!(f, "Insufficient governance balance")
             }
+            Error::ReentrantCall => write!(f, "Reentrant call"),
             Error::TimelockRequired => {
                 write!(f, "Sensitive admin change must be scheduled through the timelock")
             }
@@ -81,6 +83,7 @@ impl ContractError for Error {
             Error::InsufficientGovernanceBalance => {
                 dex_codes::DEX_INSUFFICIENT_GOVERNANCE_BALANCE
             }
+            Error::ReentrantCall => dex_codes::REENTRANT_CALL,
             Error::TimelockRequired => dex_codes::DEX_TIMELOCK_REQUIRED,
             Error::TimelockActive => dex_codes::DEX_TIMELOCK_ACTIVE,
             Error::AdminActionNotFound => dex_codes::DEX_ADMIN_ACTION_NOT_FOUND,
@@ -108,6 +111,7 @@ impl ContractError for Error {
             Error::InsufficientGovernanceBalance => {
                 "The account does not hold enough governance tokens"
             }
+            Error::ReentrantCall => "Reentrancy guard detected a reentrant call",
             Error::TimelockRequired => {
                 "Direct admin call blocked: action must be scheduled while a timelock is active"
             }

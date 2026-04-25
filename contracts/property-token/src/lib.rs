@@ -10,6 +10,7 @@
 
 use ink::prelude::string::String;
 use ink::storage::Mapping;
+use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
 use propchain_traits::*;
 #[cfg(not(feature = "std"))]
 use scale_info::prelude::vec::Vec;
@@ -20,6 +21,12 @@ pub mod property_token {
 
     // Error types extracted to errors.rs (Issue #101)
     include!("errors.rs");
+
+    impl From<ReentrancyError> for Error {
+        fn from(_: ReentrancyError) -> Self {
+            Error::ReentrantCall
+        }
+    }
 
     /// Property Token contract that maintains compatibility with ERC-721 and ERC-1155
     /// while adding real estate-specific features and cross-chain support
@@ -88,6 +95,9 @@ pub mod property_token {
         vesting_schedules: Mapping<(TokenId, AccountId), VestingSchedule>,
         /// Custom URI overrides for tokens
         token_uris: Mapping<TokenId, String>,
+
+        /// Reentrancy protection guard
+        reentrancy_guard: ReentrancyGuard,
         /// Snapshot functionality for governance voting (Issue #194)
         snapshot_counter: Mapping<TokenId, u64>,
         snapshots: Mapping<(TokenId, u64), Snapshot>,
@@ -540,6 +550,7 @@ pub mod property_token {
                 management_agent: Mapping::default(),
                 vesting_schedules: Mapping::default(),
                 token_uris: Mapping::default(),
+                reentrancy_guard: ReentrancyGuard::new(),
                 snapshot_counter: Mapping::default(),
                 snapshots: Mapping::default(),
                 account_snapshots: Mapping::default(),
@@ -953,25 +964,28 @@ pub mod property_token {
             if amount == 0 {
                 return Err(Error::InvalidAmount);
             }
-            let caller = self.env().caller();
-            if caller != from && !self.is_approved_for_all(from, caller) {
-                return Err(Error::Unauthorized);
-            }
-            if !self.pass_compliance(from)? || !self.pass_compliance(to)? {
-                return Err(Error::ComplianceFailed);
-            }
-            let from_balance = self.balances.get((from, token_id)).unwrap_or(0);
-            if from_balance < amount {
-                return Err(Error::InsufficientBalance);
-            }
-            self.update_dividend_credit_on_change(from, token_id)?;
-            self.update_dividend_credit_on_change(to, token_id)?;
-            self.balances
-                .insert((from, token_id), &(from_balance.saturating_sub(amount)));
-            let to_balance = self.balances.get((to, token_id)).unwrap_or(0);
-            self.balances
-                .insert((to, token_id), &(to_balance.saturating_add(amount)));
-            Ok(())
+
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                if caller != from && !self.is_approved_for_all(from, caller) {
+                    return Err(Error::Unauthorized);
+                }
+                if !self.pass_compliance(from)? || !self.pass_compliance(to)? {
+                    return Err(Error::ComplianceFailed);
+                }
+                let from_balance = self.balances.get((from, token_id)).unwrap_or(0);
+                if from_balance < amount {
+                    return Err(Error::InsufficientBalance);
+                }
+                self.update_dividend_credit_on_change(from, token_id)?;
+                self.update_dividend_credit_on_change(to, token_id)?;
+                self.balances
+                    .insert((from, token_id), &(from_balance.saturating_sub(amount)));
+                let to_balance = self.balances.get((to, token_id)).unwrap_or(0);
+                self.balances
+                    .insert((to, token_id), &(to_balance.saturating_add(amount)));
+                Ok(())
+            })
         }
 
         /// Deposits dividends for distribution to all share holders of a token.
@@ -1001,34 +1015,36 @@ pub mod property_token {
         /// Withdraws accumulated dividends for the caller on a given token.
         #[ink(message)]
         pub fn withdraw_dividends(&mut self, token_id: TokenId) -> Result<u128, Error> {
-            let caller = self.env().caller();
-            self.update_dividend_credit_on_change(caller, token_id)?;
-            let owed = self.dividend_balance.get((caller, token_id)).unwrap_or(0);
-            if owed == 0 {
-                return Ok(0);
-            }
-            self.dividend_balance.insert((caller, token_id), &0u128);
-            match self.env().transfer(caller, owed) {
-                Ok(_) => {
-                    let mut rec = self
-                        .tax_records
-                        .get((caller, token_id))
-                        .unwrap_or(TaxRecord {
-                            dividends_received: 0,
-                            shares_sold: 0,
-                            proceeds: 0,
-                        });
-                    rec.dividends_received = rec.dividends_received.saturating_add(owed);
-                    self.tax_records.insert((caller, token_id), &rec);
-                    self.env().emit_event(DividendsWithdrawn {
-                        token_id,
-                        account: caller,
-                        amount: owed,
-                    });
-                    Ok(owed)
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                self.update_dividend_credit_on_change(caller, token_id)?;
+                let owed = self.dividend_balance.get((caller, token_id)).unwrap_or(0);
+                if owed == 0 {
+                    return Ok(0);
                 }
-                Err(_) => Err(Error::InvalidRequest),
-            }
+                self.dividend_balance.insert((caller, token_id), &0u128);
+                match self.env().transfer(caller, owed) {
+                    Ok(_) => {
+                        let mut rec =
+                            self.tax_records
+                                .get((caller, token_id))
+                                .unwrap_or(TaxRecord {
+                                    dividends_received: 0,
+                                    shares_sold: 0,
+                                    proceeds: 0,
+                                });
+                        rec.dividends_received = rec.dividends_received.saturating_add(owed);
+                        self.tax_records.insert((caller, token_id), &rec);
+                        self.env().emit_event(DividendsWithdrawn {
+                            token_id,
+                            account: caller,
+                            amount: owed,
+                        });
+                        Ok(owed)
+                    }
+                    Err(_) => Err(Error::InvalidRequest),
+                }
+            })
         }
 
         /// Creates a governance proposal for a tokenized property.
@@ -1290,66 +1306,68 @@ pub mod property_token {
             seller: AccountId,
             amount: u128,
         ) -> Result<(), Error> {
-            if amount == 0 {
-                return Err(Error::InvalidAmount);
-            }
-            let ask = self
-                .asks
-                .get((token_id, seller))
-                .ok_or(Error::AskNotFound)?;
-            if ask.amount < amount {
-                return Err(Error::InvalidAmount);
-            }
-            let cost = ask.price_per_share.saturating_mul(amount);
-            let paid = self.env().transferred_value();
-            if paid != cost {
-                return Err(Error::InvalidAmount);
-            }
-            let buyer = self.env().caller();
-            if !self.pass_compliance(buyer)? || !self.pass_compliance(seller)? {
-                return Err(Error::ComplianceFailed);
-            }
-            let esc = self.escrowed_shares.get((token_id, seller)).unwrap_or(0);
-            if esc < amount {
-                return Err(Error::AskNotFound);
-            }
-            let to_balance = self.balances.get((buyer, token_id)).unwrap_or(0);
-            self.balances
-                .insert((buyer, token_id), &(to_balance.saturating_add(amount)));
-            self.escrowed_shares
-                .insert((token_id, seller), &(esc.saturating_sub(amount)));
-            match self.env().transfer(seller, cost) {
-                Ok(_) => {
-                    let mut rec = self
-                        .tax_records
-                        .get((seller, token_id))
-                        .unwrap_or(TaxRecord {
-                            dividends_received: 0,
-                            shares_sold: 0,
-                            proceeds: 0,
-                        });
-                    rec.shares_sold = rec.shares_sold.saturating_add(amount);
-                    rec.proceeds = rec.proceeds.saturating_add(cost);
-                    self.tax_records.insert((seller, token_id), &rec);
+            non_reentrant!(self, {
+                if amount == 0 {
+                    return Err(Error::InvalidAmount);
                 }
-                Err(_) => return Err(Error::InvalidRequest),
-            }
-            self.last_trade_price.insert(token_id, &ask.price_per_share);
-            if ask.amount == amount {
-                self.asks.remove((token_id, seller));
-            } else {
-                let mut new_ask = ask.clone();
-                new_ask.amount = ask.amount.saturating_sub(amount);
-                self.asks.insert((token_id, seller), &new_ask);
-            }
-            self.env().emit_event(SharesPurchased {
-                token_id,
-                seller,
-                buyer,
-                amount,
-                price_per_share: ask.price_per_share,
-            });
-            Ok(())
+                let ask = self
+                    .asks
+                    .get((token_id, seller))
+                    .ok_or(Error::AskNotFound)?;
+                if ask.amount < amount {
+                    return Err(Error::InvalidAmount);
+                }
+                let cost = ask.price_per_share.saturating_mul(amount);
+                let paid = self.env().transferred_value();
+                if paid != cost {
+                    return Err(Error::InvalidAmount);
+                }
+                let buyer = self.env().caller();
+                if !self.pass_compliance(buyer)? || !self.pass_compliance(seller)? {
+                    return Err(Error::ComplianceFailed);
+                }
+                let esc = self.escrowed_shares.get((token_id, seller)).unwrap_or(0);
+                if esc < amount {
+                    return Err(Error::AskNotFound);
+                }
+                let to_balance = self.balances.get((buyer, token_id)).unwrap_or(0);
+                self.balances
+                    .insert((buyer, token_id), &(to_balance.saturating_add(amount)));
+                self.escrowed_shares
+                    .insert((token_id, seller), &(esc.saturating_sub(amount)));
+                match self.env().transfer(seller, cost) {
+                    Ok(_) => {
+                        let mut rec =
+                            self.tax_records
+                                .get((seller, token_id))
+                                .unwrap_or(TaxRecord {
+                                    dividends_received: 0,
+                                    shares_sold: 0,
+                                    proceeds: 0,
+                                });
+                        rec.shares_sold = rec.shares_sold.saturating_add(amount);
+                        rec.proceeds = rec.proceeds.saturating_add(cost);
+                        self.tax_records.insert((seller, token_id), &rec);
+                    }
+                    Err(_) => return Err(Error::InvalidRequest),
+                }
+                self.last_trade_price.insert(token_id, &ask.price_per_share);
+                if ask.amount == amount {
+                    self.asks.remove((token_id, seller));
+                } else {
+                    let mut new_ask = ask.clone();
+                    new_ask.amount = ask.amount.saturating_sub(amount);
+                    self.asks.insert((token_id, seller), &new_ask);
+                }
+                self.env().emit_event(SharesPurchased {
+                    token_id,
+                    seller,
+                    buyer,
+                    amount,
+                    price_per_share: ask.price_per_share,
+                });
+                Ok(())
+            })
         }
 
         /// Returns the last trade price per share for a token, if any trades have occurred.
@@ -2564,84 +2582,88 @@ pub mod property_token {
         /// Unlocks and returns staked shares; pending rewards are auto-claimed.
         #[ink(message)]
         pub fn unstake_shares(&mut self, token_id: TokenId) -> Result<(), Error> {
-            let caller = self.env().caller();
-            let stake = self
-                .share_stakes
-                .get((caller, token_id))
-                .ok_or(Error::StakeNotFound)?;
-            let now = self.env().block_number() as u64;
-            if now < stake.lock_until {
-                return Err(Error::LockActive);
-            }
-            self.update_stake_acc_reward(token_id);
-            let stake = self
-                .share_stakes
-                .get((caller, token_id))
-                .ok_or(Error::StakeNotFound)?;
-            let rewards = self.pending_stake_rewards(&stake);
-            if rewards > 0 {
-                let pool = self.share_reward_pool.get(token_id).unwrap_or(0);
-                if pool >= rewards {
-                    self.share_reward_pool
-                        .insert(token_id, &pool.saturating_sub(rewards));
-                    let _ = self.env().transfer(caller, rewards);
-                    self.env().emit_event(StakeRewardsClaimed {
-                        token_id,
-                        staker: caller,
-                        amount: rewards,
-                    });
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                let stake = self
+                    .share_stakes
+                    .get((caller, token_id))
+                    .ok_or(Error::StakeNotFound)?;
+                let now = self.env().block_number() as u64;
+                if now < stake.lock_until {
+                    return Err(Error::LockActive);
                 }
-            }
-            let amount = stake.amount;
-            self.update_dividend_credit_on_change(caller, token_id)?;
-            let bal = self.balances.get((caller, token_id)).unwrap_or(0);
-            self.balances
-                .insert((caller, token_id), &bal.saturating_add(amount));
-            self.share_stakes.remove((caller, token_id));
-            let total = self.share_total_staked.get(token_id).unwrap_or(0);
-            self.share_total_staked
-                .insert(token_id, &total.saturating_sub(amount));
-            self.env().emit_event(SharesUnstaked {
-                token_id,
-                staker: caller,
-                amount,
-            });
-            Ok(())
+                self.update_stake_acc_reward(token_id);
+                let stake = self
+                    .share_stakes
+                    .get((caller, token_id))
+                    .ok_or(Error::StakeNotFound)?;
+                let rewards = self.pending_stake_rewards(&stake);
+                if rewards > 0 {
+                    let pool = self.share_reward_pool.get(token_id).unwrap_or(0);
+                    if pool >= rewards {
+                        self.share_reward_pool
+                            .insert(token_id, &pool.saturating_sub(rewards));
+                        let _ = self.env().transfer(caller, rewards);
+                        self.env().emit_event(StakeRewardsClaimed {
+                            token_id,
+                            staker: caller,
+                            amount: rewards,
+                        });
+                    }
+                }
+                let amount = stake.amount;
+                self.update_dividend_credit_on_change(caller, token_id)?;
+                let bal = self.balances.get((caller, token_id)).unwrap_or(0);
+                self.balances
+                    .insert((caller, token_id), &bal.saturating_add(amount));
+                self.share_stakes.remove((caller, token_id));
+                let total = self.share_total_staked.get(token_id).unwrap_or(0);
+                self.share_total_staked
+                    .insert(token_id, &total.saturating_sub(amount));
+                self.env().emit_event(SharesUnstaked {
+                    token_id,
+                    staker: caller,
+                    amount,
+                });
+                Ok(())
+            })
         }
 
         /// Claims accrued staking rewards for `token_id` without unstaking.
         #[ink(message)]
         pub fn claim_stake_rewards(&mut self, token_id: TokenId) -> Result<u128, Error> {
-            let caller = self.env().caller();
-            if self.share_stakes.get((caller, token_id)).is_none() {
-                return Err(Error::StakeNotFound);
-            }
-            self.update_stake_acc_reward(token_id);
-            let stake = self
-                .share_stakes
-                .get((caller, token_id))
-                .ok_or(Error::StakeNotFound)?;
-            let rewards = self.pending_stake_rewards(&stake);
-            if rewards == 0 {
-                return Err(Error::NoRewards);
-            }
-            let pool = self.share_reward_pool.get(token_id).unwrap_or(0);
-            if pool < rewards {
-                return Err(Error::InsufficientRewardPool);
-            }
-            self.share_reward_pool
-                .insert(token_id, &pool.saturating_sub(rewards));
-            let new_acc = self.share_acc_reward_per_share.get(token_id).unwrap_or(0);
-            let mut updated = stake.clone();
-            updated.reward_debt = new_acc;
-            self.share_stakes.insert((caller, token_id), &updated);
-            let _ = self.env().transfer(caller, rewards);
-            self.env().emit_event(StakeRewardsClaimed {
-                token_id,
-                staker: caller,
-                amount: rewards,
-            });
-            Ok(rewards)
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                if self.share_stakes.get((caller, token_id)).is_none() {
+                    return Err(Error::StakeNotFound);
+                }
+                self.update_stake_acc_reward(token_id);
+                let stake = self
+                    .share_stakes
+                    .get((caller, token_id))
+                    .ok_or(Error::StakeNotFound)?;
+                let rewards = self.pending_stake_rewards(&stake);
+                if rewards == 0 {
+                    return Err(Error::NoRewards);
+                }
+                let pool = self.share_reward_pool.get(token_id).unwrap_or(0);
+                if pool < rewards {
+                    return Err(Error::InsufficientRewardPool);
+                }
+                self.share_reward_pool
+                    .insert(token_id, &pool.saturating_sub(rewards));
+                let new_acc = self.share_acc_reward_per_share.get(token_id).unwrap_or(0);
+                let mut updated = stake.clone();
+                updated.reward_debt = new_acc;
+                self.share_stakes.insert((caller, token_id), &updated);
+                let _ = self.env().transfer(caller, rewards);
+                self.env().emit_event(StakeRewardsClaimed {
+                    token_id,
+                    staker: caller,
+                    amount: rewards,
+                });
+                Ok(rewards)
+            })
         }
 
         /// Adds funds to the staking reward pool for `token_id`.

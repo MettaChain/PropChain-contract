@@ -16,6 +16,7 @@ ink = { workspace = true }
 scale = { workspace = true }
 scale-info = { workspace = true }
 propchain-traits = { path = "../traits" }
+propchain-contracts = { path = "../lib", default-features = false }
 
 [dev-dependencies]
 ink_e2e = "5.0.0"
@@ -31,6 +32,7 @@ std = [
     "ink/std",
     "scale/std",
     "scale-info/std",
+    "propchain-contracts/std",
 ]
 ink-as-dependency = []
 e2e-tests = []

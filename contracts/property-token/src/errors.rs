@@ -69,6 +69,8 @@ pub enum Error {
     AlreadyStaked,
     /// Token IDs and amounts vectors have different lengths
     LengthMismatch,
+    /// Reentrancy guard detected a reentrant call
+    ReentrantCall,
 }
 
 impl core::fmt::Display for Error {
@@ -107,6 +109,7 @@ impl core::fmt::Display for Error {
             Error::InsufficientRewardPool => write!(f, "Insufficient reward pool balance"),
             Error::AlreadyStaked => write!(f, "An active stake already exists for this token"),
             Error::LengthMismatch => write!(f, "Token IDs and amounts length mismatch"),
+            Error::ReentrantCall => write!(f, "Reentrant call"),
         }
     }
 }
@@ -145,6 +148,7 @@ impl ContractError for Error {
             Error::InsufficientRewardPool => property_token_codes::INSUFFICIENT_REWARD_POOL,
             Error::AlreadyStaked => property_token_codes::ALREADY_STAKED,
             Error::LengthMismatch => property_token_codes::BATCH_SIZE_EXCEEDED,
+            Error::ReentrantCall => property_token_codes::REENTRANT_CALL,
         }
     }
 
@@ -195,6 +199,7 @@ impl ContractError for Error {
             Error::AlreadyStaked => {
                 "An active stake already exists for this account and token; unstake first"
             }
+            Error::ReentrantCall => "Reentrancy guard detected a reentrant call",
         }
     }
 

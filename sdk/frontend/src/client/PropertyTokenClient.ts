@@ -30,6 +30,8 @@ import type {
   ContractEvent,
   Subscription,
   ClientOptions,
+  TxProgressCallback,
+  TxProgressStatus,
 } from '../types';
 import { decodeContractError, TransactionError, GasEstimationError } from '../utils/errors';
 import { decodeTransactionEvents, subscribeToNamedEvent } from '../utils/events';
@@ -107,15 +109,16 @@ export class PropertyTokenClient {
     from: string,
     to: string,
     tokenId: number,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'transfer_from', [from, to, tokenId]);
+    return this.submitTx(signer, 'transfer_from', [from, to, tokenId], onProgress);
   }
 
   /**
    * Approves an account to transfer a specific token.
    */
-  async approve(signer: Signer, to: string, tokenId: number): Promise<TxResult> {
-    return this.submitTx(signer, 'approve', [to, tokenId]);
+  async approve(signer: Signer, to: string, tokenId: number, onProgress?: TxProgressCallback): Promise<TxResult> {
+    return this.submitTx(signer, 'approve', [to, tokenId], onProgress);
   }
 
   /**
@@ -133,8 +136,9 @@ export class PropertyTokenClient {
     signer: Signer,
     operator: string,
     approved: boolean,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'set_approval_for_all', [operator, approved]);
+    return this.submitTx(signer, 'set_approval_for_all', [operator, approved], onProgress);
   }
 
   /**
@@ -163,9 +167,10 @@ export class PropertyTokenClient {
   async registerPropertyWithToken(
     signer: Signer,
     metadata: PropertyMetadata,
+    onProgress?: TxProgressCallback,
   ): Promise<{ tokenId: number } & TxResult> {
     const encoded = this.encodePropertyMetadata(metadata);
-    const txResult = await this.submitTx(signer, 'register_property_with_token', [encoded]);
+    const txResult = await this.submitTx(signer, 'register_property_with_token', [encoded], onProgress);
 
     const mintEvents = txResult.events.filter((e) => e.name === 'PropertyTokenMinted');
     const tokenId = mintEvents.length > 0
@@ -203,12 +208,14 @@ export class PropertyTokenClient {
     tokenId: number,
     documentHash: string,
     documentType: string,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'attach_legal_document', [
-      tokenId,
-      documentHash,
-      documentType,
-    ]);
+    return this.submitTx(
+      signer,
+      'attach_legal_document',
+      [tokenId, documentHash, documentType],
+      onProgress,
+    );
   }
 
   /**
@@ -226,8 +233,9 @@ export class PropertyTokenClient {
     signer: Signer,
     tokenId: number,
     verified: boolean,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'verify_compliance', [tokenId, verified]);
+    return this.submitTx(signer, 'verify_compliance', [tokenId, verified], onProgress);
   }
 
   /**
@@ -250,8 +258,9 @@ export class PropertyTokenClient {
     tokenId: number,
     to: string,
     amount: bigint,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'issue_shares', [tokenId, to, amount.toString()]);
+    return this.submitTx(signer, 'issue_shares', [tokenId, to, amount.toString()], onProgress);
   }
 
   /**
@@ -261,8 +270,9 @@ export class PropertyTokenClient {
     signer: Signer,
     tokenId: number,
     amount: bigint,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'redeem_shares', [tokenId, amount.toString()]);
+    return this.submitTx(signer, 'redeem_shares', [tokenId, amount.toString()], onProgress);
   }
 
   /**
@@ -288,15 +298,16 @@ export class PropertyTokenClient {
     signer: Signer,
     tokenId: number,
     amount: bigint,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'deposit_dividends', [tokenId, amount.toString()]);
+    return this.submitTx(signer, 'deposit_dividends', [tokenId, amount.toString()], onProgress);
   }
 
   /**
    * Withdraws accrued dividends.
    */
-  async withdrawDividends(signer: Signer, tokenId: number): Promise<TxResult> {
-    return this.submitTx(signer, 'withdraw_dividends', [tokenId]);
+  async withdrawDividends(signer: Signer, tokenId: number, onProgress?: TxProgressCallback): Promise<TxResult> {
+    return this.submitTx(signer, 'withdraw_dividends', [tokenId], onProgress);
   }
 
   /**
@@ -327,12 +338,14 @@ export class PropertyTokenClient {
     tokenId: number,
     descriptionHash: string,
     quorum: bigint,
+    onProgress?: TxProgressCallback,
   ): Promise<{ proposalId: number } & TxResult> {
-    const txResult = await this.submitTx(signer, 'create_proposal', [
-      tokenId,
-      descriptionHash,
-      quorum.toString(),
-    ]);
+    const txResult = await this.submitTx(
+      signer,
+      'create_proposal',
+      [tokenId, descriptionHash, quorum.toString()],
+      onProgress,
+    );
     const events = txResult.events.filter((e) => e.name === 'ProposalCreated');
     const proposalId = events.length > 0 ? (events[0].args.proposalId as number) : 0;
     return { proposalId, ...txResult };
@@ -346,8 +359,9 @@ export class PropertyTokenClient {
     tokenId: number,
     proposalId: number,
     support: boolean,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'vote', [tokenId, proposalId, support]);
+    return this.submitTx(signer, 'vote', [tokenId, proposalId, support], onProgress);
   }
 
   /**
@@ -357,8 +371,9 @@ export class PropertyTokenClient {
     signer: Signer,
     tokenId: number,
     proposalId: number,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'execute_proposal', [tokenId, proposalId]);
+    return this.submitTx(signer, 'execute_proposal', [tokenId, proposalId], onProgress);
   }
 
   /**
@@ -381,19 +396,21 @@ export class PropertyTokenClient {
     tokenId: number,
     pricePerShare: bigint,
     amount: bigint,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'place_ask', [
-      tokenId,
-      pricePerShare.toString(),
-      amount.toString(),
-    ]);
+    return this.submitTx(
+      signer,
+      'place_ask',
+      [tokenId, pricePerShare.toString(), amount.toString()],
+      onProgress,
+    );
   }
 
   /**
    * Cancels a sell ask.
    */
-  async cancelAsk(signer: Signer, tokenId: number): Promise<TxResult> {
-    return this.submitTx(signer, 'cancel_ask', [tokenId]);
+  async cancelAsk(signer: Signer, tokenId: number, onProgress?: TxProgressCallback): Promise<TxResult> {
+    return this.submitTx(signer, 'cancel_ask', [tokenId], onProgress);
   }
 
   /**
@@ -404,8 +421,9 @@ export class PropertyTokenClient {
     tokenId: number,
     seller: string,
     amount: bigint,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'buy_shares', [tokenId, seller, amount.toString()]);
+    return this.submitTx(signer, 'buy_shares', [tokenId, seller, amount.toString()], onProgress);
   }
 
   /**
@@ -438,14 +456,14 @@ export class PropertyTokenClient {
     recipient: string,
     requiredSignatures: number,
     timeoutBlocks: number | null,
+    onProgress?: TxProgressCallback,
   ): Promise<{ requestId: number } & TxResult> {
-    const txResult = await this.submitTx(signer, 'initiate_bridge_multisig', [
-      tokenId,
-      destinationChain,
-      recipient,
-      requiredSignatures,
-      timeoutBlocks,
-    ]);
+    const txResult = await this.submitTx(
+      signer,
+      'initiate_bridge_multisig',
+      [tokenId, destinationChain, recipient, requiredSignatures, timeoutBlocks],
+      onProgress,
+    );
     const events = txResult.events.filter((e) => e.name === 'BridgeRequestCreated');
     const requestId = events.length > 0 ? (events[0].args.requestId as number) : 0;
     return { requestId, ...txResult };
@@ -458,15 +476,16 @@ export class PropertyTokenClient {
     signer: Signer,
     requestId: number,
     approve: boolean,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'sign_bridge_request', [requestId, approve]);
+    return this.submitTx(signer, 'sign_bridge_request', [requestId, approve], onProgress);
   }
 
   /**
    * Executes a bridge after collecting required signatures.
    */
-  async executeBridge(signer: Signer, requestId: number): Promise<TxResult> {
-    return this.submitTx(signer, 'execute_bridge', [requestId]);
+  async executeBridge(signer: Signer, requestId: number, onProgress?: TxProgressCallback): Promise<TxResult> {
+    return this.submitTx(signer, 'execute_bridge', [requestId], onProgress);
   }
 
   /**
@@ -511,8 +530,9 @@ export class PropertyTokenClient {
   async setPropertyManagementContract(
     signer: Signer,
     contractAddress: string | null,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'set_property_management_contract', [contractAddress]);
+    return this.submitTx(signer, 'set_property_management_contract', [contractAddress], onProgress);
   }
 
   /**
@@ -522,15 +542,16 @@ export class PropertyTokenClient {
     signer: Signer,
     tokenId: number,
     agent: string,
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
-    return this.submitTx(signer, 'assign_management_agent', [tokenId, agent]);
+    return this.submitTx(signer, 'assign_management_agent', [tokenId, agent], onProgress);
   }
 
   /**
    * Clears the management agent for a token.
    */
-  async clearManagementAgent(signer: Signer, tokenId: number): Promise<TxResult> {
-    return this.submitTx(signer, 'clear_management_agent', [tokenId]);
+  async clearManagementAgent(signer: Signer, tokenId: number, onProgress?: TxProgressCallback): Promise<TxResult> {
+    return this.submitTx(signer, 'clear_management_agent', [tokenId], onProgress);
   }
 
   /**
@@ -609,6 +630,7 @@ export class PropertyTokenClient {
     signer: Signer,
     method: string,
     args: unknown[],
+    onProgress?: TxProgressCallback,
   ): Promise<TxResult> {
     const signerAddress = typeof signer === 'string' ? signer : signer.address;
 
@@ -644,7 +666,26 @@ export class PropertyTokenClient {
         signer as KeyringPair,
         {},
         ({ status, events: rawEvents, dispatchError }) => {
+          if (status.isReady && onProgress) {
+            onProgress({ status: TxProgressStatus.Ready, txHash: tx.hash.toString() });
+          } else if (status.isBroadcast && onProgress) {
+            onProgress({ status: TxProgressStatus.Broadcast, txHash: tx.hash.toString() });
+          } else if (status.isInBlock && onProgress) {
+            onProgress({
+              status: TxProgressStatus.InBlock,
+              txHash: tx.hash.toString(),
+              blockHash: status.asInBlock.toString()
+            });
+          }
+
           if (dispatchError) {
+            if (onProgress) {
+              onProgress({
+                status: TxProgressStatus.Error,
+                txHash: tx.hash.toString(),
+                message: dispatchError.toString()
+              });
+            }
             reject(
               new TransactionError(
                 `Transaction failed: ${dispatchError.toString()}`,
@@ -657,6 +698,14 @@ export class PropertyTokenClient {
 
           if (status.isFinalized) {
             const blockHash = status.asFinalized.toString();
+            if (onProgress) {
+              onProgress({
+                status: TxProgressStatus.Finalized,
+                txHash: tx.hash.toString(),
+                blockHash
+              });
+            }
+
             const decodedEvents: ContractEvent[] = decodeTransactionEvents(
               this.abi,
               rawEvents as unknown as Array<{

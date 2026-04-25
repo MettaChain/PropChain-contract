@@ -10,8 +10,15 @@ use scale_info::prelude::vec::Vec;
 #[ink::contract]
 mod bridge {
     use super::*;
+    use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
     include!("errors.rs");
+
+    impl From<ReentrancyError> for Error {
+        fn from(_: ReentrancyError) -> Self {
+            Error::ReentrantCall
+        }
+    }
 
     /// Bridge contract for cross-chain property token transfers
     #[ink(storage)]
@@ -66,6 +73,9 @@ mod bridge {
 
         /// Chain last reset day for rate limiting
         chain_last_reset_day: Mapping<ChainId, u64>,
+
+        /// Reentrancy protection
+        reentrancy_guard: ReentrancyGuard,
     }
 
     /// Events for bridge operations
@@ -163,6 +173,7 @@ mod bridge {
                 account_last_reset_day: Mapping::default(),
                 chain_daily_volume: Mapping::default(),
                 chain_last_reset_day: Mapping::default(),
+                reentrancy_guard: ReentrancyGuard::new(),
             };
 
             // Set up default chain information
@@ -351,66 +362,68 @@ mod bridge {
         /// Executes a bridge request after collecting required signatures
         #[ink(message)]
         pub fn execute_bridge(&mut self, request_id: u64) -> Result<(), Error> {
-            let caller = self.env().caller();
+            non_reentrant!(self, {
+                let caller = self.env().caller();
 
-            // Check if caller is a bridge operator
-            if !self.bridge_operators.contains(&caller) {
-                return Err(Error::Unauthorized);
-            }
+                // Check if caller is a bridge operator
+                if !self.bridge_operators.contains(&caller) {
+                    return Err(Error::Unauthorized);
+                }
 
-            let mut request = self
-                .bridge_requests
-                .get(request_id)
-                .ok_or(Error::InvalidRequest)?;
+                let mut request = self
+                    .bridge_requests
+                    .get(request_id)
+                    .ok_or(Error::InvalidRequest)?;
 
-            // Check if request is ready for execution
-            if request.status != BridgeOperationStatus::Locked {
-                return Err(Error::InvalidRequest);
-            }
+                // Check if request is ready for execution
+                if request.status != BridgeOperationStatus::Locked {
+                    return Err(Error::InvalidRequest);
+                }
 
-            // Check if enough signatures are collected
-            if request.signatures.len() < request.required_signatures as usize {
-                return Err(Error::InsufficientSignatures);
-            }
+                // Check if enough signatures are collected
+                if request.signatures.len() < request.required_signatures as usize {
+                    return Err(Error::InsufficientSignatures);
+                }
 
-            // Generate transaction hash
-            let transaction_hash = self.generate_transaction_hash(&request);
+                // Generate transaction hash
+                let transaction_hash = self.generate_transaction_hash(&request);
 
-            // Create bridge transaction record
-            self.transaction_counter += 1;
-            let transaction = BridgeTransaction {
-                transaction_id: self.transaction_counter,
-                token_id: request.token_id,
-                source_chain: request.source_chain,
-                destination_chain: request.destination_chain,
-                sender: request.sender,
-                recipient: request.recipient,
-                transaction_hash,
-                timestamp: self.env().block_timestamp(),
-                gas_used: self.estimate_gas_usage(&request),
-                status: BridgeOperationStatus::InTransit,
-                metadata: request.metadata.clone(),
-            };
+                // Create bridge transaction record
+                self.transaction_counter += 1;
+                let transaction = BridgeTransaction {
+                    transaction_id: self.transaction_counter,
+                    token_id: request.token_id,
+                    source_chain: request.source_chain,
+                    destination_chain: request.destination_chain,
+                    sender: request.sender,
+                    recipient: request.recipient,
+                    transaction_hash,
+                    timestamp: self.env().block_timestamp(),
+                    gas_used: self.estimate_gas_usage(&request),
+                    status: BridgeOperationStatus::InTransit,
+                    metadata: request.metadata.clone(),
+                };
 
-            // Update request status
-            request.status = BridgeOperationStatus::Completed;
-            self.bridge_requests.insert(request_id, &request);
+                // Update request status
+                request.status = BridgeOperationStatus::Completed;
+                self.bridge_requests.insert(request_id, &request);
 
-            // Store transaction verification
-            self.verified_transactions.insert(transaction_hash, &true);
+                // Store transaction verification
+                self.verified_transactions.insert(transaction_hash, &true);
 
-            // Add to bridge history
-            let mut history = self.bridge_history.get(request.sender).unwrap_or_default();
-            history.push(transaction.clone());
-            self.bridge_history.insert(request.sender, &history);
+                // Add to bridge history
+                let mut history = self.bridge_history.get(request.sender).unwrap_or_default();
+                history.push(transaction.clone());
+                self.bridge_history.insert(request.sender, &history);
 
-            self.env().emit_event(BridgeExecuted {
-                request_id,
-                token_id: request.token_id,
-                transaction_hash,
-            });
+                self.env().emit_event(BridgeExecuted {
+                    request_id,
+                    token_id: request.token_id,
+                    transaction_hash,
+                });
 
-            Ok(())
+                Ok(())
+            })
         }
 
         /// Recovers from a failed bridge operation
@@ -420,54 +433,56 @@ mod bridge {
             request_id: u64,
             recovery_action: RecoveryAction,
         ) -> Result<(), Error> {
-            let caller = self.env().caller();
+            non_reentrant!(self, {
+                let caller = self.env().caller();
 
-            // Only admin can recover failed bridges
-            if caller != self.admin {
-                return Err(Error::Unauthorized);
-            }
-
-            let mut request = self
-                .bridge_requests
-                .get(request_id)
-                .ok_or(Error::InvalidRequest)?;
-
-            // Check if request is in a failed state
-            if !matches!(
-                request.status,
-                BridgeOperationStatus::Failed | BridgeOperationStatus::Expired
-            ) {
-                return Err(Error::InvalidRequest);
-            }
-
-            // Execute recovery action
-            match recovery_action {
-                RecoveryAction::UnlockToken => {
-                    // Logic to unlock the token would be implemented here
-                    // This would typically call back to the property token contract
+                // Only admin can recover failed bridges
+                if caller != self.admin {
+                    return Err(Error::Unauthorized);
                 }
-                RecoveryAction::RefundGas => {
-                    // Logic to refund gas costs would be implemented here
-                }
-                RecoveryAction::RetryBridge => {
-                    // Reset request to pending for retry
-                    request.status = BridgeOperationStatus::Pending;
-                    request.signatures.clear();
-                }
-                RecoveryAction::CancelBridge => {
-                    // Mark as cancelled
-                    request.status = BridgeOperationStatus::Failed;
-                }
-            }
 
-            self.bridge_requests.insert(request_id, &request);
+                let mut request = self
+                    .bridge_requests
+                    .get(request_id)
+                    .ok_or(Error::InvalidRequest)?;
 
-            self.env().emit_event(BridgeRecovered {
-                request_id,
-                recovery_action,
-            });
+                // Check if request is in a failed state
+                if !matches!(
+                    request.status,
+                    BridgeOperationStatus::Failed | BridgeOperationStatus::Expired
+                ) {
+                    return Err(Error::InvalidRequest);
+                }
 
-            Ok(())
+                // Execute recovery action
+                match recovery_action {
+                    RecoveryAction::UnlockToken => {
+                        // Logic to unlock the token would be implemented here
+                        // This would typically call back to the property token contract
+                    }
+                    RecoveryAction::RefundGas => {
+                        // Logic to refund gas costs would be implemented here
+                    }
+                    RecoveryAction::RetryBridge => {
+                        // Reset request to pending for retry
+                        request.status = BridgeOperationStatus::Pending;
+                        request.signatures.clear();
+                    }
+                    RecoveryAction::CancelBridge => {
+                        // Mark as cancelled
+                        request.status = BridgeOperationStatus::Failed;
+                    }
+                }
+
+                self.bridge_requests.insert(request_id, &request);
+
+                self.env().emit_event(BridgeRecovered {
+                    request_id,
+                    recovery_action,
+                });
+
+                Ok(())
+            })
         }
 
         /// Gets gas estimation for a bridge operation

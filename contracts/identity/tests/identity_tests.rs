@@ -631,3 +631,128 @@ fn test_admin_functions() {
     let supported_chains = identity_registry.get_supported_chains();
     assert!(supported_chains.contains(&999));
 }
+
+#[ink::test]
+fn test_identity_audit_trail() {
+    let accounts: DefaultAccounts<ink::env::DefaultEnvironment> = default_accounts();
+    let mut identity_registry = IdentityRegistry::new();
+
+    let did = "did:example:audit123".to_string();
+    let public_key = vec![1u8; 32];
+    let verification_method = "Ed25519VerificationKey2018".to_string();
+    let privacy_settings = PrivacySettings {
+        public_reputation: true,
+        public_verification: true,
+        data_sharing_consent: true,
+        zero_knowledge_proof: false,
+        selective_disclosure: vec![],
+    };
+
+    // Create identity — should add an audit entry
+    assert_eq!(
+        identity_registry.create_identity(
+            did,
+            public_key,
+            verification_method,
+            None,
+            privacy_settings
+        ),
+        Ok(())
+    );
+
+    // Audit count should be 1
+    assert_eq!(identity_registry.get_audit_count(), 1);
+
+    // Retrieve the audit entry
+    let entry = identity_registry.get_audit_entry(1).unwrap();
+    assert_eq!(entry.account, accounts.alice);
+    assert_eq!(entry.action, "identity_created");
+
+    // Verify identity — should add another audit entry
+    identity_registry
+        .add_authorized_verifier(accounts.alice)
+        .unwrap();
+    identity_registry
+        .verify_identity(accounts.alice, VerificationLevel::Standard, Some(365))
+        .unwrap();
+
+    assert_eq!(identity_registry.get_audit_count(), 2);
+
+    // Get account-specific audit entries
+    let entries = identity_registry.get_account_audit_entries(accounts.alice, 0, 10);
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].action, "identity_created");
+    assert_eq!(entries[1].action, "identity_verified");
+}
+
+#[ink::test]
+fn test_identity_revocation() {
+    let accounts: DefaultAccounts<ink::env::DefaultEnvironment> = default_accounts();
+    let mut identity_registry = IdentityRegistry::new();
+
+    // Create identity for bob
+    ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+    let did = "did:example:revoke123".to_string();
+    let public_key = vec![1u8; 32];
+    let verification_method = "Ed25519VerificationKey2018".to_string();
+    let privacy_settings = PrivacySettings {
+        public_reputation: true,
+        public_verification: true,
+        data_sharing_consent: true,
+        zero_knowledge_proof: false,
+        selective_disclosure: vec![],
+    };
+    identity_registry
+        .create_identity(did, public_key, verification_method, None, privacy_settings)
+        .unwrap();
+
+    // Admin revokes the identity
+    ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+    assert_eq!(
+        identity_registry.revoke_identity(accounts.bob, "Compromised key".into()),
+        Ok(())
+    );
+
+    // Identity should be marked as revoked
+    assert!(identity_registry.is_revoked(accounts.bob));
+
+    // Revocation record should exist
+    let record = identity_registry.get_revocation(accounts.bob).unwrap();
+    assert_eq!(record.account, accounts.bob);
+    assert_eq!(record.revoked_by, accounts.alice);
+    assert_eq!(record.reason, "Compromised key");
+
+    // Identity trust score should be 0 and is_verified false
+    let identity = identity_registry.get_identity(accounts.bob).unwrap();
+    assert!(!identity.is_verified);
+    assert_eq!(identity.trust_score, 0);
+    assert_eq!(identity.verification_level, VerificationLevel::None);
+}
+
+#[ink::test]
+fn test_revocation_unauthorized() {
+    let accounts: DefaultAccounts<ink::env::DefaultEnvironment> = default_accounts();
+    let mut identity_registry = IdentityRegistry::new();
+
+    // Create identity for alice
+    let did = "did:example:revoke456".to_string();
+    let public_key = vec![1u8; 32];
+    let verification_method = "Ed25519VerificationKey2018".to_string();
+    let privacy_settings = PrivacySettings {
+        public_reputation: true,
+        public_verification: true,
+        data_sharing_consent: true,
+        zero_knowledge_proof: false,
+        selective_disclosure: vec![],
+    };
+    identity_registry
+        .create_identity(did, public_key, verification_method, None, privacy_settings)
+        .unwrap();
+
+    // Non-admin (charlie) cannot revoke
+    ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.charlie);
+    assert_eq!(
+        identity_registry.revoke_identity(accounts.alice, "Unauthorized attempt".into()),
+        Err(IdentityError::Unauthorized)
+    );
+}

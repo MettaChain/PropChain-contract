@@ -22,4 +22,5 @@ pub enum InsuranceError {
     CooldownPeriodActive,
     PropertyNotInsurable,
     DuplicateClaim,
+    ReentrantCall,
 }

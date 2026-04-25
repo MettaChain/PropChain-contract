@@ -16,6 +16,7 @@ pub enum Error {
     DuplicateRequest,
     GasLimitExceeded,
     RateLimitExceeded,
+    ReentrantCall,
 }
 
 impl core::fmt::Display for Error {
@@ -34,6 +35,7 @@ impl core::fmt::Display for Error {
             Error::DuplicateRequest => write!(f, "Duplicate bridge request"),
             Error::GasLimitExceeded => write!(f, "Gas limit exceeded"),
             Error::RateLimitExceeded => write!(f, "Rate limit exceeded"),
+            Error::ReentrantCall => write!(f, "Reentrant call"),
         }
     }
 }
@@ -54,6 +56,7 @@ impl ContractError for Error {
             Error::DuplicateRequest => bridge_codes::BRIDGE_DUPLICATE_REQUEST,
             Error::GasLimitExceeded => bridge_codes::BRIDGE_GAS_LIMIT_EXCEEDED,
             Error::RateLimitExceeded => bridge_codes::BRIDGE_RATE_LIMIT_EXCEEDED,
+            Error::ReentrantCall => bridge_codes::REENTRANT_CALL,
         }
     }
 
@@ -76,6 +79,7 @@ impl ContractError for Error {
             Error::DuplicateRequest => "A bridge request with these parameters already exists",
             Error::GasLimitExceeded => "The operation exceeded the gas limit",
             Error::RateLimitExceeded => "The operation exceeded the daily rate limit",
+            Error::ReentrantCall => "Reentrancy guard detected a reentrant call",
         }
     }
 

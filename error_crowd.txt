@@ -1,0 +1,103 @@
+    Checking propchain-crowdfunding v1.0.0 (C:\Users\dell\Documents\web3\PropChain-contract\contracts\crowdfunding)
+error[E0428]: the name `InvalidParameters` is defined multiple times
+  --> contracts\crowdfunding\src\lib.rs:31:9
+   |
+30 |         InvalidParameters,
+   |         ----------------- previous definition of the type `InvalidParameters` here
+31 |         InvalidParameters,
+   |         ^^^^^^^^^^^^^^^^^ `InvalidParameters` redefined here
+   |
+   = note: `InvalidParameters` must be defined only once in the type namespace of this enum
+
+error[E0433]: cannot find module or crate `propchain_traits` in this scope
+   --> contracts\crowdfunding\src\lib.rs:436:13
+    |
+436 |             propchain_traits::non_reentrant!(self, {
+    |             ^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `propchain_traits`
+
+error[E0433]: cannot find module or crate `propchain_traits` in this scope
+   --> contracts\crowdfunding\src\lib.rs:287:35
+    |
+287 |                 reentrancy_guard: propchain_traits::ReentrancyGuard::new(),
+    |                                   ^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `propchain_traits`
+    |
+    = help: if you wanted to use a crate named `propchain_traits`, use `cargo add propchain_traits` to add it to your `Cargo.toml`
+
+error[E0004]: non-exhaustive patterns: `&CrowdfundingError::InvalidParameters` not covered
+  --> contracts\crowdfunding\src\lib.rs:16:14
+   |
+16 |     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+   |              ^^^^^ pattern `&CrowdfundingError::InvalidParameters` not covered
+   |
+note: `CrowdfundingError` defined here
+  --> contracts\crowdfunding\src\lib.rs:18:14
+   |
+18 |     pub enum CrowdfundingError {
+   |              ^^^^^^^^^^^^^^^^^
+...
+31 |         InvalidParameters,
+   |         ----------------- not covered
+   = note: the matched value is of type `&CrowdfundingError`
+
+warning: unreachable pattern
+  --> contracts\crowdfunding\src\lib.rs:18:14
+   |
+18 |        pub enum CrowdfundingError {
+   |   ______________^
+   |  |______________|
+19 | ||         Unauthorized,
+20 | ||         CampaignNotFound,
+21 | ||         CampaignNotActive,
+...  ||
+29 | ||         ProposalNotActive,
+30 | ||         InvalidParameters,
+   | ||_________________________- matches all the relevant values
+31 | |          InvalidParameters,
+   | |__________________________^ no value can reach this
+   |
+   = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable pattern
+  --> contracts\crowdfunding\src\lib.rs:18:14
+   |
+18 |        pub enum CrowdfundingError {
+   |   ______________^
+   |  |______________|
+19 | ||         Unauthorized,
+20 | ||         CampaignNotFound,
+21 | ||         CampaignNotActive,
+...  ||
+29 | ||         ProposalNotActive,
+30 | ||         InvalidParameters,
+   | ||_________________________- matches all the relevant values
+31 | |          InvalidParameters,
+   | |__________________________^ no value can reach this
+
+error[E0433]: cannot find module or crate `propchain_traits` in this scope
+   --> contracts\crowdfunding\src\lib.rs:222:27
+    |
+222 |         reentrancy_guard: propchain_traits::ReentrancyGuard,
+    |                           ^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `propchain_traits`
+    |
+    = help: if you wanted to use a crate named `propchain_traits`, use `cargo add propchain_traits` to add it to your `Cargo.toml`
+
+error[E0433]: cannot find module or crate `propchain_traits` in this scope
+  --> contracts\crowdfunding\src\lib.rs:36:15
+   |
+36 |     impl From<propchain_traits::ReentrancyError> for CrowdfundingError {
+   |               ^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `propchain_traits`
+   |
+   = help: if you wanted to use a crate named `propchain_traits`, use `cargo add propchain_traits` to add it to your `Cargo.toml`
+
+error[E0433]: cannot find module or crate `propchain_traits` in this scope
+  --> contracts\crowdfunding\src\lib.rs:37:20
+   |
+37 |         fn from(_: propchain_traits::ReentrancyError) -> Self {
+   |                    ^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `propchain_traits`
+   |
+   = help: if you wanted to use a crate named `propchain_traits`, use `cargo add propchain_traits` to add it to your `Cargo.toml`
+
+Some errors have detailed explanations: E0004, E0428, E0433.
+For more information about an error, try `rustc --explain E0004`.
+warning: `propchain-crowdfunding` (lib) generated 2 warnings
+error: could not compile `propchain-crowdfunding` (lib) due to 7 previous errors; 2 warnings emitted

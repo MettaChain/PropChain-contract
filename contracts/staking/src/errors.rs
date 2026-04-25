@@ -13,6 +13,7 @@ pub enum Error {
     AlreadyStaked,
     InvalidDelegate,
     ZeroAmount,
+    ReentrantCall,
 }
 
 impl core::fmt::Display for Error {
@@ -28,6 +29,7 @@ impl core::fmt::Display for Error {
             Error::AlreadyStaked => write!(f, "Account already has an active stake"),
             Error::InvalidDelegate => write!(f, "Invalid delegation target"),
             Error::ZeroAmount => write!(f, "Amount must be greater than zero"),
+            Error::ReentrantCall => write!(f, "Reentrant call detected"),
         }
     }
 }
@@ -45,6 +47,7 @@ impl ContractError for Error {
             Error::AlreadyStaked => staking_codes::STAKING_ALREADY_STAKED,
             Error::InvalidDelegate => staking_codes::STAKING_INVALID_DELEGATE,
             Error::ZeroAmount => staking_codes::STAKING_ZERO_AMOUNT,
+            Error::ReentrantCall => 9999,
         }
     }
 
@@ -60,6 +63,7 @@ impl ContractError for Error {
             Error::AlreadyStaked => "This account already has an active stake",
             Error::InvalidDelegate => "Cannot delegate governance to this address",
             Error::ZeroAmount => "The amount must be greater than zero",
+            Error::ReentrantCall => "Reentrant call detected",
         }
     }
 
