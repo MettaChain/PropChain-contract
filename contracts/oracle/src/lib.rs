@@ -425,8 +425,7 @@ mod propchain_oracle {
             let proposal_id = self.multisig_proposal_counter;
             self.multisig_proposal_counter = self.multisig_proposal_counter.saturating_add(1);
 
-            let mut approvals = Vec::new();
-            approvals.push(caller);
+            let approvals = vec![caller];
 
             self.multisig_proposals.insert(
                 &proposal_id,

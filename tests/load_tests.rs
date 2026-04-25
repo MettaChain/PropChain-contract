@@ -102,8 +102,6 @@ impl NetworkLatencyConfig {
 
     /// Simulate network delay with packet loss
     pub fn simulate_delay(&self, congestion_factor: f64) -> u64 {
-        use std::time::Duration;
-
         let jitter = if self.jitter_ms > 0 {
             rand::random::<u64>() % (self.jitter_ms * 2)
         } else {
@@ -388,7 +386,7 @@ pub fn simulate_user_queries(
         let _result = registry.get_property(property_id as u64);
 
         let elapsed = start.elapsed().as_millis();
-        metrics.record_success(elapsed as u128);
+        metrics.record_success(elapsed);
 
         if config.operation_delay_ms > 0 {
             thread::sleep(Duration::from_millis(config.operation_delay_ms));
@@ -512,7 +510,7 @@ pub fn assert_performance_thresholds(
     println!("✅ All performance thresholds met!");
 }
 
-/// Return the current process resident set size in megabytes when available.
+#[allow(dead_code)]
 fn current_process_memory_mb() -> Option<f64> {
     #[cfg(target_os = "linux")]
     {
@@ -532,12 +530,14 @@ fn current_process_memory_mb() -> Option<f64> {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct MemorySample {
     elapsed_secs: f64,
     rss_mb: f64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 struct MemoryLeakReport {
     baseline_rss_mb: f64,
@@ -552,6 +552,7 @@ impl MemoryLeakReport {
     }
 }
 
+#[allow(dead_code)]
 struct MemoryLeakMonitor {
     samples: Arc<Mutex<Vec<MemorySample>>>,
     peak_rss_mb: Arc<Mutex<f64>>,
@@ -559,6 +560,7 @@ struct MemoryLeakMonitor {
     handle: Option<thread::JoinHandle<()>>,
 }
 
+#[allow(dead_code)]
 impl MemoryLeakMonitor {
     fn start(sample_interval: Duration) -> Option<Self> {
         let baseline_rss_mb = current_process_memory_mb()?;
@@ -630,6 +632,7 @@ impl MemoryLeakMonitor {
     }
 }
 
+#[allow(dead_code)]
 fn assert_memory_growth_bounded(
     report: &MemoryLeakReport,
     test_name: &str,
@@ -667,6 +670,7 @@ fn assert_memory_growth_bounded(
     );
 }
 
+#[allow(dead_code)]
 fn run_memory_hygiene_session(
     iterations: usize,
     properties_per_cycle: usize,

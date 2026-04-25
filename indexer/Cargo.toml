@@ -33,4 +33,5 @@ uuid = { version = "1.8", features = ["v4", "serde"] }
 url = "2.5"
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "8", features = ["axum"] }
+async-graphql = { version = "7", features = ["chrono", "uuid"] }
 

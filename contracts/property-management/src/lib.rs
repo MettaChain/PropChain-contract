@@ -543,6 +543,7 @@ mod property_management {
 
         /// Create a lease; enforces security-deposit cap vs rent when jurisdiction config exists.
         #[ink(message)]
+        #[allow(clippy::too_many_arguments)]
         pub fn create_lease(
             &mut self,
             token_id: TokenId,

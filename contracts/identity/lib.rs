@@ -1035,7 +1035,6 @@ pub mod propchain_identity {
             };
 
             // Calculate success rate
-            #[allow(clippy::manual_checked_ops)]
             let success_rate = if metrics.total_transactions > 0 {
                 metrics
                     .successful_transactions

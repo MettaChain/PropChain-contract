@@ -10,7 +10,7 @@ use scale_info::prelude::vec::Vec;
 #[ink::contract]
 mod bridge {
     use super::*;
-    use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
+    use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
     include!("errors.rs");
 

@@ -10,8 +10,8 @@
 
 use ink::prelude::string::String;
 use ink::storage::Mapping;
-use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
 use propchain_traits::*;
+use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
 #[cfg(not(feature = "std"))]
 use scale_info::prelude::vec::Vec;
 
@@ -95,6 +95,14 @@ pub mod property_token {
         vesting_schedules: Mapping<(TokenId, AccountId), VestingSchedule>,
         /// Custom URI overrides for tokens
         token_uris: Mapping<TokenId, String>,
+
+        /// Staking state
+        share_stakes: Mapping<(AccountId, TokenId), ShareStakeInfo>,
+        share_total_staked: Mapping<TokenId, u128>,
+        share_reward_pool: Mapping<TokenId, u128>,
+        share_reward_rate_bps: Mapping<TokenId, u128>,
+        share_acc_reward_per_share: Mapping<TokenId, u128>,
+        share_last_reward_block: Mapping<TokenId, u64>,
 
         /// Reentrancy protection guard
         reentrancy_guard: ReentrancyGuard,
@@ -550,6 +558,12 @@ pub mod property_token {
                 management_agent: Mapping::default(),
                 vesting_schedules: Mapping::default(),
                 token_uris: Mapping::default(),
+                share_stakes: Mapping::default(),
+                share_total_staked: Mapping::default(),
+                share_reward_pool: Mapping::default(),
+                share_reward_rate_bps: Mapping::default(),
+                share_acc_reward_per_share: Mapping::default(),
+                share_last_reward_block: Mapping::default(),
                 reentrancy_guard: ReentrancyGuard::new(),
                 snapshot_counter: Mapping::default(),
                 snapshots: Mapping::default(),
@@ -1179,7 +1193,7 @@ pub mod property_token {
                 id: snapshot_id,
                 token_id,
                 created_at: self.env().block_timestamp(),
-                total_supply_at_snapshot: self.total_supply,
+                total_supply_at_snapshot: self.total_supply as u128,
                 description: description.clone(),
             };
             self.snapshots.insert((token_id, snapshot_id), &snapshot);
@@ -2781,6 +2795,7 @@ pub mod property_token {
 
         /// Creates a vesting schedule for an account
         #[ink(message)]
+        #[allow(clippy::too_many_arguments)]
         pub fn create_vesting_schedule(
             &mut self,
             token_id: TokenId,
@@ -2852,8 +2867,7 @@ pub mod property_token {
                 schedule.total_amount
             } else {
                 let time_vested = current_time - schedule.start_time;
-                (schedule.total_amount as u128 * time_vested as u128)
-                    / (schedule.vesting_duration as u128)
+                (schedule.total_amount * time_vested as u128) / (schedule.vesting_duration as u128)
             };
 
             let claimable = vested_amount.saturating_sub(schedule.claimed_amount);
@@ -2898,7 +2912,7 @@ pub mod property_token {
                     schedule.total_amount
                 } else {
                     let time_vested = current_time - schedule.start_time;
-                    (schedule.total_amount as u128 * time_vested as u128)
+                    (schedule.total_amount * time_vested as u128)
                         / (schedule.vesting_duration as u128)
                 }
             } else {

@@ -8,7 +8,7 @@ use propchain_traits::*;
 #[ink::contract]
 mod dex {
     use super::*;
-    use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
+    use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
     const BIPS_DENOMINATOR: u128 = 10_000;
     const REWARD_PRECISION: u128 = 1_000_000_000;
@@ -457,6 +457,7 @@ mod dex {
         }
 
         #[ink(message)]
+        #[allow(clippy::too_many_arguments)]
         pub fn place_order(
             &mut self,
             pair_id: u64,
@@ -816,7 +817,7 @@ mod dex {
             let participants = self
                 .competition_participants
                 .get(competition_id)
-                .unwrap_or_else(Vec::new);
+                .unwrap_or_default();
             let mut total_score = 0u128;
             for participant in participants {
                 total_score = total_score.saturating_add(
@@ -842,7 +843,7 @@ mod dex {
             let participants = self
                 .competition_participants
                 .get(competition_id)
-                .unwrap_or_else(Vec::new);
+                .unwrap_or_default();
             let mut total_score = 0u128;
             for participant in participants {
                 total_score = total_score.saturating_add(
@@ -1859,6 +1860,91 @@ mod dex {
             Ok(amount_out)
         }
 
+        fn get_competition_leaderboard(&self, competition_id: u64) -> Vec<(AccountId, u128)> {
+            let participants = self
+                .competition_participants
+                .get(competition_id)
+                .unwrap_or_default();
+            participants
+                .into_iter()
+                .map(|account| {
+                    let score = self
+                        .competition_scores
+                        .get((competition_id, account))
+                        .unwrap_or(0);
+                    (account, score)
+                })
+                .collect()
+        }
+
+        fn is_competition_reward_claimed(&self, competition_id: u64, trader: AccountId) -> bool {
+            self.competition_claimed
+                .get((competition_id, trader))
+                .unwrap_or(false)
+        }
+
+        fn get_competition_score(&self, competition_id: u64, trader: AccountId) -> u128 {
+            self.competition_scores
+                .get((competition_id, trader))
+                .unwrap_or(0)
+        }
+
+        fn is_competition_active(&self, competition_id: u64) -> bool {
+            self.trading_competitions
+                .get(competition_id)
+                .map(|c| c.active)
+                .unwrap_or(false)
+        }
+
+        fn update_trade_competition_score(
+            &mut self,
+            pair_id: u64,
+            trader: AccountId,
+            volume: u128,
+        ) {
+            for competition_id in 1..=self.trade_competition_counter {
+                if let Some(competition) = self.trading_competitions.get(competition_id) {
+                    if !competition.active {
+                        continue;
+                    }
+                    if competition.pair_id.is_some_and(|p| p != pair_id) {
+                        continue;
+                    }
+                    let mut participants = self
+                        .competition_participants
+                        .get(competition_id)
+                        .unwrap_or_default();
+                    if !participants.contains(&trader) {
+                        participants.push(trader);
+                        self.competition_participants
+                            .insert(competition_id, &participants);
+                    }
+                    let current = self
+                        .competition_scores
+                        .get((competition_id, trader))
+                        .unwrap_or(0);
+                    let new_score = current.saturating_add(volume);
+                    self.competition_scores
+                        .insert((competition_id, trader), &new_score);
+                    self.env().emit_event(CompetitionScoreUpdated {
+                        competition_id,
+                        trader,
+                        score: new_score,
+                    });
+                }
+            }
+        }
+
+        fn get_all_competitions(&self) -> Vec<TradingCompetition> {
+            let mut competitions = Vec::new();
+            for competition_id in 1..=self.trade_competition_counter {
+                if let Some(comp) = self.trading_competitions.get(competition_id) {
+                    competitions.push(comp);
+                }
+            }
+            competitions
+        }
+
         fn is_order_executable(&self, order: &TradingOrder) -> Result<bool, Error> {
             let discovered = self.discover_price(order.pair_id)?;
             let triggered = match order.order_type {
@@ -1913,6 +1999,7 @@ mod dex {
             Ok(())
         }
 
+        #[allow(dead_code)]
         fn apply_fee_to_all_pools(&mut self, new_fee_bips: u32) -> Result<(), Error> {
             if new_fee_bips >= 1_000 {
                 return Err(Error::InvalidPair);

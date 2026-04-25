@@ -310,6 +310,7 @@ mod tax_compliance {
         reentrancy_guard: ReentrancyGuard,
         tax_rules: Mapping<u32, TaxRule>,
         property_assessments: Mapping<(u64, u32), PropertyAssessment>,
+        #[allow(clippy::type_complexity)]
         tax_records: Mapping<(u64, u32, u64), TaxRecord>,
         latest_reporting_period: Mapping<(u64, u32), u64>,
         audit_logs: Mapping<(u64, u64), AuditEntry>,
