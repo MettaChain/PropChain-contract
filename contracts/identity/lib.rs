@@ -50,6 +50,34 @@ pub mod propchain_identity {
         UnsupportedChain,
         /// Cross-chain verification failed
         CrossChainVerificationFailed,
+        /// Identity has been revoked
+        IdentityRevoked,
+    }
+
+    /// Audit trail entry for identity operations
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct AuditEntry {
+        pub entry_id: u64,
+        pub account: AccountId,
+        pub action: String,
+        pub performed_by: AccountId,
+        pub timestamp: u64,
+        pub details: String,
+    }
+
+    /// Revocation record for a revoked identity
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct RevocationRecord {
+        pub account: AccountId,
+        pub revoked_by: AccountId,
+        pub reason: String,
+        pub revoked_at: u64,
     }
 
     /// Decentralized Identifier (DID) document structure
@@ -264,6 +292,16 @@ pub mod propchain_identity {
         version: u32,
         /// Privacy verification nonces
         privacy_nonces: Mapping<AccountId, u64>,
+        /// Audit trail entries indexed by entry id
+        audit_trail: Mapping<u64, AuditEntry>,
+        /// Audit entry counter
+        audit_count: u64,
+        /// Per-account audit entry index list (stores entry ids)
+        account_audit_index: Mapping<(AccountId, u64), u64>,
+        /// Per-account audit entry count
+        account_audit_count: Mapping<AccountId, u64>,
+        /// Revocation records for revoked identities
+        revocations: Mapping<AccountId, RevocationRecord>,
     }
 
     /// Events
@@ -335,6 +373,25 @@ pub mod propchain_identity {
         timestamp: u64,
     }
 
+    #[ink(event)]
+    pub struct IdentityRevoked {
+        #[ink(topic)]
+        account: AccountId,
+        #[ink(topic)]
+        revoked_by: AccountId,
+        reason: String,
+        timestamp: u64,
+    }
+
+    #[ink(event)]
+    pub struct AuditEntryAdded {
+        #[ink(topic)]
+        account: AccountId,
+        entry_id: u64,
+        action: String,
+        timestamp: u64,
+    }
+
     impl Default for IdentityRegistry {
         fn default() -> Self {
             Self {
@@ -350,6 +407,11 @@ pub mod propchain_identity {
                 authorized_verifiers: Mapping::default(),
                 version: 0,
                 privacy_nonces: Mapping::default(),
+                audit_trail: Mapping::default(),
+                audit_count: 0,
+                account_audit_index: Mapping::default(),
+                account_audit_count: Mapping::default(),
+                revocations: Mapping::default(),
             }
         }
     }
@@ -378,6 +440,11 @@ pub mod propchain_identity {
                 authorized_verifiers: Mapping::default(),
                 version: 1,
                 privacy_nonces: Mapping::default(),
+                audit_trail: Mapping::default(),
+                audit_count: 0,
+                account_audit_index: Mapping::default(),
+                account_audit_count: Mapping::default(),
+                revocations: Mapping::default(),
             }
         }
 
@@ -466,6 +533,14 @@ pub mod propchain_identity {
                 timestamp,
             });
 
+            // Record audit entry
+            self.add_audit_entry(
+                caller,
+                caller,
+                "identity_created".into(),
+                "Identity created".into(),
+            );
+
             Ok(())
         }
 
@@ -517,6 +592,14 @@ pub mod propchain_identity {
                 verified_by: caller,
                 timestamp,
             });
+
+            // Record audit entry
+            self.add_audit_entry(
+                target_account,
+                caller,
+                "identity_verified".into(),
+                "Identity verification level updated".into(),
+            );
 
             Ok(())
         }
@@ -998,6 +1081,141 @@ pub mod propchain_identity {
             }
         }
 
+        /// Revoke a compromised identity (admin or authorized verifier only)
+        #[ink(message)]
+        pub fn revoke_identity(
+            &mut self,
+            target_account: AccountId,
+            reason: String,
+        ) -> Result<(), IdentityError> {
+            let caller = self.env().caller();
+            let timestamp = self.env().block_timestamp();
+
+            if !self.is_authorized_verifier(caller) {
+                return Err(IdentityError::Unauthorized);
+            }
+
+            // Identity must exist
+            let mut identity = self
+                .identities
+                .get(&target_account)
+                .ok_or(IdentityError::IdentityNotFound)?;
+
+            // Mark identity as revoked (set verification to None and is_verified false)
+            identity.is_verified = false;
+            identity.verification_level = VerificationLevel::None;
+            identity.trust_score = 0;
+            identity.last_activity = timestamp;
+            self.identities.insert(&target_account, &identity);
+
+            // Store revocation record
+            let record = RevocationRecord {
+                account: target_account,
+                revoked_by: caller,
+                reason: reason.clone(),
+                revoked_at: timestamp,
+            };
+            self.revocations.insert(&target_account, &record);
+
+            // Add audit entry
+            self.add_audit_entry(
+                target_account,
+                caller,
+                "identity_revoked".into(),
+                reason.clone(),
+            );
+
+            self.env().emit_event(IdentityRevoked {
+                account: target_account,
+                revoked_by: caller,
+                reason,
+                timestamp,
+            });
+
+            Ok(())
+        }
+
+        /// Check if an identity has been revoked
+        #[ink(message)]
+        pub fn is_revoked(&self, account: AccountId) -> bool {
+            self.revocations.contains(&account)
+        }
+
+        /// Get the revocation record for an account
+        #[ink(message)]
+        pub fn get_revocation(&self, account: AccountId) -> Option<RevocationRecord> {
+            self.revocations.get(&account)
+        }
+
+        /// Get a specific audit entry by id
+        #[ink(message)]
+        pub fn get_audit_entry(&self, entry_id: u64) -> Option<AuditEntry> {
+            self.audit_trail.get(&entry_id)
+        }
+
+        /// Get the total number of audit entries
+        #[ink(message)]
+        pub fn get_audit_count(&self) -> u64 {
+            self.audit_count
+        }
+
+        /// Get audit entries for a specific account (paginated)
+        #[ink(message)]
+        pub fn get_account_audit_entries(
+            &self,
+            account: AccountId,
+            offset: u64,
+            limit: u64,
+        ) -> Vec<AuditEntry> {
+            let count = self.account_audit_count.get(&account).unwrap_or(0);
+            let mut entries = Vec::new();
+            let end = (offset + limit).min(count);
+            for i in offset..end {
+                if let Some(entry_id) = self.account_audit_index.get(&(account, i)) {
+                    if let Some(entry) = self.audit_trail.get(&entry_id) {
+                        entries.push(entry);
+                    }
+                }
+            }
+            entries
+        }
+
+        /// Internal helper: record an audit entry
+        fn add_audit_entry(
+            &mut self,
+            account: AccountId,
+            performed_by: AccountId,
+            action: String,
+            details: String,
+        ) {
+            let timestamp = self.env().block_timestamp();
+            self.audit_count += 1;
+            let entry_id = self.audit_count;
+
+            let entry = AuditEntry {
+                entry_id,
+                account,
+                action: action.clone(),
+                performed_by,
+                timestamp,
+                details,
+            };
+
+            self.audit_trail.insert(&entry_id, &entry);
+
+            // Update per-account index
+            let idx = self.account_audit_count.get(&account).unwrap_or(0);
+            self.account_audit_index.insert(&(account, idx), &entry_id);
+            self.account_audit_count.insert(&account, &(idx + 1));
+
+            self.env().emit_event(AuditEntryAdded {
+                account,
+                entry_id,
+                action,
+                timestamp,
+            });
+        }
+
         /// Admin methods
         #[ink(message)]
         pub fn add_authorized_verifier(
@@ -1037,6 +1255,117 @@ pub mod propchain_identity {
         #[ink(message)]
         pub fn get_supported_chains(&self) -> Vec<ChainId> {
             self.supported_chains.clone()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use ink::env::test;
+
+        fn default_registry() -> IdentityRegistry {
+            test::set_caller::<ink::env::DefaultEnvironment>(
+                ink::env::test::default_accounts::<ink::env::DefaultEnvironment>().alice,
+            );
+            IdentityRegistry::new()
+        }
+
+        fn make_privacy() -> PrivacySettings {
+            PrivacySettings {
+                public_reputation: true,
+                public_verification: true,
+                data_sharing_consent: true,
+                zero_knowledge_proof: false,
+                selective_disclosure: Vec::new(),
+            }
+        }
+
+        #[ink::test]
+        fn test_audit_trail_on_create() {
+            let mut reg = default_registry();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+            assert_eq!(reg.get_audit_count(), 0);
+            reg.create_identity(
+                "did:test:audit1".into(),
+                vec![1u8; 32],
+                "Ed25519".into(),
+                None,
+                make_privacy(),
+            )
+            .unwrap();
+            assert_eq!(reg.get_audit_count(), 1);
+            let entry = reg.get_audit_entry(1).unwrap();
+            assert_eq!(entry.action, "identity_created");
+            assert_eq!(entry.account, accounts.alice);
+        }
+
+        #[ink::test]
+        fn test_audit_trail_on_verify() {
+            let mut reg = default_registry();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+            reg.create_identity(
+                "did:test:audit2".into(),
+                vec![1u8; 32],
+                "Ed25519".into(),
+                None,
+                make_privacy(),
+            )
+            .unwrap();
+            reg.add_authorized_verifier(accounts.alice).unwrap();
+            reg.verify_identity(accounts.alice, VerificationLevel::Basic, None)
+                .unwrap();
+            assert_eq!(reg.get_audit_count(), 2);
+            let entries = reg.get_account_audit_entries(accounts.alice, 0, 10);
+            assert_eq!(entries.len(), 2);
+            assert_eq!(entries[1].action, "identity_verified");
+        }
+
+        #[ink::test]
+        fn test_revoke_identity() {
+            let mut reg = default_registry();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+            // Create identity as bob
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            reg.create_identity(
+                "did:test:revoke1".into(),
+                vec![1u8; 32],
+                "Ed25519".into(),
+                None,
+                make_privacy(),
+            )
+            .unwrap();
+            // Admin revokes
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            assert_eq!(
+                reg.revoke_identity(accounts.bob, "Compromised".into()),
+                Ok(())
+            );
+            assert!(reg.is_revoked(accounts.bob));
+            let record = reg.get_revocation(accounts.bob).unwrap();
+            assert_eq!(record.reason, "Compromised");
+            assert_eq!(record.revoked_by, accounts.alice);
+            let identity = reg.get_identity(accounts.bob).unwrap();
+            assert!(!identity.is_verified);
+            assert_eq!(identity.trust_score, 0);
+        }
+
+        #[ink::test]
+        fn test_revoke_unauthorized() {
+            let mut reg = default_registry();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+            reg.create_identity(
+                "did:test:revoke2".into(),
+                vec![1u8; 32],
+                "Ed25519".into(),
+                None,
+                make_privacy(),
+            )
+            .unwrap();
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.charlie);
+            assert_eq!(
+                reg.revoke_identity(accounts.alice, "Unauthorized".into()),
+                Err(IdentityError::Unauthorized)
+            );
         }
     }
 }
