@@ -98,6 +98,23 @@ mod dex {
         pub reward_amount: u128,
     }
 
+    #[ink(event)]
+    pub struct LiquidityMiningCampaignUpdated {
+        pub emission_rate: u128,
+        pub start_block: u64,
+        pub end_block: u64,
+        pub reward_token_symbol: String,
+    }
+
+    #[ink(event)]
+    pub struct LiquidityRewardClaimed {
+        #[ink(topic)]
+        pub pair_id: u64,
+        #[ink(topic)]
+        pub provider: AccountId,
+        pub reward_amount: u128,
+    }
+
     #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
     )]
@@ -723,6 +740,12 @@ mod dex {
             if self.env().caller() != self.admin {
                 return Err(Error::Unauthorized);
             }
+            Self::validate_liquidity_mining_campaign(
+                emission_rate,
+                start_block,
+                end_block,
+                &reward_token_symbol,
+            )?;
             if self.admin_timelock_delay > 0 {
                 return Err(Error::TimelockRequired);
             }
@@ -731,7 +754,7 @@ mod dex {
                 start_block,
                 end_block,
                 reward_token_symbol,
-            );
+            )?;
             Ok(())
         }
 
@@ -1468,7 +1491,37 @@ mod dex {
                 .insert(caller, &balance.saturating_add(reward));
             self.governance_config.total_supply =
                 self.governance_config.total_supply.saturating_add(reward);
+            self.env().emit_event(LiquidityRewardClaimed {
+                pair_id,
+                provider: caller,
+                reward_amount: reward,
+            });
             Ok(reward)
+        }
+
+        #[ink(message)]
+        pub fn pending_liquidity_rewards(
+            &self,
+            pair_id: u64,
+            provider: AccountId,
+        ) -> Result<u128, Error> {
+            let pool = self.pool(pair_id)?;
+            let position = self.position(pair_id, provider);
+            Ok(self.pending_liquidity_rewards_for(&pool, &position, pair_id))
+        }
+
+        #[ink(message)]
+        pub fn get_liquidity_position(
+            &self,
+            pair_id: u64,
+            provider: AccountId,
+        ) -> LiquidityPosition {
+            self.position(pair_id, provider)
+        }
+
+        #[ink(message)]
+        pub fn get_liquidity_mining_campaign(&self) -> LiquidityMiningCampaign {
+            self.liquidity_mining.clone()
         }
 
         #[ink(message)]
@@ -1772,6 +1825,12 @@ mod dex {
             end_block: u64,
             reward_token_symbol: String,
         ) -> Result<u64, Error> {
+            Self::validate_liquidity_mining_campaign(
+                emission_rate,
+                start_block,
+                end_block,
+                &reward_token_symbol,
+            )?;
             let payload = AdminActionPayload {
                 emission_rate,
                 start_block,
@@ -1821,7 +1880,7 @@ mod dex {
                         action.payload.start_block,
                         action.payload.end_block,
                         action.payload.reward_token_symbol.clone(),
-                    );
+                    )?;
                 }
                 AdminActionKind::UpdateTimelockDelay => {
                     self.admin_timelock_delay = action.payload.timelock_delay_blocks;
@@ -1913,14 +1972,27 @@ mod dex {
             start_block: u64,
             end_block: u64,
             reward_token_symbol: String,
-        ) {
+        ) -> Result<(), Error> {
+            Self::validate_liquidity_mining_campaign(
+                emission_rate,
+                start_block,
+                end_block,
+                &reward_token_symbol,
+            )?;
             self.liquidity_mining = LiquidityMiningCampaign {
                 emission_rate,
                 start_block,
                 end_block,
-                reward_token_symbol,
+                reward_token_symbol: reward_token_symbol.clone(),
             };
             self.governance_config.emission_rate = emission_rate;
+            self.env().emit_event(LiquidityMiningCampaignUpdated {
+                emission_rate,
+                start_block,
+                end_block,
+                reward_token_symbol,
+            });
+            Ok(())
         }
 
         #[ink(message)]
@@ -2319,6 +2391,53 @@ mod dex {
             pool.reward_index = pool.reward_index.saturating_add(increment);
             self.pools.insert(pair_id, &pool);
             self.last_reward_block.insert(pair_id, &current_block);
+            Ok(())
+        }
+
+        fn pending_liquidity_rewards_for(
+            &self,
+            pool: &LiquidityPool,
+            position: &LiquidityPosition,
+            pair_id: u64,
+        ) -> u128 {
+            if position.lp_shares == 0 || pool.total_lp_shares == 0 {
+                return position.pending_rewards;
+            }
+
+            let current_block = u64::from(self.env().block_number());
+            let last_block = self.last_reward_block.get(pair_id).unwrap_or(current_block);
+            let start = core::cmp::max(last_block, self.liquidity_mining.start_block);
+            let end = core::cmp::min(current_block, self.liquidity_mining.end_block);
+            let reward_index = if end > start {
+                let blocks = (end - start) as u128;
+                let total_reward = blocks.saturating_mul(self.liquidity_mining.emission_rate);
+                let increment = total_reward
+                    .saturating_mul(REWARD_PRECISION)
+                    .checked_div(pool.total_lp_shares)
+                    .unwrap_or(0);
+                pool.reward_index.saturating_add(increment)
+            } else {
+                pool.reward_index
+            };
+
+            position
+                .pending_rewards
+                .saturating_add(pending_from_indices(
+                    position.lp_shares,
+                    reward_index,
+                    position.reward_debt,
+                ))
+        }
+
+        fn validate_liquidity_mining_campaign(
+            emission_rate: u128,
+            start_block: u64,
+            end_block: u64,
+            reward_token_symbol: &String,
+        ) -> Result<(), Error> {
+            if emission_rate == 0 || start_block >= end_block || reward_token_symbol.is_empty() {
+                return Err(Error::InvalidRequest);
+            }
             Ok(())
         }
 
