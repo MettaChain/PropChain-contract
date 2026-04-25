@@ -27,6 +27,7 @@ mod propchain_lending {
         InvalidParameters,
         ProposalNotFound,
         InsufficientVotes,
+        PaymentScheduleNotFound,
         ReentrantCall,
     }
 
@@ -86,6 +87,42 @@ mod propchain_lending {
     }
 
     #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum PaymentScheduleStatus {
+        Active,
+        Completed,
+        Defaulted,
+    }
+
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct PaymentSchedule {
+        pub schedule_id: u64,
+        pub loan_id: u64,
+        pub borrower: AccountId,
+        pub principal_due: u128,
+        pub interest_due: u128,
+        pub installment_amount: u128,
+        pub total_installments: u32,
+        pub installments_paid: u32,
+        pub first_due_block: u64,
+        pub interval_blocks: u64,
+        pub next_due_block: u64,
+        pub total_paid: u128,
+        pub status: PaymentScheduleStatus,
+    }
+
+    #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -118,6 +155,9 @@ mod propchain_lending {
         position_count: u64,
         loan_applications: Mapping<u64, LoanApplication>,
         loan_count: u64,
+        payment_schedules: Mapping<u64, PaymentSchedule>,
+        loan_payment_schedule: Mapping<u64, u64>,
+        schedule_count: u64,
         yield_positions: Mapping<AccountId, YieldPosition>,
         total_staked: u128,
         reward_per_block: u128,
@@ -160,6 +200,24 @@ mod propchain_lending {
     }
 
     #[ink(event)]
+    pub struct PaymentScheduleCreated {
+        #[ink(topic)]
+        schedule_id: u64,
+        #[ink(topic)]
+        loan_id: u64,
+        installment_amount: u128,
+        next_due_block: u64,
+    }
+
+    #[ink(event)]
+    pub struct ScheduledPaymentRecorded {
+        #[ink(topic)]
+        schedule_id: u64,
+        #[ink(topic)]
+        loan_id: u64,
+        amount: u128,
+        total_paid: u128,
+        next_due_block: u64,
     pub struct LoanLiquidated {
         #[ink(topic)]
         loan_id: u64,
@@ -187,6 +245,9 @@ mod propchain_lending {
                 position_count: 0,
                 loan_applications: Mapping::default(),
                 loan_count: 0,
+                payment_schedules: Mapping::default(),
+                loan_payment_schedule: Mapping::default(),
+                schedule_count: 0,
                 yield_positions: Mapping::default(),
                 total_staked: 0,
                 reward_per_block: 100,
@@ -375,6 +436,130 @@ mod propchain_lending {
         }
 
         #[ink(message)]
+        pub fn create_payment_schedule(
+            &mut self,
+            loan_id: u64,
+            principal_due: u128,
+            interest_due: u128,
+            total_installments: u32,
+            first_due_block: u64,
+            interval_blocks: u64,
+        ) -> Result<u64, LendingError> {
+            let loan = self
+                .loan_applications
+                .get(loan_id)
+                .ok_or(LendingError::LoanNotFound)?;
+            let caller = self.env().caller();
+            if caller != self.admin && caller != loan.applicant {
+                return Err(LendingError::Unauthorized);
+            }
+            if !loan.approved
+                || principal_due == 0
+                || total_installments == 0
+                || interval_blocks == 0
+                || self.loan_payment_schedule.get(loan_id).is_some()
+            {
+                return Err(LendingError::InvalidParameters);
+            }
+
+            let total_due = principal_due.saturating_add(interest_due);
+            let installment_amount = total_due
+                .saturating_add(total_installments as u128 - 1)
+                .checked_div(total_installments as u128)
+                .unwrap_or(0);
+            self.schedule_count += 1;
+            let schedule = PaymentSchedule {
+                schedule_id: self.schedule_count,
+                loan_id,
+                borrower: loan.applicant,
+                principal_due,
+                interest_due,
+                installment_amount,
+                total_installments,
+                installments_paid: 0,
+                first_due_block,
+                interval_blocks,
+                next_due_block: first_due_block,
+                total_paid: 0,
+                status: PaymentScheduleStatus::Active,
+            };
+            self.payment_schedules
+                .insert(self.schedule_count, &schedule);
+            self.loan_payment_schedule
+                .insert(loan_id, &self.schedule_count);
+            self.env().emit_event(PaymentScheduleCreated {
+                schedule_id: self.schedule_count,
+                loan_id,
+                installment_amount,
+                next_due_block: first_due_block,
+            });
+            Ok(self.schedule_count)
+        }
+
+        #[ink(message)]
+        pub fn record_scheduled_payment(
+            &mut self,
+            schedule_id: u64,
+            amount: u128,
+        ) -> Result<(), LendingError> {
+            if amount == 0 {
+                return Err(LendingError::InvalidParameters);
+            }
+            let mut schedule = self
+                .payment_schedules
+                .get(schedule_id)
+                .ok_or(LendingError::PaymentScheduleNotFound)?;
+            let caller = self.env().caller();
+            if caller != self.admin && caller != schedule.borrower {
+                return Err(LendingError::Unauthorized);
+            }
+            if schedule.status != PaymentScheduleStatus::Active {
+                return Err(LendingError::InvalidParameters);
+            }
+
+            schedule.total_paid = schedule.total_paid.saturating_add(amount);
+            let total_due = schedule.principal_due.saturating_add(schedule.interest_due);
+            let expected_installments = schedule
+                .total_paid
+                .checked_div(schedule.installment_amount.max(1))
+                .unwrap_or(0)
+                .min(schedule.total_installments as u128);
+            schedule.installments_paid = expected_installments as u32;
+            if schedule.total_paid >= total_due {
+                schedule.status = PaymentScheduleStatus::Completed;
+                schedule.installments_paid = schedule.total_installments;
+            } else {
+                schedule.next_due_block = schedule.first_due_block.saturating_add(
+                    schedule
+                        .interval_blocks
+                        .saturating_mul(schedule.installments_paid as u64),
+                );
+            }
+            self.payment_schedules.insert(schedule_id, &schedule);
+            self.env().emit_event(ScheduledPaymentRecorded {
+                schedule_id,
+                loan_id: schedule.loan_id,
+                amount,
+                total_paid: schedule.total_paid,
+                next_due_block: schedule.next_due_block,
+            });
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn mark_payment_schedule_defaulted(
+            &mut self,
+            schedule_id: u64,
+        ) -> Result<(), LendingError> {
+            if self.env().caller() != self.admin {
+                return Err(LendingError::Unauthorized);
+            }
+            let mut schedule = self
+                .payment_schedules
+                .get(schedule_id)
+                .ok_or(LendingError::PaymentScheduleNotFound)?;
+            schedule.status = PaymentScheduleStatus::Defaulted;
+            self.payment_schedules.insert(schedule_id, &schedule);
         pub fn liquidate_loan(
             &mut self,
             loan_id: u64,
@@ -512,6 +697,17 @@ mod propchain_lending {
         }
 
         #[ink(message)]
+        pub fn get_payment_schedule(&self, schedule_id: u64) -> Option<PaymentSchedule> {
+            self.payment_schedules.get(schedule_id)
+        }
+
+        #[ink(message)]
+        pub fn get_loan_payment_schedule(&self, loan_id: u64) -> Option<PaymentSchedule> {
+            let schedule_id = self.loan_payment_schedule.get(loan_id)?;
+            self.payment_schedules.get(schedule_id)
+        }
+
+        #[ink(message)]
         pub fn get_proposal(&self, proposal_id: u64) -> Option<Proposal> {
             self.proposals.get(proposal_id)
         }
@@ -529,6 +725,9 @@ mod propchain_lending {
     }
 }
 
+pub use crate::propchain_lending::{
+    LendingError, PaymentSchedule, PaymentScheduleStatus, PropertyLending,
+};
 pub use crate::propchain_lending::{LendingError, LoanStatus, PropertyLending};
 
 #[cfg(test)]
@@ -602,6 +801,65 @@ mod tests {
     }
 
     #[ink::test]
+    fn test_payment_schedule_lifecycle() {
+        let mut contract = setup();
+        let loan_id = contract.apply_for_loan(700_000, 1_000_000, 700).unwrap();
+        assert!(contract.underwrite_loan(loan_id).unwrap());
+
+        let schedule_id = contract
+            .create_payment_schedule(loan_id, 700_000, 70_000, 7, 10, 5)
+            .unwrap();
+        let schedule = contract.get_payment_schedule(schedule_id).unwrap();
+        assert_eq!(schedule.installment_amount, 110_000);
+        assert_eq!(schedule.next_due_block, 10);
+        assert_eq!(schedule.status, PaymentScheduleStatus::Active);
+
+        contract
+            .record_scheduled_payment(schedule_id, 110_000)
+            .unwrap();
+        let schedule = contract.get_loan_payment_schedule(loan_id).unwrap();
+        assert_eq!(schedule.installments_paid, 1);
+        assert_eq!(schedule.next_due_block, 15);
+
+        contract
+            .record_scheduled_payment(schedule_id, 660_000)
+            .unwrap();
+        let schedule = contract.get_payment_schedule(schedule_id).unwrap();
+        assert_eq!(schedule.installments_paid, 7);
+        assert_eq!(schedule.status, PaymentScheduleStatus::Completed);
+    }
+
+    #[ink::test]
+    fn test_payment_schedule_rejects_invalid_or_unauthorized_actions() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let loan_id = contract.apply_for_loan(700_000, 1_000_000, 700).unwrap();
+
+        assert_eq!(
+            contract.create_payment_schedule(loan_id, 700_000, 70_000, 7, 10, 5),
+            Err(LendingError::InvalidParameters)
+        );
+        assert!(contract.underwrite_loan(loan_id).unwrap());
+        assert_eq!(
+            contract.create_payment_schedule(loan_id, 700_000, 70_000, 0, 10, 5),
+            Err(LendingError::InvalidParameters)
+        );
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            contract.create_payment_schedule(loan_id, 700_000, 70_000, 7, 10, 5),
+            Err(LendingError::Unauthorized)
+        );
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let schedule_id = contract
+            .create_payment_schedule(loan_id, 700_000, 70_000, 7, 10, 5)
+            .unwrap();
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        assert_eq!(
+            contract.record_scheduled_payment(schedule_id, 110_000),
+            Err(LendingError::Unauthorized)
+        );
     fn test_liquidate_loan() {
         let mut contract = setup();
         contract
