@@ -12,7 +12,7 @@ pub mod tests;
 #[ink::contract]
 mod propchain_escrow {
     use super::*;
-    use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
+    use propchain_contracts::{ReentrancyError, ReentrancyGuard};
 
     include!("errors.rs");
     include!("types.rs");

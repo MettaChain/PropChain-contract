@@ -102,6 +102,20 @@ pub mod property_token {
         snapshot_counter: Mapping<TokenId, u64>,
         snapshots: Mapping<(TokenId, u64), Snapshot>,
         account_snapshots: Mapping<(AccountId, TokenId, u64), u128>, // (account, token_id, snapshot_id) -> balance
+
+        // Staking fields (Issue #197)
+        /// Staking information per (staker, token_id)
+        share_stakes: Mapping<(AccountId, TokenId), ShareStakeInfo>,
+        /// Total staked shares per token
+        share_total_staked: Mapping<TokenId, u128>,
+        /// Accumulated reward per share (scaled by STAKE_SCALING)
+        share_acc_reward_per_share: Mapping<TokenId, u128>,
+        /// Last block number when rewards were calculated
+        share_last_reward_block: Mapping<TokenId, u64>,
+        /// Reward rate in basis points per year
+        share_reward_rate_bps: Mapping<TokenId, u128>,
+        /// Reward pool balance per token
+        share_reward_pool: Mapping<TokenId, u128>,
     }
 
     // Data types extracted to types.rs (Issue #101)
@@ -409,7 +423,7 @@ pub mod property_token {
         #[ink(topic)]
         pub staker: AccountId,
         pub amount: u128,
-        pub lock_period: ShareLockPeriod,
+        pub lock_period: LockPeriod,
         pub lock_until: u64,
     }
 
@@ -564,6 +578,13 @@ pub mod property_token {
                 snapshot_counter: Mapping::default(),
                 snapshots: Mapping::default(),
                 account_snapshots: Mapping::default(),
+                // Staking fields (Issue #197)
+                share_stakes: Mapping::default(),
+                share_total_staked: Mapping::default(),
+                share_acc_reward_per_share: Mapping::default(),
+                share_last_reward_block: Mapping::default(),
+                share_reward_rate_bps: Mapping::default(),
+                share_reward_pool: Mapping::default(),
             }
         }
 
@@ -1189,7 +1210,7 @@ pub mod property_token {
                 id: snapshot_id,
                 token_id,
                 created_at: self.env().block_timestamp(),
-                total_supply_at_snapshot: self.total_supply,
+                total_supply_at_snapshot: self.total_supply as u128,
                 description: description.clone(),
             };
             self.snapshots.insert((token_id, snapshot_id), &snapshot);
@@ -2616,7 +2637,7 @@ pub mod property_token {
             &mut self,
             token_id: TokenId,
             amount: u128,
-            lock_period: ShareLockPeriod,
+            lock_period: LockPeriod,
         ) -> Result<(), Error> {
             if amount == 0 {
                 return Err(Error::InvalidAmount);
@@ -2811,6 +2832,7 @@ pub mod property_token {
         // ── Staking private helpers (Issue #197) ──────────────────────────
 
         const STAKE_SCALING: u128 = 1_000_000_000_000;
+        const REWARD_RATE_PRECISION: u128 = 10_000; // Basis points precision
 
         fn update_stake_acc_reward(&mut self, token_id: TokenId) {
             let total = self.share_total_staked.get(token_id).unwrap_or(0);
@@ -2825,7 +2847,7 @@ pub mod property_token {
             }
             let rate = self.share_reward_rate_bps.get(token_id).unwrap_or(0);
             let reward = total.saturating_mul(rate).saturating_mul(blocks)
-                / REWARD_RATE_PRECISION
+                / Self::REWARD_RATE_PRECISION
                 / 5_256_000;
             let acc = self.share_acc_reward_per_share.get(token_id).unwrap_or(0);
             self.share_acc_reward_per_share.insert(
@@ -2861,6 +2883,7 @@ pub mod property_token {
 
         /// Creates a vesting schedule for an account
         #[ink(message)]
+        #[allow(clippy::too_many_arguments)]
         pub fn create_vesting_schedule(
             &mut self,
             token_id: TokenId,
@@ -2932,8 +2955,7 @@ pub mod property_token {
                 schedule.total_amount
             } else {
                 let time_vested = current_time - schedule.start_time;
-                (schedule.total_amount as u128 * time_vested as u128)
-                    / (schedule.vesting_duration as u128)
+                (schedule.total_amount * time_vested as u128) / (schedule.vesting_duration as u128)
             };
 
             let claimable = vested_amount.saturating_sub(schedule.claimed_amount);
@@ -2978,7 +3000,7 @@ pub mod property_token {
                     schedule.total_amount
                 } else {
                     let time_vested = current_time - schedule.start_time;
-                    (schedule.total_amount as u128 * time_vested as u128)
+                    (schedule.total_amount * time_vested as u128)
                         / (schedule.vesting_duration as u128)
                 }
             } else {
