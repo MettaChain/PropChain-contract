@@ -17,11 +17,7 @@ pub struct LoanAnalyticsContract;
 #[contractimpl]
 impl LoanAnalyticsContract {
     pub fn record_loan(env: Env, amount: i128) {
-        let mut stats: LoanStats = env
-            .storage()
-            .instance()
-            .get(&STATS)
-            .unwrap_or_default();
+        let mut stats: LoanStats = env.storage().instance().get(&STATS).unwrap_or_default();
 
         stats.total_loaned += amount;
         stats.active_loans += 1;
@@ -30,11 +26,7 @@ impl LoanAnalyticsContract {
     }
 
     pub fn record_default(env: Env) {
-        let mut stats: LoanStats = env
-            .storage()
-            .instance()
-            .get(&STATS)
-            .unwrap_or_default();
+        let mut stats: LoanStats = env.storage().instance().get(&STATS).unwrap_or_default();
 
         if stats.active_loans > 0 {
             stats.active_loans -= 1;
