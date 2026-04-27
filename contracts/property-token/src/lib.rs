@@ -102,6 +102,20 @@ pub mod property_token {
         snapshot_counter: Mapping<TokenId, u64>,
         snapshots: Mapping<(TokenId, u64), Snapshot>,
         account_snapshots: Mapping<(AccountId, TokenId, u64), u128>, // (account, token_id, snapshot_id) -> balance
+
+        // Staking fields (Issue #197)
+        /// Staking information per (staker, token_id)
+        share_stakes: Mapping<(AccountId, TokenId), ShareStakeInfo>,
+        /// Total staked shares per token
+        share_total_staked: Mapping<TokenId, u128>,
+        /// Accumulated reward per share (scaled by STAKE_SCALING)
+        share_acc_reward_per_share: Mapping<TokenId, u128>,
+        /// Last block number when rewards were calculated
+        share_last_reward_block: Mapping<TokenId, u64>,
+        /// Reward rate in basis points per year
+        share_reward_rate_bps: Mapping<TokenId, u128>,
+        /// Reward pool balance per token
+        share_reward_pool: Mapping<TokenId, u128>,
     }
 
     // Data types extracted to types.rs (Issue #101)
@@ -409,7 +423,7 @@ pub mod property_token {
         #[ink(topic)]
         pub staker: AccountId,
         pub amount: u128,
-        pub lock_period: ShareLockPeriod,
+        pub lock_period: LockPeriod,
         pub lock_until: u64,
     }
 
@@ -461,6 +475,16 @@ pub mod property_token {
         #[ink(topic)]
         pub account: AccountId,
         pub amount: u128,
+    }
+
+    // --- Supply Management Events ---
+    #[ink(event)]
+    pub struct TokenBurned {
+        #[ink(topic)]
+        pub token_id: TokenId,
+        #[ink(topic)]
+        pub burned_by: AccountId,
+        pub reason: String,
     }
 
     impl Default for PropertyToken {
@@ -554,6 +578,13 @@ pub mod property_token {
                 snapshot_counter: Mapping::default(),
                 snapshots: Mapping::default(),
                 account_snapshots: Mapping::default(),
+                // Staking fields (Issue #197)
+                share_stakes: Mapping::default(),
+                share_total_staked: Mapping::default(),
+                share_acc_reward_per_share: Mapping::default(),
+                share_last_reward_block: Mapping::default(),
+                share_reward_rate_bps: Mapping::default(),
+                share_reward_pool: Mapping::default(),
             }
         }
 
@@ -1179,7 +1210,7 @@ pub mod property_token {
                 id: snapshot_id,
                 token_id,
                 created_at: self.env().block_timestamp(),
-                total_supply_at_snapshot: self.total_supply,
+                total_supply_at_snapshot: self.total_supply as u128,
                 description: description.clone(),
             };
             self.snapshots.insert((token_id, snapshot_id), &snapshot);
@@ -2068,6 +2099,76 @@ pub mod property_token {
             Ok(())
         }
 
+        /// Burn a token for supply management purposes.
+        ///
+        /// Only the contract admin can burn tokens. This is used for supply management,
+        /// such as removing tokens from circulation, handling regulatory requirements,
+        /// or managing tokenomics.
+        ///
+        /// # Arguments
+        /// * `token_id` - The ID of the token to burn
+        /// * `reason` - A description of why the token is being burned (for audit trail)
+        ///
+        /// # Requirements
+        /// * Caller must be the contract admin
+        /// * Token must exist
+        /// * Token must not be locked in a bridge operation
+        ///
+        /// # Effects
+        /// * Removes token from owner's balance
+        /// * Decrements total supply
+        /// * Clears all token approvals
+        /// * Emits `Transfer` event (from owner to zero address)
+        /// * Emits `TokenBurned` event with reason
+        #[ink(message)]
+        pub fn burn(&mut self, token_id: TokenId, reason: String) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+            // Only admin can burn tokens
+            if caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            // Check token exists
+            let token_owner = self.token_owner.get(token_id).ok_or(Error::TokenNotFound)?;
+
+            // Check token is not locked in bridge
+            if self.has_pending_bridge_request(token_id) {
+                return Err(Error::BridgeLocked);
+            }
+
+            // Remove token from owner
+            self.remove_token_from_owner(token_owner, token_id)?;
+
+            // Clear token ownership
+            self.token_owner.remove(token_id);
+
+            // Clear approvals
+            self.token_approvals.remove(token_id);
+
+            // Clear balances
+            self.balances.insert((&token_owner, &token_id), &0u128);
+
+            // Decrement total supply
+            self.total_supply = self.total_supply.saturating_sub(1);
+
+            // Emit Transfer event (to zero address indicates burn)
+            self.env().emit_event(Transfer {
+                from: Some(token_owner),
+                to: None,
+                id: token_id,
+            });
+
+            // Emit TokenBurned event with reason for audit trail
+            self.env().emit_event(TokenBurned {
+                token_id,
+                burned_by: caller,
+                reason,
+            });
+
+            Ok(())
+        }
+
         /// Cross-chain: Recovers from a failed bridge operation
         #[ink(message)]
         pub fn recover_failed_bridge(
@@ -2536,7 +2637,7 @@ pub mod property_token {
             &mut self,
             token_id: TokenId,
             amount: u128,
-            lock_period: ShareLockPeriod,
+            lock_period: LockPeriod,
         ) -> Result<(), Error> {
             if amount == 0 {
                 return Err(Error::InvalidAmount);
@@ -2731,6 +2832,7 @@ pub mod property_token {
         // ── Staking private helpers (Issue #197) ──────────────────────────
 
         const STAKE_SCALING: u128 = 1_000_000_000_000;
+        const REWARD_RATE_PRECISION: u128 = 10_000; // Basis points precision
 
         fn update_stake_acc_reward(&mut self, token_id: TokenId) {
             let total = self.share_total_staked.get(token_id).unwrap_or(0);
@@ -2745,7 +2847,7 @@ pub mod property_token {
             }
             let rate = self.share_reward_rate_bps.get(token_id).unwrap_or(0);
             let reward = total.saturating_mul(rate).saturating_mul(blocks)
-                / REWARD_RATE_PRECISION
+                / Self::REWARD_RATE_PRECISION
                 / 5_256_000;
             let acc = self.share_acc_reward_per_share.get(token_id).unwrap_or(0);
             self.share_acc_reward_per_share.insert(
@@ -2781,6 +2883,7 @@ pub mod property_token {
 
         /// Creates a vesting schedule for an account
         #[ink(message)]
+        #[allow(clippy::too_many_arguments)]
         pub fn create_vesting_schedule(
             &mut self,
             token_id: TokenId,
@@ -2852,8 +2955,7 @@ pub mod property_token {
                 schedule.total_amount
             } else {
                 let time_vested = current_time - schedule.start_time;
-                (schedule.total_amount as u128 * time_vested as u128)
-                    / (schedule.vesting_duration as u128)
+                (schedule.total_amount * time_vested as u128) / (schedule.vesting_duration as u128)
             };
 
             let claimable = vested_amount.saturating_sub(schedule.claimed_amount);
@@ -2898,7 +3000,7 @@ pub mod property_token {
                     schedule.total_amount
                 } else {
                     let time_vested = current_time - schedule.start_time;
-                    (schedule.total_amount as u128 * time_vested as u128)
+                    (schedule.total_amount * time_vested as u128)
                         / (schedule.vesting_duration as u128)
                 }
             } else {

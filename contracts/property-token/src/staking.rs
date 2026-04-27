@@ -2,6 +2,7 @@
 // Included inside `impl PropertyToken` — do not wrap in another impl block.
 
 const STAKE_SCALING: u128 = 1_000_000_000_000;
+const REWARD_RATE_PRECISION: u128 = 10_000; // Basis points precision
 
 fn update_stake_acc_reward(&mut self, token_id: TokenId) {
     let total = self.share_total_staked.get(token_id).unwrap_or(0);

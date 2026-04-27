@@ -82,6 +82,7 @@ impl AuditTrail {
     ///
     /// Computes a Blake2x256 hash that chains to the previous record,
     /// stores the record, and updates secondary indices.
+    #[allow(clippy::too_many_arguments)]
     pub fn log_event(
         &mut self,
         actor: AccountId,
@@ -238,6 +239,7 @@ impl AuditTrail {
     }
 
     /// Compute Blake2x256 hash for a new record, chaining with the previous hash.
+    #[allow(clippy::too_many_arguments)]
     fn compute_record_hash(
         &self,
         id: u64,
