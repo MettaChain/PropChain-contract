@@ -756,3 +756,96 @@ fn test_revocation_unauthorized() {
         Err(IdentityError::Unauthorized)
     );
 }
+
+#[ink::test]
+fn test_port_identity_success() {
+    let accounts: DefaultAccounts<ink::env::DefaultEnvironment> = default_accounts();
+    let mut identity_registry = IdentityRegistry::new();
+
+    // Create identity for bob
+    ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+    let did = "did:example:port123".to_string();
+    let public_key = vec![1u8; 32];
+    let verification_method = "Ed25519VerificationKey2018".to_string();
+    let privacy_settings = PrivacySettings {
+        public_reputation: true,
+        public_verification: true,
+        data_sharing_consent: true,
+        zero_knowledge_proof: false,
+        selective_disclosure: vec![],
+    };
+
+    assert_eq!(
+        identity_registry.create_identity(
+            did.clone(),
+            public_key.clone(),
+            verification_method.clone(),
+            None,
+            privacy_settings,
+        ),
+        Ok(())
+    );
+
+    let new_account = AccountId::from([2u8; 32]);
+
+    // Port identity from bob to new_account
+    assert_eq!(identity_registry.port_identity(new_account), Ok(()));
+
+    // Old account should no longer have an identity
+    assert!(identity_registry.get_identity(accounts.bob).is_none());
+
+    // New account should have the same DID and reputation
+    let ported_identity = identity_registry.get_identity(new_account).unwrap();
+    assert_eq!(ported_identity.did_document.did, did);
+    assert_eq!(ported_identity.reputation_score, 500);
+    assert_eq!(ported_identity.account_id, new_account);
+}
+
+#[ink::test]
+fn test_port_identity_target_already_exists() {
+    let accounts: DefaultAccounts<ink::env::DefaultEnvironment> = default_accounts();
+    let mut identity_registry = IdentityRegistry::new();
+
+    // Create identity for alice and bob
+    let did_alice = "did:example:alice123".to_string();
+    let did_bob = "did:example:bob123".to_string();
+    let public_key = vec![1u8; 32];
+    let verification_method = "Ed25519VerificationKey2018".to_string();
+    let privacy_settings = PrivacySettings {
+        public_reputation: true,
+        public_verification: true,
+        data_sharing_consent: true,
+        zero_knowledge_proof: false,
+        selective_disclosure: vec![],
+    };
+
+    assert_eq!(
+        identity_registry.create_identity(
+            did_alice,
+            public_key.clone(),
+            verification_method.clone(),
+            None,
+            privacy_settings.clone(),
+        ),
+        Ok(())
+    );
+
+    ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+    assert_eq!(
+        identity_registry.create_identity(
+            did_bob,
+            public_key,
+            verification_method,
+            None,
+            privacy_settings,
+        ),
+        Ok(())
+    );
+
+    // Set caller back to alice and attempt to port to bob
+    ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+    assert_eq!(
+        identity_registry.port_identity(accounts.bob),
+        Err(IdentityError::IdentityAlreadyExists)
+    );
+}

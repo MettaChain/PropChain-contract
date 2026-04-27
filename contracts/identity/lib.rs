@@ -374,6 +374,15 @@ pub mod propchain_identity {
     }
 
     #[ink(event)]
+    pub struct IdentityPorted {
+        #[ink(topic)]
+        old_account: AccountId,
+        #[ink(topic)]
+        new_account: AccountId,
+        timestamp: u64,
+    }
+
+    #[ink(event)]
     pub struct IdentityRevoked {
         #[ink(topic)]
         account: AccountId,
@@ -927,6 +936,61 @@ pub mod propchain_identity {
                 new_account,
                 timestamp: _timestamp,
             });
+
+            Ok(())
+        }
+
+        /// Port an existing identity to a new account
+        #[ink(message)]
+        pub fn port_identity(&mut self, new_account: AccountId) -> Result<(), IdentityError> {
+            let caller = self.env().caller();
+            let timestamp = self.env().block_timestamp();
+
+            if caller == new_account {
+                return Err(IdentityError::IdentityAlreadyExists);
+            }
+
+            // Source identity must exist and must not be revoked
+            let mut identity = self
+                .identities
+                .get(&caller)
+                .ok_or(IdentityError::IdentityNotFound)?;
+
+            if self.revocations.contains(&caller) {
+                return Err(IdentityError::IdentityRevoked);
+            }
+
+            if self.identities.contains(&new_account) {
+                return Err(IdentityError::IdentityAlreadyExists);
+            }
+
+            identity.account_id = new_account;
+            identity.last_activity = timestamp;
+            identity.did_document.updated_at = timestamp;
+            identity.did_document.version = identity.did_document.version.saturating_add(1);
+
+            self.identities.remove(&caller);
+            self.identities.insert(&new_account, &identity);
+            self.did_to_account
+                .insert(&identity.did_document.did, &new_account);
+
+            if let Some(metrics) = self.reputation_metrics.get(&caller) {
+                self.reputation_metrics.remove(&caller);
+                self.reputation_metrics.insert(&new_account, &metrics);
+            }
+
+            self.env().emit_event(IdentityPorted {
+                old_account: caller,
+                new_account,
+                timestamp,
+            });
+
+            self.add_audit_entry(
+                new_account,
+                caller,
+                "identity_ported".into(),
+                "Identity ported to new account".into(),
+            );
 
             Ok(())
         }
