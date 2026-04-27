@@ -30,6 +30,17 @@ mod propchain_lending {
         RestructuringNotFound,
         InsufficientVotes,
         ReentrantCall,
+        LoanNotActive,
+    }
+
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum LoanStatus {
+        Pending,
+        Active,
+        Liquidated,
     }
 
     impl From<propchain_traits::ReentrancyError> for LendingError {

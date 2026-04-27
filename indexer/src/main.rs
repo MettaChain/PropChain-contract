@@ -1,5 +1,6 @@
 mod api;
 mod db;
+mod graphql;
 #[cfg(feature = "ingest")]
 mod ingest;
 mod openapi;
@@ -81,16 +82,25 @@ async fn main() -> anyhow::Result<()> {
         .allow_headers(Any);
 
     let api_state = ApiState { db: db.clone() };
+    let schema = graphql::build_schema(db.clone());
 
-    let api_routes = Router::new()
+    let rest_router = Router::new()
         .route("/health", get(health))
         .route("/events", get(list_events))
         .route("/contracts", get(crate::api::list_contracts))
         .route("/metrics", get(|| async move { metric_handle.render() }))
         .with_state(api_state);
 
+    let graphql_router = Router::new()
+        .route(
+            "/graphql",
+            get(graphql::graphql_playground).post(graphql::graphql_handler),
+        )
+        .with_state(schema);
+
     let app = Router::new()
-        .merge(api_routes)
+        .merge(rest_router)
+        .merge(graphql_router)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(prometheus_layer)
         .layer(cors)

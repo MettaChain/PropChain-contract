@@ -8,7 +8,7 @@ use propchain_traits::*;
 #[ink::contract]
 mod dex {
     use super::*;
-    use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
+    use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
     const BIPS_DENOMINATOR: u128 = 10_000;
     const REWARD_PRECISION: u128 = 1_000_000_000;
@@ -457,6 +457,7 @@ mod dex {
         }
 
         #[ink(message)]
+        #[allow(clippy::too_many_arguments)]
         pub fn place_order(
             &mut self,
             pair_id: u64,
@@ -534,42 +535,50 @@ mod dex {
             requested_amount: u128,
         ) -> Result<u128, Error> {
             non_reentrant!(self, {
-                let mut order = self.order(order_id)?;
-                if !matches!(
-                    order.status,
-                    OrderStatus::Open | OrderStatus::PartiallyFilled | OrderStatus::Triggered
-                ) {
-                    return Err(Error::OrderNotExecutable);
-                }
-
-                let executable = self.is_order_executable(&order)?;
-                if !executable {
-                    return Err(Error::OrderNotExecutable);
-                }
-
-                let fill_amount = core::cmp::min(requested_amount, order.remaining_amount);
-                if fill_amount == 0 {
-                    return Err(Error::InvalidOrder);
-                }
-
-                let pair_id = order.pair_id;
-                let output = match order.side {
-                    OrderSide::Sell => self.swap(pair_id, OrderSide::Sell, fill_amount, 0)?,
-                    OrderSide::Buy => self.swap(pair_id, OrderSide::Buy, fill_amount, 0)?,
-                };
-
-                order.remaining_amount = order.remaining_amount.saturating_sub(fill_amount);
-                order.updated_at = self.env().block_timestamp();
-                order.status = if order.remaining_amount == 0 {
-                    OrderStatus::Filled
-                } else {
-                    OrderStatus::PartiallyFilled
-                };
-                self.orders.insert(order_id, &order);
-                self.refresh_best_quotes(pair_id);
-
-                Ok(output)
+                self.execute_order_core(order_id, requested_amount)
             })
+        }
+
+        fn execute_order_core(
+            &mut self,
+            order_id: u64,
+            requested_amount: u128,
+        ) -> Result<u128, Error> {
+            let mut order = self.order(order_id)?;
+            if !matches!(
+                order.status,
+                OrderStatus::Open | OrderStatus::PartiallyFilled | OrderStatus::Triggered
+            ) {
+                return Err(Error::OrderNotExecutable);
+            }
+
+            let executable = self.is_order_executable(&order)?;
+            if !executable {
+                return Err(Error::OrderNotExecutable);
+            }
+
+            let fill_amount = core::cmp::min(requested_amount, order.remaining_amount);
+            if fill_amount == 0 {
+                return Err(Error::InvalidOrder);
+            }
+
+            let pair_id = order.pair_id;
+            let output = match order.side {
+                OrderSide::Sell => self.swap(pair_id, OrderSide::Sell, fill_amount, 0)?,
+                OrderSide::Buy => self.swap(pair_id, OrderSide::Buy, fill_amount, 0)?,
+            };
+
+            order.remaining_amount = order.remaining_amount.saturating_sub(fill_amount);
+            order.updated_at = self.env().block_timestamp();
+            order.status = if order.remaining_amount == 0 {
+                OrderStatus::Filled
+            } else {
+                OrderStatus::PartiallyFilled
+            };
+            self.orders.insert(order_id, &order);
+            self.refresh_best_quotes(pair_id);
+
+            Ok(output)
         }
 
         #[ink(message)]
@@ -765,6 +774,9 @@ mod dex {
                 if self.env().caller() != self.admin {
                     return Err(Error::Unauthorized);
                 }
+                if self.admin_timelock_delay > 0 {
+                    return Err(Error::TimelockRequired);
+                }
                 self.liquidity_mining = LiquidityMiningCampaign {
                     emission_rate,
                     start_block,
@@ -816,7 +828,7 @@ mod dex {
             let participants = self
                 .competition_participants
                 .get(competition_id)
-                .unwrap_or_else(Vec::new);
+                .unwrap_or_default();
             let mut total_score = 0u128;
             for participant in participants {
                 total_score = total_score.saturating_add(
@@ -842,7 +854,7 @@ mod dex {
             let participants = self
                 .competition_participants
                 .get(competition_id)
-                .unwrap_or_else(Vec::new);
+                .unwrap_or_default();
             let mut total_score = 0u128;
             for participant in participants {
                 total_score = total_score.saturating_add(
@@ -1154,6 +1166,11 @@ mod dex {
                 let passed = proposal.votes_for > proposal.votes_against;
                 proposal.executed = true;
                 self.governance_proposals.insert(proposal_id, &proposal);
+                if passed {
+                    if let Some(new_fee) = proposal.new_fee_bips {
+                        self.apply_fee_to_all_pools(new_fee)?;
+                    }
+                }
                 Ok(passed)
             })
         }
@@ -1859,6 +1876,91 @@ mod dex {
             Ok(amount_out)
         }
 
+        fn get_competition_leaderboard(&self, competition_id: u64) -> Vec<(AccountId, u128)> {
+            let participants = self
+                .competition_participants
+                .get(competition_id)
+                .unwrap_or_default();
+            participants
+                .into_iter()
+                .map(|account| {
+                    let score = self
+                        .competition_scores
+                        .get((competition_id, account))
+                        .unwrap_or(0);
+                    (account, score)
+                })
+                .collect()
+        }
+
+        fn is_competition_reward_claimed(&self, competition_id: u64, trader: AccountId) -> bool {
+            self.competition_claimed
+                .get((competition_id, trader))
+                .unwrap_or(false)
+        }
+
+        fn get_competition_score(&self, competition_id: u64, trader: AccountId) -> u128 {
+            self.competition_scores
+                .get((competition_id, trader))
+                .unwrap_or(0)
+        }
+
+        fn is_competition_active(&self, competition_id: u64) -> bool {
+            self.trading_competitions
+                .get(competition_id)
+                .map(|c| c.active)
+                .unwrap_or(false)
+        }
+
+        fn update_trade_competition_score(
+            &mut self,
+            pair_id: u64,
+            trader: AccountId,
+            volume: u128,
+        ) {
+            for competition_id in 1..=self.trade_competition_counter {
+                if let Some(competition) = self.trading_competitions.get(competition_id) {
+                    if !competition.active {
+                        continue;
+                    }
+                    if competition.pair_id.is_some_and(|p| p != pair_id) {
+                        continue;
+                    }
+                    let mut participants = self
+                        .competition_participants
+                        .get(competition_id)
+                        .unwrap_or_default();
+                    if !participants.contains(&trader) {
+                        participants.push(trader);
+                        self.competition_participants
+                            .insert(competition_id, &participants);
+                    }
+                    let current = self
+                        .competition_scores
+                        .get((competition_id, trader))
+                        .unwrap_or(0);
+                    let new_score = current.saturating_add(volume);
+                    self.competition_scores
+                        .insert((competition_id, trader), &new_score);
+                    self.env().emit_event(CompetitionScoreUpdated {
+                        competition_id,
+                        trader,
+                        score: new_score,
+                    });
+                }
+            }
+        }
+
+        fn get_all_competitions(&self) -> Vec<TradingCompetition> {
+            let mut competitions = Vec::new();
+            for competition_id in 1..=self.trade_competition_counter {
+                if let Some(comp) = self.trading_competitions.get(competition_id) {
+                    competitions.push(comp);
+                }
+            }
+            competitions
+        }
+
         fn is_order_executable(&self, order: &TradingOrder) -> Result<bool, Error> {
             let discovered = self.discover_price(order.pair_id)?;
             let triggered = match order.order_type {
@@ -2021,9 +2123,7 @@ mod dex {
                         OrderStatus::Open | OrderStatus::PartiallyFilled
                     )
                 {
-                    // Execute the order with its remaining amount
-                    // Ignore errors from individual order executions to continue processing others
-                    let _ = self.execute_order(order_id, order.remaining_amount);
+                    let _ = self.execute_order_core(order_id, order.remaining_amount);
                 }
             }
 

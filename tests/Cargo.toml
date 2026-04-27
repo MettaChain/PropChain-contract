@@ -61,4 +61,5 @@ std = [
 ]
 e2e-tests = ["std", "ink_e2e"]
 security-tests = ["std"]
+disabled_test = []
 

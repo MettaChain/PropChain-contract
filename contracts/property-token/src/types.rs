@@ -190,6 +190,66 @@ pub struct VestingSchedule {
     pub vesting_duration: u64,
 }
 
+pub const REWARD_RATE_PRECISION: u128 = 10_000;
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    scale::Encode,
+    scale::Decode,
+    ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub enum ShareLockPeriod {
+    OneMonth,
+    ThreeMonths,
+    SixMonths,
+    OneYear,
+}
+
+impl ShareLockPeriod {
+    pub fn duration_blocks(self) -> u64 {
+        match self {
+            ShareLockPeriod::OneMonth => 438_000,
+            ShareLockPeriod::ThreeMonths => 1_314_000,
+            ShareLockPeriod::SixMonths => 2_628_000,
+            ShareLockPeriod::OneYear => 5_256_000,
+        }
+    }
+
+    pub fn multiplier(self) -> u128 {
+        match self {
+            ShareLockPeriod::OneMonth => 100,
+            ShareLockPeriod::ThreeMonths => 125,
+            ShareLockPeriod::SixMonths => 150,
+            ShareLockPeriod::OneYear => 200,
+        }
+    }
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    scale::Encode,
+    scale::Decode,
+    ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub struct ShareStakeInfo {
+    pub staker: AccountId,
+    pub token_id: TokenId,
+    pub amount: u128,
+    pub staked_at: u64,
+    pub lock_until: u64,
+    pub lock_period: ShareLockPeriod,
+    pub reward_debt: u128,
+}
+
 /// Snapshot for governance voting (Issue #194)
 #[derive(
     Debug,

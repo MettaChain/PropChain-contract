@@ -141,7 +141,7 @@ pub enum LegalDocType {
     Insurance,
     ZoningPermit,
     EnvironmentalReport,
-    HOADocument,
+    HoaDocument,
     LeaseAgreement,
     MortgageDocument,
     Other,
