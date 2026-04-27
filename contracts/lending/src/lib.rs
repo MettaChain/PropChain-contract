@@ -20,6 +20,7 @@ mod propchain_lending {
         PropertyNotFound,
         InsufficientCollateral,
         LoanNotFound,
+        LoanNotActive,
         PoolNotFound,
         InsufficientLiquidity,
         PositionNotFound,
@@ -30,10 +31,38 @@ mod propchain_lending {
         ReentrantCall,
     }
 
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum LoanStatus {
+        Pending,
+        Active,
+        Repaid,
+        Liquidated,
+    }
+
     impl From<propchain_traits::ReentrancyError> for LendingError {
         fn from(_: propchain_traits::ReentrancyError) -> Self {
             LendingError::ReentrantCall
         }
+    }
+
+    /// On-chain credit history for a borrower.
+    /// Score is derived deterministically from this data — never stored directly.
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct CreditProfile {
+        /// Total number of loans fully repaid on time.
+        pub loans_repaid: u32,
+        /// Total number of loans that ended in default / liquidation.
+        pub loans_defaulted: u32,
+        /// Cumulative amount borrowed (in base units).
+        pub total_borrowed: u128,
+        /// Cumulative amount repaid (in base units).
+        pub total_repaid: u128,
     }
 
     #[derive(
@@ -111,6 +140,7 @@ mod propchain_lending {
     #[ink(storage)]
     pub struct PropertyLending {
         admin: AccountId,
+        credit_profiles: Mapping<AccountId, CreditProfile>,
         collateral_records: Mapping<u64, CollateralRecord>,
         pools: Mapping<u64, LendingPool>,
         pool_count: u64,
@@ -124,6 +154,13 @@ mod propchain_lending {
         proposals: Mapping<u64, Proposal>,
         proposal_count: u64,
         reentrancy_guard: propchain_traits::ReentrancyGuard,
+    }
+
+    #[ink(event)]
+    pub struct CreditScoreUpdated {
+        #[ink(topic)]
+        borrower: AccountId,
+        new_score: u32,
     }
 
     #[ink(event)]
@@ -180,6 +217,7 @@ mod propchain_lending {
         pub fn new(admin: AccountId) -> Self {
             Self {
                 admin,
+                credit_profiles: Mapping::default(),
                 collateral_records: Mapping::default(),
                 pools: Mapping::default(),
                 pool_count: 0,
@@ -195,6 +233,129 @@ mod propchain_lending {
                 reentrancy_guard: propchain_traits::ReentrancyGuard::new(),
             }
         }
+
+        // ── Credit Scoring ────────────────────────────────────────────────
+
+        /// Compute a credit score (300–850) from a borrower's on-chain history.
+        ///
+        /// Formula (all weights sum to 850 − 300 = 550 points above the floor):
+        ///   • Repayment ratio  (50 %) – repaid / (repaid + defaulted) loans
+        ///   • Repayment amount (30 %) – total_repaid / total_borrowed
+        ///   • Activity bonus   (20 %) – capped at 10 completed loans
+        pub fn compute_credit_score(profile: &CreditProfile) -> u32 {
+            const FLOOR: u32 = 300;
+            const CEILING: u32 = 850;
+            const RANGE: u32 = CEILING - FLOOR; // 550
+
+            let total_loans = profile.loans_repaid + profile.loans_defaulted;
+
+            // No history → neutral starting score
+            if total_loans == 0 && profile.total_borrowed == 0 {
+                return 650;
+            }
+
+            // Repayment ratio component (0–275 pts, 50 % of range)
+            let repayment_ratio_pts = if total_loans == 0 {
+                0u32
+            } else {
+                (profile.loans_repaid as u32 * RANGE / 2) / total_loans
+            };
+
+            // Amount repaid component (0–165 pts, 30 % of range)
+            let amount_pts = if profile.total_borrowed == 0 {
+                0u32
+            } else {
+                let ratio = (profile.total_repaid * 1000 / profile.total_borrowed) as u32;
+                (ratio.min(1000) * (RANGE * 3 / 10)) / 1000
+            };
+
+            // Activity bonus (0–110 pts, 20 % of range) — capped at 10 repaid loans
+            let activity_pts = (profile.loans_repaid.min(10) * (RANGE / 5)) / 10;
+
+            (FLOOR + repayment_ratio_pts + amount_pts + activity_pts).min(CEILING)
+        }
+
+        /// Return the current on-chain credit score for `borrower`.
+        #[ink(message)]
+        pub fn get_credit_score(&self, borrower: AccountId) -> u32 {
+            let profile = self.credit_profiles.get(borrower).unwrap_or(CreditProfile {
+                loans_repaid: 0,
+                loans_defaulted: 0,
+                total_borrowed: 0,
+                total_repaid: 0,
+            });
+            Self::compute_credit_score(&profile)
+        }
+
+        /// Return the full credit profile for `borrower`.
+        #[ink(message)]
+        pub fn get_credit_profile(&self, borrower: AccountId) -> Option<CreditProfile> {
+            self.credit_profiles.get(borrower)
+        }
+
+        /// Record a successful full repayment for a loan.
+        /// Only the admin (or the contract itself after integrating repayment flow) may call this.
+        #[ink(message)]
+        pub fn record_repayment(&mut self, loan_id: u64) -> Result<(), LendingError> {
+            if self.env().caller() != self.admin {
+                return Err(LendingError::Unauthorized);
+            }
+            let app = self
+                .loan_applications
+                .get(loan_id)
+                .ok_or(LendingError::LoanNotFound)?;
+
+            let borrower = app.applicant;
+            let mut profile = self.credit_profiles.get(borrower).unwrap_or(CreditProfile {
+                loans_repaid: 0,
+                loans_defaulted: 0,
+                total_borrowed: 0,
+                total_repaid: 0,
+            });
+            profile.loans_repaid += 1;
+            profile.total_borrowed += app.requested_amount;
+            profile.total_repaid += app.requested_amount;
+            self.credit_profiles.insert(borrower, &profile);
+
+            self.env().emit_event(CreditScoreUpdated {
+                borrower,
+                new_score: Self::compute_credit_score(&profile),
+            });
+            Ok(())
+        }
+
+        /// Record a default / liquidation event for a loan.
+        /// Only the admin may call this.
+        #[ink(message)]
+        pub fn record_default(&mut self, loan_id: u64) -> Result<(), LendingError> {
+            if self.env().caller() != self.admin {
+                return Err(LendingError::Unauthorized);
+            }
+            let app = self
+                .loan_applications
+                .get(loan_id)
+                .ok_or(LendingError::LoanNotFound)?;
+
+            let borrower = app.applicant;
+            let mut profile = self.credit_profiles.get(borrower).unwrap_or(CreditProfile {
+                loans_repaid: 0,
+                loans_defaulted: 0,
+                total_borrowed: 0,
+                total_repaid: 0,
+            });
+            profile.loans_defaulted += 1;
+            profile.total_borrowed += app.requested_amount;
+            // total_repaid intentionally not incremented — borrower did not repay
+            self.credit_profiles.insert(borrower, &profile);
+
+            self.env().emit_event(CreditScoreUpdated {
+                borrower,
+                new_score: Self::compute_credit_score(&profile),
+            });
+            Ok(())
+        }
+
+        // ── Collateral ────────────────────────────────────────────────────
 
         #[ink(message)]
         pub fn assess_collateral(
@@ -357,7 +518,9 @@ mod propchain_lending {
                 .get(loan_id)
                 .ok_or(LendingError::LoanNotFound)?;
             let ltv = (app.requested_amount * 10000) / app.collateral_value.max(1);
-            let approved = app.credit_score >= 600 && ltv <= 7500;
+            // Use on-chain credit score; ignore the caller-supplied value in the application.
+            let on_chain_score = self.get_credit_score(app.applicant);
+            let approved = on_chain_score >= 600 && ltv <= 7500;
             app.status = if approved {
                 LoanStatus::Active
             } else {
@@ -529,7 +692,7 @@ mod propchain_lending {
     }
 }
 
-pub use crate::propchain_lending::{LendingError, LoanStatus, PropertyLending};
+pub use crate::propchain_lending::{CreditProfile, LendingError, LoanStatus, PropertyLending};
 
 #[cfg(test)]
 mod tests {
@@ -631,5 +794,137 @@ mod tests {
         assert!(contract.vote(prop_id, true).is_ok());
         assert!(contract.vote(prop_id, false).is_ok());
         assert!(contract.execute_proposal(prop_id).unwrap());
+    }
+
+    // ── Credit Scoring Tests ──────────────────────────────────────────────
+
+    #[ink::test]
+    fn test_default_credit_score_no_history() {
+        let contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        // No history → neutral score of 650
+        assert_eq!(contract.get_credit_score(accounts.bob), 650);
+    }
+
+    #[ink::test]
+    fn test_credit_score_after_repayment() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Bob applies for a loan
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let loan_id = contract
+            .apply_for_loan(1, 500_000, 1_000_000, 0)
+            .unwrap();
+
+        // Admin records repayment
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        assert!(contract.record_repayment(loan_id).is_ok());
+
+        let score = contract.get_credit_score(accounts.bob);
+        assert!(score > 650, "score should improve after repayment: {score}");
+        assert!(score <= 850);
+    }
+
+    #[ink::test]
+    fn test_credit_score_after_default() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let loan_id = contract
+            .apply_for_loan(1, 500_000, 1_000_000, 0)
+            .unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        assert!(contract.record_default(loan_id).is_ok());
+
+        let score = contract.get_credit_score(accounts.bob);
+        assert!(score < 650, "score should drop after default: {score}");
+        assert!(score >= 300);
+    }
+
+    #[ink::test]
+    fn test_underwrite_uses_on_chain_score() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Bob has no history → score 650 ≥ 600, good LTV → should be approved
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let loan_id = contract
+            .apply_for_loan(1, 700_000, 1_000_000, 0 /* ignored */)
+            .unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let approved = contract.underwrite_loan(loan_id).unwrap();
+        assert!(approved, "borrower with neutral score and good LTV should be approved");
+    }
+
+    #[ink::test]
+    fn test_underwrite_rejected_after_defaults() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Give Bob several defaults to tank his score
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let l1 = contract.apply_for_loan(1, 500_000, 1_000_000, 0).unwrap();
+        let l2 = contract.apply_for_loan(1, 500_000, 1_000_000, 0).unwrap();
+        let l3 = contract.apply_for_loan(1, 500_000, 1_000_000, 0).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        contract.record_default(l1).unwrap();
+        contract.record_default(l2).unwrap();
+        contract.record_default(l3).unwrap();
+
+        let score = contract.get_credit_score(accounts.bob);
+        assert!(score < 600, "score after 3 defaults should be below 600: {score}");
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let loan_id = contract
+            .apply_for_loan(1, 700_000, 1_000_000, 0)
+            .unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let approved = contract.underwrite_loan(loan_id).unwrap();
+        assert!(!approved, "borrower with low score should be rejected");
+    }
+
+    #[ink::test]
+    fn test_record_repayment_unauthorized() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let loan_id = contract.apply_for_loan(1, 500_000, 1_000_000, 0).unwrap();
+
+        // Bob tries to record his own repayment — should fail
+        let result = contract.record_repayment(loan_id);
+        assert_eq!(result, Err(propchain_lending::LendingError::Unauthorized));
+    }
+
+    #[ink::test]
+    fn test_compute_score_perfect_history() {
+        use propchain_lending::PropertyLending;
+        let profile = propchain_lending::CreditProfile {
+            loans_repaid: 10,
+            loans_defaulted: 0,
+            total_borrowed: 1_000_000,
+            total_repaid: 1_000_000,
+        };
+        let score = PropertyLending::compute_credit_score(&profile);
+        assert_eq!(score, 850, "perfect history should yield max score");
+    }
+
+    #[ink::test]
+    fn test_compute_score_all_defaults() {
+        use propchain_lending::PropertyLending;
+        let profile = propchain_lending::CreditProfile {
+            loans_repaid: 0,
+            loans_defaulted: 5,
+            total_borrowed: 500_000,
+            total_repaid: 0,
+        };
+        let score = PropertyLending::compute_credit_score(&profile);
+        assert_eq!(score, 300, "all defaults should yield floor score");
     }
 }
