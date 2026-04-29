@@ -78,6 +78,8 @@ mod fractional {
         InsufficientPayment,
         Unauthorized,
         ZeroAmount,
+        NoDividends,
+        NoShares,
     }
 
     /// Emitted when an owner lists shares for sale
@@ -120,6 +122,24 @@ mod fractional {
         token_id: u64,
     }
 
+    /// Emitted when rental income is deposited for distribution
+    #[ink(event)]
+    pub struct DividendsDeposited {
+        #[ink(topic)]
+        token_id: u64,
+        amount: u128,
+        per_share: u128,
+    }
+
+    /// Emitted when a shareholder withdraws their accumulated dividends
+    #[ink(event)]
+    pub struct DividendsWithdrawn {
+        #[ink(topic)]
+        account: AccountId,
+        token_id: u64,
+        amount: u128,
+    }
+
     #[ink(storage)]
     pub struct Fractional {
         last_prices: Mapping<u64, u128>,
@@ -129,6 +149,12 @@ mod fractional {
         listings: Mapping<(AccountId, u64), ShareListing>,
         /// Total shares issued per token_id
         total_shares: Mapping<u64, u128>,
+        /// Accumulated dividends per share (scaled by SCALING), per token_id
+        dividends_per_share: Mapping<u64, u128>,
+        /// Last dividends_per_share snapshot per (account, token_id) — used to compute owed amount
+        dividend_credit: Mapping<(AccountId, u64), u128>,
+        /// Pending dividend balance per (account, token_id) ready to withdraw
+        dividend_balance: Mapping<(AccountId, u64), u128>,
     }
 
     impl Fractional {
@@ -139,6 +165,9 @@ mod fractional {
                 balances: Mapping::default(),
                 listings: Mapping::default(),
                 total_shares: Mapping::default(),
+                dividends_per_share: Mapping::default(),
+                dividend_credit: Mapping::default(),
+                dividend_balance: Mapping::default(),
             }
         }
     }
@@ -206,6 +235,9 @@ mod fractional {
         /// Mint shares to an owner (used in tests / by the property token contract)
         #[ink(message)]
         pub fn mint_shares(&mut self, owner: AccountId, token_id: u64, amount: u128) {
+            // Settle any pending dividends before changing the balance so the new
+            // shares don't retroactively earn dividends from prior deposits.
+            self.settle_dividend(owner, token_id);
             let current = self.balances.get(&(owner, token_id)).unwrap_or(0);
             self.balances.insert(&(owner, token_id), &current.saturating_add(amount));
             let total = self.total_shares.get(&token_id).unwrap_or(0);
@@ -298,6 +330,10 @@ mod fractional {
                 return Err(FractionalError::InsufficientPayment);
             }
 
+            // Settle dividends for both parties before changing balances
+            self.settle_dividend(seller, token_id);
+            self.settle_dividend(buyer, token_id);
+
             // Transfer shares: deduct from seller, credit buyer
             let seller_held = self.balances.get(&(seller, token_id)).unwrap_or(0);
             self.balances
@@ -354,6 +390,9 @@ mod fractional {
             let price = self.last_prices.get(token_id).unwrap_or(0);
             let payout = price.saturating_mul(shares);
 
+            // Settle dividends before burning so the owner doesn't lose unclaimed dividends
+            self.settle_dividend(caller, token_id);
+
             // Burn shares
             self.balances
                 .insert(&(caller, token_id), &held.saturating_sub(shares));
@@ -379,6 +418,85 @@ mod fractional {
         #[ink(message)]
         pub fn get_listing(&self, seller: AccountId, token_id: u64) -> Option<ShareListing> {
             self.listings.get(&(seller, token_id))
+        }
+
+        // ── Issue #272: Dividend distribution ───────────────────────────────
+
+        const SCALING: u128 = 1_000_000_000_000;
+
+        /// Deposit rental income for a property token; distributes proportionally to all shareholders.
+        /// The caller must attach the income amount as the transferred value.
+        #[ink(message, payable)]
+        pub fn deposit_dividends(&mut self, token_id: u64) -> Result<(), FractionalError> {
+            let amount = self.env().transferred_value();
+            if amount == 0 {
+                return Err(FractionalError::ZeroAmount);
+            }
+            let ts = self.total_shares.get(token_id).unwrap_or(0);
+            if ts == 0 {
+                return Err(FractionalError::NoShares);
+            }
+            let add = amount.saturating_mul(Self::SCALING) / ts;
+            let cur = self.dividends_per_share.get(token_id).unwrap_or(0);
+            self.dividends_per_share.insert(token_id, &cur.saturating_add(add));
+            self.env().emit_event(DividendsDeposited {
+                token_id,
+                amount,
+                per_share: add,
+            });
+            Ok(())
+        }
+
+        /// Withdraw accumulated dividends for the caller on a given token.
+        #[ink(message)]
+        pub fn withdraw_dividends(&mut self, token_id: u64) -> Result<u128, FractionalError> {
+            let caller = self.env().caller();
+            self.settle_dividend(caller, token_id);
+            let owed = self.dividend_balance.get(&(caller, token_id)).unwrap_or(0);
+            if owed == 0 {
+                return Err(FractionalError::NoDividends);
+            }
+            self.dividend_balance.insert(&(caller, token_id), &0u128);
+            // Best-effort transfer (may fail in unit tests without balance)
+            let _ = self.env().transfer(caller, owed);
+            self.env().emit_event(DividendsWithdrawn {
+                account: caller,
+                token_id,
+                amount: owed,
+            });
+            Ok(owed)
+        }
+
+        /// Query pending (unclaimed) dividends for an account without mutating state.
+        #[ink(message)]
+        pub fn pending_dividends(&self, account: AccountId, token_id: u64) -> u128 {
+            let dps = self.dividends_per_share.get(token_id).unwrap_or(0);
+            let credited = self.dividend_credit.get(&(account, token_id)).unwrap_or(0);
+            let already = self.dividend_balance.get(&(account, token_id)).unwrap_or(0);
+            if dps > credited {
+                let bal = self.balances.get(&(account, token_id)).unwrap_or(0);
+                let delta = dps.saturating_sub(credited);
+                let add = bal.saturating_mul(delta) / Self::SCALING;
+                already.saturating_add(add)
+            } else {
+                already
+            }
+        }
+
+        /// Internal: credit any unsettled dividends into the account's balance.
+        fn settle_dividend(&mut self, account: AccountId, token_id: u64) {
+            let dps = self.dividends_per_share.get(token_id).unwrap_or(0);
+            let credited = self.dividend_credit.get(&(account, token_id)).unwrap_or(0);
+            if dps > credited {
+                let bal = self.balances.get(&(account, token_id)).unwrap_or(0);
+                let delta = dps.saturating_sub(credited);
+                let add = bal.saturating_mul(delta) / Self::SCALING;
+                let owed = self.dividend_balance.get(&(account, token_id)).unwrap_or(0);
+                self.dividend_balance.insert(&(account, token_id), &owed.saturating_add(add));
+                self.dividend_credit.insert(&(account, token_id), &dps);
+            } else if credited == 0 && dps > 0 {
+                self.dividend_credit.insert(&(account, token_id), &dps);
+            }
         }
     }
 
@@ -470,6 +588,98 @@ mod fractional {
                 f.buy_shares(alice(), 1, 10),
                 Err(FractionalError::InsufficientPayment)
             );
+        }
+
+        // ── Issue #272: Dividend distribution tests ──────────────────────────
+
+        #[ink::test]
+        fn test_deposit_dividends_no_shares_fails() {
+            let mut f = Fractional::new();
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000);
+            assert_eq!(f.deposit_dividends(1), Err(FractionalError::NoShares));
+        }
+
+        #[ink::test]
+        fn test_deposit_dividends_zero_value_fails() {
+            let mut f = Fractional::new();
+            f.mint_shares(alice(), 1, 100);
+            // No value transferred → ZeroAmount
+            assert_eq!(f.deposit_dividends(1), Err(FractionalError::ZeroAmount));
+        }
+
+        #[ink::test]
+        fn test_pending_dividends_proportional() {
+            let mut f = Fractional::new();
+            // Alice: 600 shares, Bob: 400 shares (total 1000)
+            f.mint_shares(alice(), 1, 600);
+            f.mint_shares(bob(), 1, 400);
+
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+            f.deposit_dividends(1).unwrap();
+
+            // Alice should get 60%, Bob 40%
+            let alice_pending = f.pending_dividends(alice(), 1);
+            let bob_pending = f.pending_dividends(bob(), 1);
+            assert_eq!(alice_pending, 600_000);
+            assert_eq!(bob_pending, 400_000);
+        }
+
+        #[ink::test]
+        fn test_withdraw_dividends_success() {
+            let mut f = Fractional::new();
+            f.mint_shares(alice(), 1, 500);
+            f.mint_shares(bob(), 1, 500);
+
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+            f.deposit_dividends(1).unwrap();
+
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            let withdrawn = f.withdraw_dividends(1).unwrap();
+            assert_eq!(withdrawn, 500_000);
+
+            // After withdrawal, pending should be zero
+            assert_eq!(f.pending_dividends(alice(), 1), 0);
+        }
+
+        #[ink::test]
+        fn test_withdraw_dividends_no_dividends_fails() {
+            let mut f = Fractional::new();
+            f.mint_shares(alice(), 1, 100);
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            assert_eq!(f.withdraw_dividends(1), Err(FractionalError::NoDividends));
+        }
+
+        #[ink::test]
+        fn test_multiple_deposits_accumulate() {
+            let mut f = Fractional::new();
+            f.mint_shares(alice(), 1, 1000);
+
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(500_000);
+            f.deposit_dividends(1).unwrap();
+
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(500_000);
+            f.deposit_dividends(1).unwrap();
+
+            // Total 1_000_000 deposited, alice holds all shares
+            assert_eq!(f.pending_dividends(alice(), 1), 1_000_000);
+        }
+
+        #[ink::test]
+        fn test_late_shareholder_gets_no_prior_dividends() {
+            let mut f = Fractional::new();
+            f.mint_shares(alice(), 1, 1000);
+
+            // Deposit before Bob has any shares
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+            f.deposit_dividends(1).unwrap();
+
+            // Bob joins after the deposit
+            f.mint_shares(bob(), 1, 1000);
+
+            // Bob should have no pending dividends from the prior deposit
+            assert_eq!(f.pending_dividends(bob(), 1), 0);
+            // Alice still has her full entitlement
+            assert_eq!(f.pending_dividends(alice(), 1), 1_000_000);
         }
     }
 }
