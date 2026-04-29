@@ -255,6 +255,64 @@ mod propchain_lending {
     }
 
     #[ink(storage)]
+    // ── #304: Loan Marketplace types ─────────────────────────────────────────
+
+    /// Status of a loan marketplace listing.
+    #[derive(
+        Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum ListingStatus {
+        /// Awaiting bids from lenders.
+        Open,
+        /// An offer has been accepted; origination in progress.
+        OfferAccepted,
+        /// Loan originated successfully.
+        Originated,
+        /// Listing withdrawn by the borrower.
+        Cancelled,
+    }
+
+    /// A borrower's public loan request listed on the marketplace (#304).
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct LoanListing {
+        pub listing_id: u64,
+        pub borrower: AccountId,
+        pub property_id: u64,
+        pub requested_amount: u128,
+        /// Maximum interest rate the borrower is willing to pay (basis points).
+        pub max_rate_bps: u32,
+        pub term_months: u32,
+        pub collateral_kind: CollateralKind,
+        pub status: ListingStatus,
+        pub created_at: u64,
+        /// ID of the accepted offer, if any.
+        pub accepted_offer_id: Option<u64>,
+    }
+
+    /// A lender's counter-offer in response to a marketplace listing (#304).
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct LoanOffer {
+        pub offer_id: u64,
+        pub listing_id: u64,
+        pub lender: AccountId,
+        pub offered_amount: u128,
+        /// Interest rate offered by the lender (basis points).
+        pub rate_bps: u32,
+        pub term_months: u32,
+        pub is_accepted: bool,
+        pub created_at: u64,
+    }
+
     pub struct PropertyLending {
         admin: AccountId,
         collateral_records: Mapping<u64, CollateralRecord>,
@@ -278,6 +336,11 @@ mod propchain_lending {
         proposal_count: u64,
         credit_profiles: Mapping<AccountId, CreditProfile>,
         reentrancy_guard: propchain_traits::ReentrancyGuard,
+        // ── #304: Loan Marketplace ────────────────────────────────────────────
+        marketplace_listings: Mapping<u64, LoanListing>,
+        marketplace_offers: Mapping<u64, LoanOffer>,
+        listing_count: u64,
+        offer_count: u64,
     }
 
     #[ink(event)]
@@ -372,6 +435,46 @@ mod propchain_lending {
         description: String,
     }
 
+    // ── #304: Loan Marketplace events ────────────────────────────────────────
+
+    #[ink(event)]
+    pub struct LoanListingCreated {
+        #[ink(topic)]
+        pub listing_id: u64,
+        #[ink(topic)]
+        pub borrower: AccountId,
+        pub requested_amount: u128,
+        pub max_rate_bps: u32,
+    }
+
+    #[ink(event)]
+    pub struct LoanOfferSubmitted {
+        #[ink(topic)]
+        pub offer_id: u64,
+        #[ink(topic)]
+        pub listing_id: u64,
+        #[ink(topic)]
+        pub lender: AccountId,
+        pub rate_bps: u32,
+    }
+
+    #[ink(event)]
+    pub struct LoanOfferAccepted {
+        #[ink(topic)]
+        pub listing_id: u64,
+        #[ink(topic)]
+        pub offer_id: u64,
+        pub loan_id: u64,
+    }
+
+    #[ink(event)]
+    pub struct LoanListingCancelled {
+        #[ink(topic)]
+        pub listing_id: u64,
+        #[ink(topic)]
+        pub borrower: AccountId,
+    }
+
     impl PropertyLending {
         #[ink(constructor)]
         pub fn new(admin: AccountId) -> Self {
@@ -398,6 +501,11 @@ mod propchain_lending {
                 proposal_count: 0,
                 credit_profiles: Mapping::default(),
                 reentrancy_guard: propchain_traits::ReentrancyGuard::new(),
+                // #304: Loan Marketplace
+                marketplace_listings: Mapping::default(),
+                marketplace_offers: Mapping::default(),
+                listing_count: 0,
+                offer_count: 0,
             }
         }
 
@@ -1078,6 +1186,221 @@ mod propchain_lending {
         #[ink(message)]
         pub fn get_loan_servicer(&self, servicer_id: u64) -> Option<LoanServicer> {
             self.loan_servicers.get(servicer_id)
+        }
+
+        // ── #304: Loan Marketplace ────────────────────────────────────────────
+
+        /// Create a new loan listing on the marketplace (#304).
+        ///
+        /// Any borrower can list their loan request. Lenders can then submit
+        /// competing offers via `submit_loan_offer`.
+        #[ink(message)]
+        pub fn create_loan_listing(
+            &mut self,
+            property_id: u64,
+            requested_amount: u128,
+            max_rate_bps: u32,
+            term_months: u32,
+            collateral_kind: CollateralKind,
+        ) -> Result<u64, LendingError> {
+            if requested_amount == 0 || max_rate_bps == 0 || term_months == 0 {
+                return Err(LendingError::InvalidParameters);
+            }
+
+            let borrower = self.env().caller();
+            let listing_id = self.listing_count + 1;
+
+            let listing = LoanListing {
+                listing_id,
+                borrower,
+                property_id,
+                requested_amount,
+                max_rate_bps,
+                term_months,
+                collateral_kind,
+                status: ListingStatus::Open,
+                created_at: self.env().block_number() as u64,
+                accepted_offer_id: None,
+            };
+
+            self.marketplace_listings.insert(listing_id, &listing);
+            self.listing_count = listing_id;
+
+            self.env().emit_event(LoanListingCreated {
+                listing_id,
+                borrower,
+                requested_amount,
+                max_rate_bps,
+            });
+
+            Ok(listing_id)
+        }
+
+        /// Submit a lending offer against an open listing (#304).
+        ///
+        /// The lender specifies the rate and amount they are willing to offer.
+        /// The rate must be at or below the borrower's stated maximum.
+        #[ink(message)]
+        pub fn submit_loan_offer(
+            &mut self,
+            listing_id: u64,
+            offered_amount: u128,
+            rate_bps: u32,
+            term_months: u32,
+        ) -> Result<u64, LendingError> {
+            let listing = self
+                .marketplace_listings
+                .get(listing_id)
+                .ok_or(LendingError::LoanNotFound)?;
+
+            if !matches!(listing.status, ListingStatus::Open) {
+                return Err(LendingError::LoanNotActive);
+            }
+
+            // Offer rate must not exceed borrower's maximum
+            if rate_bps > listing.max_rate_bps {
+                return Err(LendingError::InvalidParameters);
+            }
+
+            if offered_amount == 0 || term_months == 0 {
+                return Err(LendingError::InvalidParameters);
+            }
+
+            let lender = self.env().caller();
+            let offer_id = self.offer_count + 1;
+
+            let offer = LoanOffer {
+                offer_id,
+                listing_id,
+                lender,
+                offered_amount,
+                rate_bps,
+                term_months,
+                is_accepted: false,
+                created_at: self.env().block_number() as u64,
+            };
+
+            self.marketplace_offers.insert(offer_id, &offer);
+            self.offer_count = offer_id;
+
+            self.env().emit_event(LoanOfferSubmitted {
+                offer_id,
+                listing_id,
+                lender,
+                rate_bps,
+            });
+
+            Ok(offer_id)
+        }
+
+        /// Borrower accepts a lender's offer and originates the loan (#304).
+        ///
+        /// Accepting an offer transitions the listing to `OfferAccepted`, creates
+        /// the underlying `LoanApplication`, and marks the listing as `Originated`.
+        #[ink(message)]
+        pub fn accept_loan_offer(
+            &mut self,
+            offer_id: u64,
+        ) -> Result<u64, LendingError> {
+            let mut offer = self
+                .marketplace_offers
+                .get(offer_id)
+                .ok_or(LendingError::LoanNotFound)?;
+
+            let mut listing = self
+                .marketplace_listings
+                .get(offer.listing_id)
+                .ok_or(LendingError::LoanNotFound)?;
+
+            let borrower = self.env().caller();
+            if listing.borrower != borrower {
+                return Err(LendingError::Unauthorized);
+            }
+
+            if !matches!(listing.status, ListingStatus::Open) {
+                return Err(LendingError::LoanNotActive);
+            }
+
+            if offer.is_accepted {
+                return Err(LendingError::InvalidParameters);
+            }
+
+            // Originate the underlying loan application
+            let loan_id = self.loan_count + 1;
+            let loan = LoanApplication {
+                loan_id,
+                applicant: borrower,
+                property_id: listing.property_id,
+                requested_amount: offer.offered_amount,
+                collateral_value: offer.offered_amount,
+                credit_score: self.get_credit_score(borrower),
+                approved: true,
+                servicer_id: None,
+                servicing_reference: String::new(),
+                servicing_status: String::from("marketplace_originated"),
+                collateral_kind: listing.collateral_kind,
+                term_months: offer.term_months,
+                interest_rate_bps: offer.rate_bps,
+                status: LoanStatus::Active,
+            };
+
+            self.loan_applications.insert(loan_id, &loan);
+            self.loan_count = loan_id;
+
+            // Update offer and listing state
+            offer.is_accepted = true;
+            listing.status = ListingStatus::Originated;
+            listing.accepted_offer_id = Some(offer_id);
+
+            self.marketplace_offers.insert(offer_id, &offer);
+            self.marketplace_listings.insert(listing.listing_id, &listing);
+
+            self.env().emit_event(LoanOfferAccepted {
+                listing_id: offer.listing_id,
+                offer_id,
+                loan_id,
+            });
+
+            Ok(loan_id)
+        }
+
+        /// Borrower cancels an open listing (#304).
+        #[ink(message)]
+        pub fn cancel_loan_listing(&mut self, listing_id: u64) -> Result<(), LendingError> {
+            let mut listing = self
+                .marketplace_listings
+                .get(listing_id)
+                .ok_or(LendingError::LoanNotFound)?;
+
+            if listing.borrower != self.env().caller() {
+                return Err(LendingError::Unauthorized);
+            }
+
+            if !matches!(listing.status, ListingStatus::Open) {
+                return Err(LendingError::LoanNotActive);
+            }
+
+            listing.status = ListingStatus::Cancelled;
+            self.marketplace_listings.insert(listing_id, &listing);
+
+            self.env().emit_event(LoanListingCancelled {
+                listing_id,
+                borrower: listing.borrower,
+            });
+
+            Ok(())
+        }
+
+        /// Get a marketplace listing by ID (#304).
+        #[ink(message)]
+        pub fn get_loan_listing(&self, listing_id: u64) -> Option<LoanListing> {
+            self.marketplace_listings.get(listing_id)
+        }
+
+        /// Get a lender offer by ID (#304).
+        #[ink(message)]
+        pub fn get_loan_offer(&self, offer_id: u64) -> Option<LoanOffer> {
+            self.marketplace_offers.get(offer_id)
         }
 
         #[ink(message)]
