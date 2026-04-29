@@ -282,6 +282,22 @@ mod fractional {
             self.balances.get(&(owner, token_id)).unwrap_or(0)
         }
 
+        /// Consolidate an owner's share balance for a token into the canonical balance slot.
+        #[ink(message)]
+        pub fn consolidate_shares(
+            &mut self,
+            owner: AccountId,
+            token_id: u64,
+        ) -> Result<u128, FractionalError> {
+            let shares = self.balances.get(&(owner, token_id)).unwrap_or(0);
+            if shares == 0 {
+                return Err(FractionalError::InsufficientShares);
+            }
+
+            self.balances.insert(&(owner, token_id), &shares);
+            Ok(shares)
+        }
+
         /// List shares for sale at a given price per share.
         /// The caller must hold at least `shares` of `token_id`.
         #[ink(message)]
