@@ -1723,7 +1723,7 @@ pub mod propchain_contracts {
                 // instead of panicking.
                 use ink::env::call::{build_call, ExecutionInput, Selector};
                 let result = build_call::<ink::env::DefaultEnvironment>()
-                    .call(oracle_addr)
+                    .call_v1(oracle_addr)
                     .gas_limit(0)
                     .transferred_value(0)
                     .exec_input(
