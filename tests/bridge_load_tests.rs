@@ -43,6 +43,7 @@ mod bridge_extreme_load_tests {
         daily_counts: Mutex<Vec<u64>>,
         rate_limit: u64,
         paused: std::sync::atomic::AtomicBool,
+
     }
 
     impl MockBridge {
@@ -75,6 +76,7 @@ mod bridge_extreme_load_tests {
                     self.rejected_counter.fetch_add(1, Ordering::SeqCst);
                     return None;
                 }
+
                 counts[account_idx] += 1;
             }
             let id = self.request_counter.fetch_add(1, Ordering::SeqCst);
@@ -86,6 +88,7 @@ mod bridge_extreme_load_tests {
                 status: BridgeStatus::Pending,
                 expires_at_ms: expires_at,
             });
+            
             Some(id)
         }
 

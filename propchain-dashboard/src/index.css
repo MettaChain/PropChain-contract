@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 body {
+  
   margin: 0;
   background-color: #0f172a; /* Slate-900 for that dark theme */
 }
