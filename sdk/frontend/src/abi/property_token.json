@@ -1,0 +1,84 @@
+{
+  "source": {
+    "hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "language": "ink! 4.0.0",
+    "compiler": "rustc 1.70.0"
+  },
+  "contract": {
+    "name": "property_token",
+    "version": "0.1.0",
+    "authors": ["PropChain Team"]
+  },
+  "spec": {
+    "constructors": [
+      {
+        "args": [],
+        "docs": ["Creates a new PropertyToken contract"],
+        "label": "new",
+        "payable": false,
+        "returnType": null,
+        "selector": "0x9bae9d5e"
+      }
+    ],
+    "docs": ["PropChain PropertyToken — ERC-721/1155 compatible property NFT with fractional ownership, governance, and cross-chain bridging."],
+    "events": [],
+    "lang_error": {
+      "displayName": ["ink", "LangError"],
+      "type": 0
+    },
+    "messages": [
+      {
+        "args": [{ "label": "owner", "type": { "displayName": ["AccountId"], "type": 5 } }],
+        "docs": ["Returns the balance of tokens owned by an account"],
+        "label": "balance_of",
+        "mutates": false,
+        "payable": false,
+        "returnType": { "displayName": ["u32"], "type": 7 },
+        "selector": "0x00000001"
+      },
+      {
+        "args": [{ "label": "token_id", "type": { "displayName": ["TokenId"], "type": 3 } }],
+        "docs": ["Returns the owner of a token"],
+        "label": "owner_of",
+        "mutates": false,
+        "payable": false,
+        "returnType": { "displayName": ["Option"], "type": 4 },
+        "selector": "0x00000002"
+      },
+      {
+        "args": [
+          { "label": "from", "type": { "displayName": ["AccountId"], "type": 5 } },
+          { "label": "to", "type": { "displayName": ["AccountId"], "type": 5 } },
+          { "label": "token_id", "type": { "displayName": ["TokenId"], "type": 3 } }
+        ],
+        "docs": ["Transfers a token"],
+        "label": "transfer_from",
+        "mutates": true,
+        "payable": false,
+        "returnType": { "displayName": ["Result"], "type": 6 },
+        "selector": "0x00000003"
+      },
+      {
+        "args": [{ "label": "metadata", "type": { "displayName": ["PropertyMetadata"], "type": 1 } }],
+        "docs": ["Registers a property and mints a token"],
+        "label": "register_property_with_token",
+        "mutates": true,
+        "payable": false,
+        "returnType": { "displayName": ["Result"], "type": 2 },
+        "selector": "0x00000004"
+      },
+      {
+        "args": [],
+        "docs": ["Returns total supply"],
+        "label": "total_supply",
+        "mutates": false,
+        "payable": false,
+        "returnType": { "displayName": ["u64"], "type": 3 },
+        "selector": "0x00000005"
+      }
+    ]
+  },
+  "storage": {},
+  "types": [],
+  "version": "4"
+}

@@ -1,8 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 #![allow(
-    clippy::upper_case_acronyms,
+    clippy::needless_borrows_for_generic_args,
     clippy::too_many_arguments,
-    clippy::needless_borrows_for_generic_args
+    clippy::upper_case_acronyms
 )]
 
 use propchain_traits::ComplianceChecker;
@@ -174,6 +174,24 @@ mod compliance_registry {
         pub data_retention_until: Timestamp,
     }
 
+    /// Tax-specific compliance status reported by the tax compliance module
+    #[derive(Debug, Clone, Copy, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub struct TaxComplianceStatus {
+        pub jurisdiction_code: u32,
+        pub reporting_period: u64,
+        pub last_checked_at: Timestamp,
+        pub last_payment_at: Timestamp,
+        pub outstanding_tax: Balance,
+        pub reporting_submitted: bool,
+        pub legal_documents_verified: bool,
+        pub clearance_expiry: Timestamp,
+        pub violation_count: u32,
+    }
+
     /// Compliance audit log entry
     #[derive(Debug, Clone, Copy, scale::Encode, scale::Decode)]
     #[cfg_attr(
@@ -244,6 +262,14 @@ mod compliance_registry {
         account_requests: Mapping<AccountId, u64>,
         /// ZK compliance contract address (optional)
         zk_compliance_contract: Option<AccountId>,
+        /// Authorized tax compliance modules
+        tax_modules: Mapping<AccountId, bool>,
+        /// Optional tax compliance state per account
+        tax_compliance_status: Mapping<AccountId, TaxComplianceStatus>,
+        /// Global KYC funnel metrics
+        kyc_metrics: KycMetrics,
+        /// KYC funnel metrics scoped by jurisdiction
+        jurisdiction_kyc_metrics: Mapping<Jurisdiction, KycMetrics>,
     }
 
     /// Errors
@@ -305,52 +331,78 @@ mod compliance_registry {
                     propchain_traits::errors::compliance_codes::COMPLIANCE_EXPIRED
                 }
                 Error::HighRisk => {
-                    propchain_traits::errors::compliance_codes::COMPLIANCE_CHECK_FAILED
+                    propchain_traits::errors::compliance_codes::COMPLIANCE_HIGH_RISK
                 }
                 Error::ProhibitedJurisdiction => {
-                    propchain_traits::errors::compliance_codes::COMPLIANCE_CHECK_FAILED
+                    propchain_traits::errors::compliance_codes::COMPLIANCE_PROHIBITED_JURISDICTION
                 }
                 Error::AlreadyVerified => {
-                    propchain_traits::errors::compliance_codes::COMPLIANCE_UNAUTHORIZED
+                    propchain_traits::errors::compliance_codes::COMPLIANCE_ALREADY_VERIFIED
                 }
                 Error::ConsentNotGiven => {
-                    propchain_traits::errors::compliance_codes::COMPLIANCE_NOT_VERIFIED
+                    propchain_traits::errors::compliance_codes::COMPLIANCE_CONSENT_NOT_GIVEN
                 }
                 Error::DataRetentionExpired => {
-                    propchain_traits::errors::compliance_codes::COMPLIANCE_EXPIRED
+                    propchain_traits::errors::compliance_codes::COMPLIANCE_DATA_RETENTION_EXPIRED
                 }
                 Error::InvalidRiskScore => {
-                    propchain_traits::errors::compliance_codes::COMPLIANCE_CHECK_FAILED
+                    propchain_traits::errors::compliance_codes::COMPLIANCE_INVALID_RISK_SCORE
                 }
                 Error::InvalidDocumentType => {
-                    propchain_traits::errors::compliance_codes::COMPLIANCE_DOCUMENT_MISSING
+                    propchain_traits::errors::compliance_codes::COMPLIANCE_INVALID_DOCUMENT_TYPE
                 }
                 Error::JurisdictionNotSupported => {
-                    propchain_traits::errors::compliance_codes::COMPLIANCE_CHECK_FAILED
+                    propchain_traits::errors::compliance_codes::COMPLIANCE_JURISDICTION_NOT_SUPPORTED
                 }
             }
         }
 
         fn error_description(&self) -> &'static str {
             match self {
-                Error::NotAuthorized => "Caller does not have permission to perform this operation",
+                Error::NotAuthorized => {
+                    "Caller does not have permission to perform this compliance operation"
+                }
                 Error::NotVerified => "The user has not completed verification",
                 Error::VerificationExpired => {
                     "The user's verification has expired and needs renewal"
                 }
-                Error::HighRisk => "The user has been assessed as high risk",
-                Error::ProhibitedJurisdiction => "The user's jurisdiction is prohibited",
-                Error::AlreadyVerified => "The user is already verified",
-                Error::ConsentNotGiven => "The user has not provided required consent",
-                Error::DataRetentionExpired => "The data retention period has expired",
-                Error::InvalidRiskScore => "The risk score is invalid or out of range",
-                Error::InvalidDocumentType => "The document type is invalid or not supported",
-                Error::JurisdictionNotSupported => "The jurisdiction is not supported",
+                Error::HighRisk => "The user has been assessed as high risk and is not permitted",
+                Error::ProhibitedJurisdiction => {
+                    "The user's jurisdiction is prohibited from this operation"
+                }
+                Error::AlreadyVerified => "The user is already verified and cannot be re-verified",
+                Error::ConsentNotGiven => "The user has not provided the required consent",
+                Error::DataRetentionExpired => {
+                    "The data retention period for this record has expired"
+                }
+                Error::InvalidRiskScore => {
+                    "The risk score provided is invalid or out of acceptable range"
+                }
+                Error::InvalidDocumentType => "The document type is invalid or not accepted",
+                Error::JurisdictionNotSupported => {
+                    "The specified jurisdiction is not currently supported"
+                }
             }
         }
 
         fn error_category(&self) -> ErrorCategory {
             ErrorCategory::Compliance
+        }
+
+        fn error_i18n_key(&self) -> &'static str {
+            match self {
+                Error::NotAuthorized => "compliance.unauthorized",
+                Error::NotVerified => "compliance.not_verified",
+                Error::VerificationExpired => "compliance.verification_expired",
+                Error::HighRisk => "compliance.high_risk",
+                Error::ProhibitedJurisdiction => "compliance.prohibited_jurisdiction",
+                Error::AlreadyVerified => "compliance.already_verified",
+                Error::ConsentNotGiven => "compliance.consent_not_given",
+                Error::DataRetentionExpired => "compliance.data_retention_expired",
+                Error::InvalidRiskScore => "compliance.invalid_risk_score",
+                Error::InvalidDocumentType => "compliance.invalid_document_type",
+                Error::JurisdictionNotSupported => "compliance.jurisdiction_not_supported",
+            }
         }
     }
 
@@ -414,6 +466,15 @@ mod compliance_registry {
         timestamp: Timestamp,
     }
 
+    #[ink(event)]
+    pub struct TaxComplianceStatusUpdated {
+        #[ink(topic)]
+        account: AccountId,
+        jurisdiction_code: u32,
+        outstanding_tax: Balance,
+        timestamp: Timestamp,
+    }
+
     /// Compliance report for an account (audit trail and reporting - Issue #45)
     #[derive(Debug, Clone, scale::Encode, scale::Decode)]
     #[cfg_attr(
@@ -432,6 +493,8 @@ mod compliance_registry {
         pub audit_log_count: u64,
         pub last_audit_timestamp: Timestamp,
         pub verification_expiry: Timestamp,
+        pub tax_compliant: bool,
+        pub outstanding_tax: Balance,
     }
 
     /// Verification workflow status (workflow management - Issue #45)
@@ -464,6 +527,23 @@ mod compliance_registry {
         pub sanctions_checks_count: u64,
     }
 
+    /// KYC funnel metrics used to track conversion and verification rates.
+    #[derive(Debug, Clone, Copy, Default, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub struct KycMetrics {
+        pub requests_created: u64,
+        pub pending_requests: u64,
+        pub verification_attempts: u64,
+        pub successful_verifications: u64,
+        pub failed_verifications: u64,
+        pub converted_requests: u64,
+        pub conversion_rate_bips: u32,
+        pub verification_rate_bips: u32,
+    }
+
     /// Sanctions screening summary (sanction list monitoring - Issue #45)
     #[derive(Debug, Clone, scale::Encode, scale::Decode)]
     #[cfg_attr(
@@ -475,6 +555,12 @@ mod compliance_registry {
         pub passed: u64,
         pub failed: u64,
         pub lists_checked: Vec<u8>,
+    }
+
+    impl Default for ComplianceRegistry {
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     impl ComplianceRegistry {
@@ -499,6 +585,10 @@ mod compliance_registry {
                 service_providers: Mapping::default(),
                 account_requests: Mapping::default(),
                 zk_compliance_contract: None,
+                tax_modules: Mapping::default(),
+                tax_compliance_status: Mapping::default(),
+                kyc_metrics: KycMetrics::default(),
+                jurisdiction_kyc_metrics: Mapping::default(),
             };
 
             // Initialize default jurisdiction rules
@@ -596,6 +686,33 @@ mod compliance_registry {
         ) -> Result<()> {
             self.ensure_verifier()?;
 
+            let result = self.submit_verification_internal(
+                account,
+                jurisdiction,
+                kyc_hash,
+                risk_level,
+                document_type,
+                biometric_method,
+                risk_score,
+            );
+
+            if result.is_err() {
+                self.record_kyc_verification_attempt(jurisdiction, false, false);
+            }
+
+            result
+        }
+
+        fn submit_verification_internal(
+            &mut self,
+            account: AccountId,
+            jurisdiction: Jurisdiction,
+            kyc_hash: [u8; 32],
+            risk_level: RiskLevel,
+            document_type: DocumentType,
+            biometric_method: BiometricMethod,
+            risk_score: u8,
+        ) -> Result<()> {
             if risk_score > 100 {
                 return Err(Error::InvalidRiskScore);
             }
@@ -645,6 +762,8 @@ mod compliance_registry {
             };
 
             self.compliance_data.insert(account, &compliance);
+            let converted_request = self.complete_pending_request(account, jurisdiction);
+            self.record_kyc_verification_attempt(jurisdiction, converted_request, true);
 
             // Log audit event
             self.log_audit_event(account, 0); // 0 = verification
@@ -710,6 +829,7 @@ mod compliance_registry {
                         && data.sanctions_checked
                         && data.gdpr_consent == ConsentStatus::Given
                         && now <= data.data_retention_until
+                        && self.is_tax_status_compliant(account, now)
                 }
                 None => false,
             }
@@ -735,6 +855,41 @@ mod compliance_registry {
         #[ink(message)]
         pub fn get_compliance_data(&self, account: AccountId) -> Option<ComplianceData> {
             self.compliance_data.get(account)
+        }
+
+        /// Allow an admin to register a dedicated tax module that may sync tax status.
+        #[ink(message)]
+        pub fn set_tax_module(&mut self, module: AccountId, active: bool) -> Result<()> {
+            self.ensure_owner()?;
+            self.tax_modules.insert(module, &active);
+            Ok(())
+        }
+
+        /// Update account tax compliance state from a trusted verifier or tax module.
+        #[ink(message)]
+        pub fn update_tax_compliance_status(
+            &mut self,
+            account: AccountId,
+            status: TaxComplianceStatus,
+        ) -> Result<()> {
+            self.ensure_tax_authority()?;
+            self.tax_compliance_status.insert(account, &status);
+            self.log_audit_event(account, 4); // 4 = tax compliance sync
+
+            self.env().emit_event(TaxComplianceStatusUpdated {
+                account,
+                jurisdiction_code: status.jurisdiction_code,
+                outstanding_tax: status.outstanding_tax,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Get the latest synced tax compliance state for an account.
+        #[ink(message)]
+        pub fn get_tax_compliance_status(&self, account: AccountId) -> Option<TaxComplianceStatus> {
+            self.tax_compliance_status.get(account)
         }
 
         /// Update AML status with detailed risk factors
@@ -994,6 +1149,7 @@ mod compliance_registry {
 
             self.verification_requests.insert(request_id, &request);
             self.account_requests.insert(caller, &request_id);
+            self.record_kyc_request_created(jurisdiction);
 
             self.env().emit_event(VerificationRequestCreated {
                 account: caller,
@@ -1256,6 +1412,12 @@ mod compliance_registry {
                 audit_log_count: audit_count,
                 last_audit_timestamp: last_audit,
                 verification_expiry: data.expiry_timestamp,
+                tax_compliant: self.is_tax_status_compliant(account, self.env().block_timestamp()),
+                outstanding_tax: self
+                    .tax_compliance_status
+                    .get(account)
+                    .map(|status| status.outstanding_tax)
+                    .unwrap_or(0),
             })
         }
 
@@ -1280,16 +1442,30 @@ mod compliance_registry {
             period_start: Timestamp,
             period_end: Timestamp,
         ) -> RegulatoryReport {
-            // Counts would be populated by off-chain indexing or on-chain counters in full deployment
+            let kyc_metrics = self.get_jurisdiction_kyc_metrics(jurisdiction);
             RegulatoryReport {
                 jurisdiction,
                 period_start,
                 period_end,
-                verifications_count: 0,
+                verifications_count: kyc_metrics.successful_verifications,
                 compliant_accounts: 0,
                 aml_checks_count: 0,
                 sanctions_checks_count: 0,
             }
+        }
+
+        /// Get global KYC funnel metrics including conversion and verification rates.
+        #[ink(message)]
+        pub fn get_kyc_metrics(&self) -> KycMetrics {
+            self.kyc_metrics
+        }
+
+        /// Get KYC funnel metrics scoped to a specific jurisdiction.
+        #[ink(message)]
+        pub fn get_jurisdiction_kyc_metrics(&self, jurisdiction: Jurisdiction) -> KycMetrics {
+            self.jurisdiction_kyc_metrics
+                .get(jurisdiction)
+                .unwrap_or_default()
         }
 
         /// Sanction list screening and monitoring: summary of screening activity
@@ -1327,6 +1503,124 @@ mod compliance_registry {
                 return Err(Error::NotAuthorized);
             }
             Ok(())
+        }
+
+        fn ensure_tax_authority(&self) -> Result<()> {
+            let caller = self.env().caller();
+            if self.env().caller() == self.owner
+                || self.verifiers.get(caller).unwrap_or(false)
+                || self.tax_modules.get(caller).unwrap_or(false)
+            {
+                return Ok(());
+            }
+            Err(Error::NotAuthorized)
+        }
+
+        fn is_tax_status_compliant(&self, account: AccountId, now: Timestamp) -> bool {
+            match self.tax_compliance_status.get(account) {
+                Some(status) => {
+                    status.outstanding_tax == 0
+                        && status.reporting_submitted
+                        && status.legal_documents_verified
+                        && (status.clearance_expiry == 0 || status.clearance_expiry >= now)
+                }
+                None => true,
+            }
+        }
+
+        fn complete_pending_request(
+            &mut self,
+            account: AccountId,
+            jurisdiction: Jurisdiction,
+        ) -> bool {
+            let Some(request_id) = self.account_requests.get(account) else {
+                return false;
+            };
+
+            let Some(mut request) = self.verification_requests.get(request_id) else {
+                return false;
+            };
+
+            if request.status != VerificationStatus::Pending || request.jurisdiction != jurisdiction
+            {
+                return false;
+            }
+
+            request.status = VerificationStatus::Verified;
+            self.verification_requests.insert(request_id, &request);
+            true
+        }
+
+        fn record_kyc_request_created(&mut self, jurisdiction: Jurisdiction) {
+            self.kyc_metrics.requests_created = self.kyc_metrics.requests_created.saturating_add(1);
+            self.kyc_metrics.pending_requests = self.kyc_metrics.pending_requests.saturating_add(1);
+            Self::refresh_kyc_rates(&mut self.kyc_metrics);
+
+            let mut jurisdiction_metrics = self
+                .jurisdiction_kyc_metrics
+                .get(jurisdiction)
+                .unwrap_or_default();
+            jurisdiction_metrics.requests_created =
+                jurisdiction_metrics.requests_created.saturating_add(1);
+            jurisdiction_metrics.pending_requests =
+                jurisdiction_metrics.pending_requests.saturating_add(1);
+            Self::refresh_kyc_rates(&mut jurisdiction_metrics);
+            self.jurisdiction_kyc_metrics
+                .insert(jurisdiction, &jurisdiction_metrics);
+        }
+
+        fn record_kyc_verification_attempt(
+            &mut self,
+            jurisdiction: Jurisdiction,
+            converted_request: bool,
+            success: bool,
+        ) {
+            Self::update_kyc_metrics(&mut self.kyc_metrics, converted_request, success);
+
+            let mut jurisdiction_metrics = self
+                .jurisdiction_kyc_metrics
+                .get(jurisdiction)
+                .unwrap_or_default();
+            Self::update_kyc_metrics(&mut jurisdiction_metrics, converted_request, success);
+            self.jurisdiction_kyc_metrics
+                .insert(jurisdiction, &jurisdiction_metrics);
+        }
+
+        fn update_kyc_metrics(metrics: &mut KycMetrics, converted_request: bool, success: bool) {
+            metrics.verification_attempts = metrics.verification_attempts.saturating_add(1);
+
+            if success {
+                metrics.successful_verifications =
+                    metrics.successful_verifications.saturating_add(1);
+                if converted_request {
+                    metrics.converted_requests = metrics.converted_requests.saturating_add(1);
+                    metrics.pending_requests = metrics.pending_requests.saturating_sub(1);
+                }
+            } else {
+                metrics.failed_verifications = metrics.failed_verifications.saturating_add(1);
+            }
+
+            Self::refresh_kyc_rates(metrics);
+        }
+
+        fn refresh_kyc_rates(metrics: &mut KycMetrics) {
+            metrics.conversion_rate_bips =
+                Self::compute_rate_bips(metrics.converted_requests, metrics.requests_created);
+            metrics.verification_rate_bips = Self::compute_rate_bips(
+                metrics.successful_verifications,
+                metrics.verification_attempts,
+            );
+        }
+
+        fn compute_rate_bips(numerator: u64, denominator: u64) -> u32 {
+            if denominator == 0 {
+                return 0;
+            }
+
+            numerator
+                .saturating_mul(10_000)
+                .checked_div(denominator)
+                .unwrap_or(10_000) as u32
         }
 
         fn log_audit_event(&mut self, account: AccountId, action: u8) {
@@ -1595,11 +1889,31 @@ mod compliance_registry {
 
         #[ink::test]
         fn get_regulatory_report_works() {
-            let contract = ComplianceRegistry::new();
+            let mut contract = ComplianceRegistry::new();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            let request_id = contract
+                .create_verification_request(Jurisdiction::US, [9u8; 32], [8u8; 32])
+                .expect("request");
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract
+                .process_verification_request(
+                    request_id,
+                    [7u8; 32],
+                    RiskLevel::Low,
+                    DocumentType::Passport,
+                    BiometricMethod::FaceRecognition,
+                    10,
+                )
+                .expect("verification");
+
             let report = contract.get_regulatory_report(Jurisdiction::US, 0, 1000);
             assert_eq!(report.jurisdiction, Jurisdiction::US);
             assert_eq!(report.period_start, 0);
             assert_eq!(report.period_end, 1000);
+            assert_eq!(report.verifications_count, 1);
         }
 
         #[ink::test]
@@ -1607,6 +1921,204 @@ mod compliance_registry {
             let contract = ComplianceRegistry::new();
             let summary = contract.get_sanctions_screening_summary();
             assert!(!summary.lists_checked.is_empty());
+        }
+
+        #[ink::test]
+        fn tax_status_extends_compliance_checks_without_breaking_existing_flow() {
+            let mut contract = ComplianceRegistry::new();
+            let user = AccountId::from([0x07; 32]);
+            let kyc_hash = [7u8; 32];
+
+            contract
+                .submit_verification(
+                    user,
+                    Jurisdiction::US,
+                    kyc_hash,
+                    RiskLevel::Low,
+                    DocumentType::Passport,
+                    BiometricMethod::None,
+                    10,
+                )
+                .expect("submit");
+            contract
+                .update_aml_status(
+                    user,
+                    true,
+                    AMLRiskFactors {
+                        pep_status: false,
+                        high_risk_country: false,
+                        suspicious_transaction_pattern: false,
+                        large_transaction_volume: false,
+                        source_of_funds_verified: true,
+                    },
+                )
+                .expect("aml");
+            contract
+                .update_sanctions_status(user, true, SanctionsList::OFAC)
+                .expect("sanctions");
+            contract
+                .update_consent(user, ConsentStatus::Given)
+                .expect("consent");
+
+            assert!(contract.is_compliant(user));
+
+            contract
+                .update_tax_compliance_status(
+                    user,
+                    TaxComplianceStatus {
+                        jurisdiction_code: 1001,
+                        reporting_period: 1,
+                        last_checked_at: 1,
+                        last_payment_at: 0,
+                        outstanding_tax: 25,
+                        reporting_submitted: false,
+                        legal_documents_verified: false,
+                        clearance_expiry: 0,
+                        violation_count: 1,
+                    },
+                )
+                .expect("tax sync");
+
+            assert!(!contract.is_compliant(user));
+
+            contract
+                .update_tax_compliance_status(
+                    user,
+                    TaxComplianceStatus {
+                        jurisdiction_code: 1001,
+                        reporting_period: 1,
+                        last_checked_at: 2,
+                        last_payment_at: 2,
+                        outstanding_tax: 0,
+                        reporting_submitted: true,
+                        legal_documents_verified: true,
+                        clearance_expiry: 10_000,
+                        violation_count: 0,
+                    },
+                )
+                .expect("tax clear");
+
+            let report = contract.get_compliance_report(user).expect("report");
+            assert!(contract.is_compliant(user));
+            assert!(report.tax_compliant);
+            assert_eq!(report.outstanding_tax, 0);
+        }
+
+        #[ink::test]
+        fn kyc_metrics_track_request_conversion_and_verification_rates() {
+            let mut contract = ComplianceRegistry::new();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            let request_id = contract
+                .create_verification_request(Jurisdiction::US, [1u8; 32], [2u8; 32])
+                .expect("request");
+
+            let pending_metrics = contract.get_kyc_metrics();
+            assert_eq!(pending_metrics.requests_created, 1);
+            assert_eq!(pending_metrics.pending_requests, 1);
+            assert_eq!(pending_metrics.verification_attempts, 0);
+            assert_eq!(pending_metrics.conversion_rate_bips, 0);
+            assert_eq!(pending_metrics.verification_rate_bips, 0);
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract
+                .process_verification_request(
+                    request_id,
+                    [3u8; 32],
+                    RiskLevel::Low,
+                    DocumentType::Passport,
+                    BiometricMethod::FaceRecognition,
+                    10,
+                )
+                .expect("verification");
+
+            let metrics = contract.get_kyc_metrics();
+            assert_eq!(metrics.requests_created, 1);
+            assert_eq!(metrics.pending_requests, 0);
+            assert_eq!(metrics.verification_attempts, 1);
+            assert_eq!(metrics.successful_verifications, 1);
+            assert_eq!(metrics.failed_verifications, 0);
+            assert_eq!(metrics.converted_requests, 1);
+            assert_eq!(metrics.conversion_rate_bips, 10_000);
+            assert_eq!(metrics.verification_rate_bips, 10_000);
+
+            let us_metrics = contract.get_jurisdiction_kyc_metrics(Jurisdiction::US);
+            assert_eq!(us_metrics.converted_requests, 1);
+            assert_eq!(us_metrics.successful_verifications, 1);
+        }
+
+        #[ink::test]
+        fn kyc_metrics_track_failed_verification_attempts_without_conversion() {
+            let mut contract = ComplianceRegistry::new();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.charlie);
+            let request_id = contract
+                .create_verification_request(Jurisdiction::UK, [4u8; 32], [5u8; 32])
+                .expect("request");
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            let result = contract.process_verification_request(
+                request_id,
+                [6u8; 32],
+                RiskLevel::Low,
+                DocumentType::Passport,
+                BiometricMethod::FaceRecognition,
+                101,
+            );
+            assert_eq!(result, Err(Error::InvalidRiskScore));
+
+            let metrics = contract.get_kyc_metrics();
+            assert_eq!(metrics.requests_created, 1);
+            assert_eq!(metrics.pending_requests, 1);
+            assert_eq!(metrics.verification_attempts, 1);
+            assert_eq!(metrics.successful_verifications, 0);
+            assert_eq!(metrics.failed_verifications, 1);
+            assert_eq!(metrics.converted_requests, 0);
+            assert_eq!(metrics.conversion_rate_bips, 0);
+            assert_eq!(metrics.verification_rate_bips, 0);
+
+            let request = contract
+                .get_verification_request(request_id)
+                .expect("request should remain available");
+            assert_eq!(request.status, VerificationStatus::Pending);
+        }
+
+        #[ink::test]
+        fn direct_verification_completes_pending_request_for_conversion_tracking() {
+            let mut contract = ComplianceRegistry::new();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.django);
+            let request_id = contract
+                .create_verification_request(Jurisdiction::EU, [7u8; 32], [8u8; 32])
+                .expect("request");
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract
+                .submit_verification(
+                    accounts.django,
+                    Jurisdiction::EU,
+                    [9u8; 32],
+                    RiskLevel::Low,
+                    DocumentType::Passport,
+                    BiometricMethod::FaceRecognition,
+                    15,
+                )
+                .expect("direct verification");
+
+            let request = contract
+                .get_verification_request(request_id)
+                .expect("request should exist");
+            assert_eq!(request.status, VerificationStatus::Verified);
+
+            let metrics = contract.get_jurisdiction_kyc_metrics(Jurisdiction::EU);
+            assert_eq!(metrics.requests_created, 1);
+            assert_eq!(metrics.pending_requests, 0);
+            assert_eq!(metrics.converted_requests, 1);
+            assert_eq!(metrics.successful_verifications, 1);
+            assert_eq!(metrics.verification_rate_bips, 10_000);
         }
     }
 }

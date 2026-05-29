@@ -1,423 +1,62 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+// =========================================================================
+// Existing modules
+// =========================================================================
 pub mod access_control;
 pub mod constants;
+pub mod crypto;
+pub mod di;
 pub mod errors;
+pub mod randomness;
+pub mod reentrancy_guard;
 
 pub use access_control::*;
+pub use crypto::*;
+pub use di::*;
+pub use reentrancy_guard::*;
+pub mod i18n;
+pub mod monitoring;
+
+// =========================================================================
+// New domain-specific modules (Issue #101)
+// =========================================================================
+pub mod bridge;
+pub mod compliance;
+pub mod dex;
+pub mod event_bus;
+pub mod fee;
+pub mod multicall;
+pub mod oracle;
+pub mod property;
+
+// =========================================================================
+// Re-exports for backward compatibility
+// =========================================================================
+
+// Original re-exports
 pub use errors::*;
-use ink::prelude::string::String;
-use ink::primitives::AccountId;
+pub use i18n::*;
+pub use monitoring::*;
 
-/// Error types for the Property Valuation Oracle
-#[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-pub enum OracleError {
-    /// Property not found in the oracle system
-    PropertyNotFound,
-    /// Insufficient oracle sources available
-    InsufficientSources,
-    /// Valuation data is invalid or out of range
-    InvalidValuation,
-    /// Caller is not authorized to perform this operation
-    Unauthorized,
-    /// Oracle source does not exist
-    OracleSourceNotFound,
-    /// Invalid parameters provided
-    InvalidParameters,
-    /// Error from external price feed
-    PriceFeedError,
-    /// Price alert not found
-    AlertNotFound,
-    /// Oracle source has insufficient reputation
-    InsufficientReputation,
-    /// Oracle source already registered
-    SourceAlreadyExists,
-    /// Valuation request is still pending
-    RequestPending,
-}
+// Re-export all new module contents at the crate root so that
+// existing `use propchain_traits::*` continues to resolve every type.
+pub use bridge::*;
+pub use dex::*;
+pub use oracle::*;
+pub use property::*;
 
-impl core::fmt::Display for OracleError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            OracleError::PropertyNotFound => write!(f, "Property not found in the oracle system"),
-            OracleError::InsufficientSources => write!(f, "Insufficient oracle sources available"),
-            OracleError::InvalidValuation => write!(f, "Valuation data is invalid or out of range"),
-            OracleError::Unauthorized => {
-                write!(f, "Caller is not authorized to perform this operation")
-            }
-            OracleError::OracleSourceNotFound => write!(f, "Oracle source does not exist"),
-            OracleError::InvalidParameters => write!(f, "Invalid parameters provided"),
-            OracleError::PriceFeedError => write!(f, "Error from external price feed"),
-            OracleError::AlertNotFound => write!(f, "Price alert not found"),
-            OracleError::InsufficientReputation => {
-                write!(f, "Oracle source has insufficient reputation")
-            }
-            OracleError::SourceAlreadyExists => write!(f, "Oracle source already registered"),
-            OracleError::RequestPending => write!(f, "Valuation request is still pending"),
-        }
-    }
-}
-
-impl ContractError for OracleError {
-    fn error_code(&self) -> u32 {
-        match self {
-            OracleError::PropertyNotFound => oracle_codes::ORACLE_PROPERTY_NOT_FOUND,
-            OracleError::InsufficientSources => oracle_codes::ORACLE_INSUFFICIENT_SOURCES,
-            OracleError::InvalidValuation => oracle_codes::ORACLE_INVALID_VALUATION,
-            OracleError::Unauthorized => oracle_codes::ORACLE_UNAUTHORIZED,
-            OracleError::OracleSourceNotFound => oracle_codes::ORACLE_SOURCE_NOT_FOUND,
-            OracleError::InvalidParameters => oracle_codes::ORACLE_INVALID_PARAMETERS,
-            OracleError::PriceFeedError => oracle_codes::ORACLE_PRICE_FEED_ERROR,
-            OracleError::AlertNotFound => oracle_codes::ORACLE_ALERT_NOT_FOUND,
-            OracleError::InsufficientReputation => oracle_codes::ORACLE_INSUFFICIENT_REPUTATION,
-            OracleError::SourceAlreadyExists => oracle_codes::ORACLE_SOURCE_ALREADY_EXISTS,
-            OracleError::RequestPending => oracle_codes::ORACLE_REQUEST_PENDING,
-        }
-    }
-
-    fn error_description(&self) -> &'static str {
-        match self {
-            OracleError::PropertyNotFound => {
-                "The requested property does not exist in the oracle system"
-            }
-            OracleError::InsufficientSources => {
-                "Not enough oracle sources are available to provide a reliable valuation"
-            }
-            OracleError::InvalidValuation => {
-                "The valuation data is invalid, zero, or out of acceptable range"
-            }
-            OracleError::Unauthorized => {
-                "Caller does not have permission to perform this operation"
-            }
-            OracleError::OracleSourceNotFound => "The specified oracle source does not exist",
-            OracleError::InvalidParameters => "One or more function parameters are invalid",
-            OracleError::PriceFeedError => "Failed to retrieve data from external price feed",
-            OracleError::AlertNotFound => "The requested price alert does not exist",
-            OracleError::InsufficientReputation => {
-                "Oracle source reputation is below required threshold"
-            }
-            OracleError::SourceAlreadyExists => {
-                "An oracle source with this identifier already exists"
-            }
-            OracleError::RequestPending => {
-                "A valuation request for this property is already pending"
-            }
-        }
-    }
-
-    fn error_category(&self) -> ErrorCategory {
-        ErrorCategory::Oracle
-    }
-}
-
-/// Trait definitions for PropChain contracts
-pub trait PropertyRegistry {
-    /// Error type for the contract
-    type Error;
-
-    /// Register a new property
-    fn register_property(&mut self, metadata: PropertyMetadata) -> Result<u64, Self::Error>;
-
-    /// Transfer property ownership
-    fn transfer_property(&mut self, property_id: u64, to: AccountId) -> Result<(), Self::Error>;
-
-    /// Get property information
-    fn get_property(&self, property_id: u64) -> Option<PropertyInfo>;
-
-    /// Update property metadata
-    fn update_metadata(
-        &mut self,
-        property_id: u64,
-        metadata: PropertyMetadata,
-    ) -> Result<(), Self::Error>;
-
-    /// Approve an account to transfer a specific property
-    fn approve(&mut self, property_id: u64, to: Option<AccountId>) -> Result<(), Self::Error>;
-
-    /// Get the approved account for a property
-    fn get_approved(&self, property_id: u64) -> Option<AccountId>;
-}
-
-/// Property metadata structure
-#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub struct PropertyMetadata {
-    pub location: String,
-    pub size: u64,
-    pub legal_description: String,
-    pub valuation: u128,
-    pub documents_url: String,
-}
-
-/// Property information structure
-#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub struct PropertyInfo {
-    pub id: u64,
-    pub owner: AccountId,
-    pub metadata: PropertyMetadata,
-    pub registered_at: u64,
-}
-
-/// Property type enumeration
-#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub enum PropertyType {
-    Residential,
-    Commercial,
-    Industrial,
-    Land,
-    MultiFamily,
-    Retail,
-    Office,
-}
-
-/// Price data from external feeds
-#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub struct PriceData {
-    pub price: u128,    // Price in USD with 8 decimals
-    pub timestamp: u64, // Timestamp when price was recorded
-    pub source: String, // Price feed source identifier
-}
-
-/// Property valuation structure
-#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub struct PropertyValuation {
-    pub property_id: u64,
-    pub valuation: u128,       // Current valuation in USD with 8 decimals
-    pub confidence_score: u32, // Confidence score 0-100
-    pub sources_used: u32,     // Number of price sources used
-    pub last_updated: u64,     // Last update timestamp
-    pub valuation_method: ValuationMethod,
-}
-
-/// Valuation method enumeration
-#[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub enum ValuationMethod {
-    Automated,   // AVM (Automated Valuation Model)
-    Manual,      // Manual appraisal
-    MarketData,  // Based on market comparables
-    Hybrid,      // Combination of methods
-    AIValuation, // AI-powered machine learning valuation
-}
-
-/// Valuation with confidence metrics
-#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub struct ValuationWithConfidence {
-    pub valuation: PropertyValuation,
-    pub volatility_index: u32,             // Market volatility 0-100
-    pub confidence_interval: (u128, u128), // Min and max valuation range
-    pub outlier_sources: u32,              // Number of outlier sources detected
-}
-
-/// Volatility metrics for market analysis
-#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub struct VolatilityMetrics {
-    pub property_type: PropertyType,
-    pub location: String,
-    pub volatility_index: u32,     // 0-100 scale
-    pub average_price_change: i32, // Average % change over period (can be negative)
-    pub period_days: u32,          // Analysis period in days
-    pub last_updated: u64,
-}
-
-/// Comparable property for AVM analysis
-#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub struct ComparableProperty {
-    pub property_id: u64,
-    pub distance_km: u32,       // Distance from subject property
-    pub price_per_sqm: u128,    // Price per square meter
-    pub size_sqm: u64,          // Property size in square meters
-    pub sale_date: u64,         // When it was sold
-    pub adjustment_factor: i32, // Adjustment factor (+/- percentage)
-}
-
-/// Price alert configuration
-#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub struct PriceAlert {
-    pub property_id: u64,
-    pub threshold_percentage: u32, // Alert threshold (e.g., 5 for 5%)
-    pub alert_address: AccountId,  // Address to notify
-    pub last_triggered: u64,       // Last time alert was triggered
-    pub is_active: bool,
-}
-
-/// Oracle source configuration
-#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub struct OracleSource {
-    pub id: String, // Unique source identifier
-    pub source_type: OracleSourceType,
-    pub address: AccountId, // Contract address for the price feed
-    pub is_active: bool,
-    pub weight: u32, // Weight in aggregation (0-100)
-    pub last_updated: u64,
-}
-
-/// Oracle source type enumeration
-#[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub enum OracleSourceType {
-    Chainlink,
-    Pyth,
-    Substrate,
-    Custom,
-    Manual,
-    AIModel, // AI-powered valuation model
-}
-
-/// Location-based adjustment factors
-#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub struct LocationAdjustment {
-    pub location_code: String,      // Geographic location identifier
-    pub adjustment_percentage: i32, // Adjustment factor (+/- percentage)
-    pub last_updated: u64,
-    pub confidence_score: u32,
-}
-
-/// Market trend data
-#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub struct MarketTrend {
-    pub property_type: PropertyType,
-    pub location: String,
-    pub trend_percentage: i32, // Trend direction and magnitude
-    pub period_months: u32,    // Analysis period in months
-    pub last_updated: u64,
-}
-
-/// Oracle trait for real-time property valuation
-#[ink::trait_definition]
-pub trait Oracle {
-    /// Get current property valuation
-    #[ink(message)]
-    fn get_valuation(&self, property_id: u64) -> Result<PropertyValuation, OracleError>;
-
-    /// Get valuation with detailed confidence metrics
-    #[ink(message)]
-    fn get_valuation_with_confidence(
-        &self,
-        property_id: u64,
-    ) -> Result<ValuationWithConfidence, OracleError>;
-
-    /// Request a new valuation for a property (async pattern)
-    #[ink(message)]
-    fn request_valuation(&mut self, property_id: u64) -> Result<u64, OracleError>;
-
-    /// Batch request valuations for multiple properties
-    #[ink(message)]
-    fn batch_request_valuations(&mut self, property_ids: Vec<u64>)
-        -> Result<Vec<u64>, OracleError>;
-
-    /// Get historical valuations for a property
-    #[ink(message)]
-    fn get_historical_valuations(&self, property_id: u64, limit: u32) -> Vec<PropertyValuation>;
-
-    /// Get market volatility for a specific location and property type
-    #[ink(message)]
-    fn get_market_volatility(
-        &self,
-        property_type: PropertyType,
-        location: String,
-    ) -> Result<VolatilityMetrics, OracleError>;
-}
-
-/// Oracle Registry trait for managing multiple price feeds and reputation
-#[ink::trait_definition]
-pub trait OracleRegistry {
-    /// Register a new oracle source
-    #[ink(message)]
-    fn add_source(&mut self, source: OracleSource) -> Result<(), OracleError>;
-
-    /// Remove an oracle source
-    #[ink(message)]
-    fn remove_source(&mut self, source_id: String) -> Result<(), OracleError>;
-
-    /// Update oracle source reputation based on performance
-    #[ink(message)]
-    fn update_reputation(&mut self, source_id: String, success: bool) -> Result<(), OracleError>;
-
-    /// Get oracle source reputation score
-    #[ink(message)]
-    fn get_reputation(&self, source_id: String) -> Option<u32>;
-
-    /// Slash oracle source for providing invalid data
-    #[ink(message)]
-    fn slash_source(&mut self, source_id: String, penalty_amount: u128) -> Result<(), OracleError>;
-
-    /// Check for anomalies in price data
-    #[ink(message)]
-    fn detect_anomalies(&self, property_id: u64, new_valuation: u128) -> bool;
-}
-
-/// Escrow trait for secure property transfers
-pub trait Escrow {
-    /// Error type for escrow operations
-    type Error;
-
-    /// Create a new escrow
-    fn create_escrow(&mut self, property_id: u64, amount: u128) -> Result<u64, Self::Error>;
-
-    /// Release escrow funds
-    fn release_escrow(&mut self, escrow_id: u64) -> Result<(), Self::Error>;
-
-    /// Refund escrow funds
-    fn refund_escrow(&mut self, escrow_id: u64) -> Result<(), Self::Error>;
-}
+// Re-export compliance and fee module contents (types are defined in those modules)
+pub use compliance::*;
+pub use event_bus::*;
+pub use fee::*;
+pub use multicall::*;
 
 #[cfg(not(feature = "std"))]
 use scale_info::prelude::vec::Vec;
+
+/// AccountId type alias for convenience
+pub type AccountId = ink::primitives::AccountId;
 
 /// Advanced escrow trait with multi-signature and document custody
 pub trait AdvancedEscrow {
@@ -435,6 +74,7 @@ pub trait AdvancedEscrow {
         participants: Vec<AccountId>,
         required_signatures: u8,
         release_time_lock: Option<u64>,
+        jurisdiction: Jurisdiction,
     ) -> Result<u64, Self::Error>;
 
     /// Deposit funds to escrow
@@ -735,6 +375,9 @@ pub struct BridgeConfig {
     pub gas_limit_per_bridge: u64,
     pub emergency_pause: bool,
     pub metadata_preservation: bool,
+    pub rate_limit_enabled: bool,
+    pub max_requests_per_day: u64,
+    pub max_value_per_day: u128,
 }
 
 /// Chain-specific bridge information
@@ -748,67 +391,10 @@ pub struct ChainBridgeInfo {
     pub chain_name: String,
     pub bridge_contract_address: Option<ink::primitives::AccountId>,
     pub is_active: bool,
-    pub gas_multiplier: u32,      // Gas cost multiplier for this chain
-    pub confirmation_blocks: u32, // Blocks to wait for confirmation
+    pub gas_multiplier: u32,
+    pub confirmation_blocks: u32,
     pub supported_tokens: Vec<TokenId>,
-}
-
-// =============================================================================
-// Dynamic Fee and Market Mechanism (Issue #38)
-// =============================================================================
-
-/// Operation types for dynamic fee calculation
-#[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub enum FeeOperation {
-    RegisterProperty,
-    TransferProperty,
-    UpdateMetadata,
-    CreateEscrow,
-    ReleaseEscrow,
-    PremiumListingBid,
-    IssueBadge,
-    OracleUpdate,
-}
-
-/// Trait for dynamic fee provider (implemented by fee manager contract)
-#[ink::trait_definition]
-pub trait DynamicFeeProvider {
-    /// Get recommended fee for an operation (market-based price discovery)
-    #[ink(message)]
-    fn get_recommended_fee(&self, operation: FeeOperation) -> u128;
-}
-
-// =============================================================================
-// Compliance and Regulatory Framework (Issue #45)
-// =============================================================================
-
-/// Transaction type for compliance rules engine
-#[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-pub enum ComplianceOperation {
-    RegisterProperty,
-    TransferProperty,
-    UpdateMetadata,
-    CreateEscrow,
-    ReleaseEscrow,
-    ListForSale,
-    Purchase,
-    BridgeTransfer,
-}
-
-/// Trait for compliance registry (used by PropertyRegistry for automated checks)
-#[ink::trait_definition]
-pub trait ComplianceChecker {
-    /// Returns true if the account meets current compliance requirements
-    #[ink(message)]
-    fn is_compliant(&self, account: ink::primitives::AccountId) -> bool;
+    pub chain_daily_limit: u128,
 }
 
 // =============================================================================
@@ -852,4 +438,75 @@ pub enum EventCategory {
     Administrative,
     /// Regulatory and compliance: verification, audit logs, consent
     Audit,
+}
+
+// =============================================================================
+// Security Audit Trail (Issue #82)
+// =============================================================================
+
+/// Security event severity for audit classification.
+/// Determines the urgency and attention level for each audit record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub enum SecuritySeverity {
+    /// Normal operations: property registered, metadata updated
+    Low,
+    /// Ownership/financial state changes: transfers, escrows
+    Medium,
+    /// Administrative changes: configuration, guardian updates
+    High,
+    /// Role changes, emergency pauses, admin transfers, access violations
+    Critical,
+}
+
+/// Classification of security-relevant operations for the audit trail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub enum SecurityEventType {
+    // --- Critical ---
+    AdminChanged,
+    RoleGranted,
+    RoleRevoked,
+    ContractPaused,
+    ContractResumed,
+    EmergencyAction,
+
+    // --- High ---
+    ConfigurationChanged,
+    PauseGuardianUpdated,
+    ComplianceRegistryChanged,
+    OracleChanged,
+    FeeManagerChanged,
+
+    // --- Medium ---
+    PropertyTransferred,
+    EscrowCreated,
+    EscrowReleased,
+    EscrowRefunded,
+    FractionalEnabled,
+    ApprovalGranted,
+    ApprovalCleared,
+
+    // --- Low ---
+    PropertyRegistered,
+    MetadataUpdated,
+    BatchOperation,
+    BadgeIssued,
+    BadgeRevoked,
+    VerificationRequested,
+    VerificationReviewed,
+    AppealSubmitted,
+    AppealResolved,
+
+    // --- Security violations ---
+    UnauthorizedAccess,
+    ComplianceViolation,
+    /// Cryptographic operations: hashing, signature verification, key rotation
+    Cryptographic,
 }

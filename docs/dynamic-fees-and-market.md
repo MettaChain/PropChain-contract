@@ -8,6 +8,7 @@ The system consists of:
 
 1. **FeeManager contract** (`contracts/fees`): Standalone contract that implements dynamic fee calculation, premium auctions, reward distribution, and reporting.
 2. **PropertyRegistry integration** (`contracts/lib`): Optional `fee_manager` address; when set, the registry exposes `get_dynamic_fee(operation)` by calling the FeeManager.
+   That integration is protected by an external dependency circuit breaker so repeated downstream failures can be isolated quickly.
 
 ## Dynamic Fee Calculation
 
@@ -57,7 +58,10 @@ Auction state: `property_id`, `seller`, `min_bid`, `current_bid`, `current_bidde
 |--------|-------------|
 | `set_fee_manager(Option<AccountId>)` | Admin sets or clears the FeeManager contract address. |
 | `get_fee_manager()` | Returns the current fee manager address. |
-| `get_dynamic_fee(FeeOperation)` | If fee manager is set, calls `get_recommended_fee(operation)` on it; otherwise returns 0. |
+| `get_dynamic_fee(FeeOperation)` | If fee manager is set and its breaker is closed, calls `get_recommended_fee(operation)` on it; otherwise returns 0. |
+| `get_external_dependency_breaker(ExternalDependency::FeeManager)` | Returns fee-manager breaker state for monitoring and recovery. |
+| `trip_external_dependency_breaker(ExternalDependency::FeeManager)` | Admin opens the fee-manager breaker immediately. |
+| `reset_external_dependency_breaker(ExternalDependency::FeeManager)` | Admin clears the fee-manager breaker after recovery. |
 
 ## Files
 

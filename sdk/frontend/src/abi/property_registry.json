@@ -1,0 +1,101 @@
+{
+  "source": {
+    "hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "language": "ink! 4.0.0",
+    "compiler": "rustc 1.70.0"
+  },
+  "contract": {
+    "name": "propchain_contracts",
+    "version": "0.1.0",
+    "authors": ["PropChain Team"]
+  },
+  "spec": {
+    "constructors": [
+      {
+        "args": [],
+        "docs": ["Creates a new PropertyRegistry contract"],
+        "label": "new",
+        "payable": false,
+        "returnType": null,
+        "selector": "0x9bae9d5e"
+      }
+    ],
+    "docs": ["PropChain PropertyRegistry contract — manages property registration, escrow, badges, and more."],
+    "events": [],
+    "lang_error": {
+      "displayName": ["ink", "LangError"],
+      "type": 0
+    },
+    "messages": [
+      {
+        "args": [{ "label": "metadata", "type": { "displayName": ["PropertyMetadata"], "type": 1 } }],
+        "docs": ["Registers a new property"],
+        "label": "register_property",
+        "mutates": true,
+        "payable": false,
+        "returnType": { "displayName": ["Result"], "type": 2 },
+        "selector": "0x00000001"
+      },
+      {
+        "args": [{ "label": "property_id", "type": { "displayName": ["u64"], "type": 3 } }],
+        "docs": ["Gets property information"],
+        "label": "get_property",
+        "mutates": false,
+        "payable": false,
+        "returnType": { "displayName": ["Option"], "type": 4 },
+        "selector": "0x00000002"
+      },
+      {
+        "args": [
+          { "label": "property_id", "type": { "displayName": ["u64"], "type": 3 } },
+          { "label": "to", "type": { "displayName": ["AccountId"], "type": 5 } }
+        ],
+        "docs": ["Transfers property ownership"],
+        "label": "transfer_property",
+        "mutates": true,
+        "payable": false,
+        "returnType": { "displayName": ["Result"], "type": 6 },
+        "selector": "0x00000003"
+      },
+      {
+        "args": [],
+        "docs": ["Returns contract version"],
+        "label": "version",
+        "mutates": false,
+        "payable": false,
+        "returnType": { "displayName": ["u32"], "type": 7 },
+        "selector": "0x00000004"
+      },
+      {
+        "args": [],
+        "docs": ["Returns admin account"],
+        "label": "admin",
+        "mutates": false,
+        "payable": false,
+        "returnType": { "displayName": ["AccountId"], "type": 5 },
+        "selector": "0x00000005"
+      },
+      {
+        "args": [],
+        "docs": ["Returns health status"],
+        "label": "health_check",
+        "mutates": false,
+        "payable": false,
+        "returnType": { "displayName": ["HealthStatus"], "type": 8 },
+        "selector": "0x00000006"
+      },
+      {
+        "args": [],
+        "docs": ["Simple liveness check"],
+        "label": "ping",
+        "mutates": false,
+        "payable": false,
+        "returnType": { "displayName": ["bool"], "type": 9 },
+        "selector": "0x00000007"
+      }
+    ]
+  },
+  "storage": {},
+  "types": [],
+  "version": "4"
+}

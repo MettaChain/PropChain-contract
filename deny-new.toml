@@ -1,0 +1,34 @@
+# cargo-deny configuration for PropChain contract security audit
+# For more information about cargo-deny, see: https://github.com/EmbarkStudios/cargo-deny
+
+[advisories]
+# The database of vulnerabilities
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Don't fail if advisory database can't be fetched
+allow-unmaintained = true
+allow-notice = true
+allow-yanked = true
+
+[bans]
+# Lint level for when multiple versions of the same crate are detected
+multiple-versions = "warn"
+# Lint level for when an unmaintained crate is detected
+unmaintained = "warn"
+# Lint level for when a crate with a security notice is detected
+yanked = "warn"
+# Lint level for when a crate with a notice is detected
+notice = "warn"
+
+[sources]
+# Lint level for what to happen when a crate from a crate registry that is
+# not in the allow list is encountered
+unknown-registry = "warn"
+# Lint level for what to happen when a crate from a git repository that is not in
+# the allow list is encountered
+unknown-git = "warn"
+# List of URLs for allowed crate registries
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# List of URLs for allowed Git repositories
+allow-git = []

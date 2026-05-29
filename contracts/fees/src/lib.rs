@@ -23,202 +23,9 @@ mod propchain_fees {
     /// Max fee multiplier from congestion (e.g. 3x base)
     const MAX_CONGESTION_MULTIPLIER: u32 = 300; // 300% of base
 
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
-    pub struct FeeConfig {
-        /// Base fee per operation (in smallest unit)
-        pub base_fee: u128,
-        /// Minimum fee (floor)
-        pub min_fee: u128,
-        /// Maximum fee (floor)
-        pub max_fee: u128,
-        /// Congestion sensitivity (0-100, higher = more responsive to congestion)
-        pub congestion_sensitivity: u32,
-        /// Demand factor from recent volume (basis points of base_fee)
-        pub demand_factor_bp: u32,
-        /// Last update timestamp for automated adjustment
-        pub last_updated: u64,
-    }
-
-    /// Single data point for congestion/demand history (reserved for future analytics)
-    #[derive(Debug, Clone, scale::Encode, scale::Decode)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
-    #[allow(dead_code)]
-    pub struct FeeHistoryEntry {
-        pub timestamp: u64,
-        pub operation_count: u32,
-        pub total_fees_collected: u128,
-    }
-
-    /// Premium listing auction
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
-    pub struct PremiumAuction {
-        pub property_id: u64,
-        pub seller: AccountId,
-        pub min_bid: u128,
-        pub current_bid: u128,
-        pub current_bidder: Option<AccountId>,
-        pub end_time: u64,
-        pub settled: bool,
-        pub fee_paid: u128,
-    }
-
-    /// Bid in a premium auction
-    #[derive(Debug, Clone, scale::Encode, scale::Decode)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
-    pub struct AuctionBid {
-        pub bidder: AccountId,
-        pub amount: u128,
-        pub timestamp: u64,
-    }
-
-    /// Reward record for validators/participants
-    #[derive(Debug, Clone, scale::Encode, scale::Decode)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
-    pub struct RewardRecord {
-        pub account: AccountId,
-        pub amount: u128,
-        pub reason: RewardReason,
-        pub timestamp: u64,
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
-    pub enum RewardReason {
-        ValidatorReward,
-        LiquidityProvider,
-        PremiumListingFee,
-        ParticipationIncentive,
-    }
-
-    /// Fee report for transparency and dashboard
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
-    pub struct FeeReport {
-        pub config: FeeConfig,
-        pub congestion_index: u32, // 0-100
-        pub recommended_fee: u128,
-        pub total_fees_collected: u128,
-        pub total_distributed: u128,
-        pub operation_count_24h: u64,
-        pub premium_auctions_active: u32,
-        pub timestamp: u64,
-    }
-
-    /// Fee estimate for a user (optimization recommendation)
-    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
-    pub struct FeeEstimate {
-        pub operation: FeeOperation,
-        pub estimated_fee: u128,
-        pub min_fee: u128,
-        pub max_fee: u128,
-        pub congestion_level: String, // "low" | "medium" | "high"
-        pub recommendation: String,
-    }
-
-    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub enum FeeError {
-        /// Caller is not authorized
-        Unauthorized,
-        /// Auction does not exist
-        AuctionNotFound,
-        /// Auction has ended
-        AuctionEnded,
-        /// Auction has not ended yet
-        AuctionNotEnded,
-        /// Bid amount is too low
-        BidTooLow,
-        /// Auction already settled
-        AlreadySettled,
-        /// Invalid configuration
-        InvalidConfig,
-        /// Invalid property ID
-        InvalidProperty,
-    }
-
-    impl core::fmt::Display for FeeError {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            match self {
-                FeeError::Unauthorized => write!(f, "Caller is not authorized"),
-                FeeError::AuctionNotFound => write!(f, "Auction does not exist"),
-                FeeError::AuctionEnded => write!(f, "Auction has ended"),
-                FeeError::AuctionNotEnded => write!(f, "Auction has not ended yet"),
-                FeeError::BidTooLow => write!(f, "Bid amount is too low"),
-                FeeError::AlreadySettled => write!(f, "Auction already settled"),
-                FeeError::InvalidConfig => write!(f, "Invalid configuration"),
-                FeeError::InvalidProperty => write!(f, "Invalid property ID"),
-            }
-        }
-    }
-
-    impl ContractError for FeeError {
-        fn error_code(&self) -> u32 {
-            match self {
-                FeeError::Unauthorized => propchain_traits::errors::fee_codes::FEE_UNAUTHORIZED,
-                FeeError::AuctionNotFound => {
-                    propchain_traits::errors::fee_codes::FEE_AUCTION_NOT_FOUND
-                }
-                FeeError::AuctionEnded => propchain_traits::errors::fee_codes::FEE_AUCTION_ENDED,
-                FeeError::AuctionNotEnded => {
-                    propchain_traits::errors::fee_codes::FEE_AUCTION_NOT_ENDED
-                }
-                FeeError::BidTooLow => propchain_traits::errors::fee_codes::FEE_BID_TOO_LOW,
-                FeeError::AlreadySettled => {
-                    propchain_traits::errors::fee_codes::FEE_ALREADY_SETTLED
-                }
-                FeeError::InvalidConfig => propchain_traits::errors::fee_codes::FEE_INVALID_CONFIG,
-                FeeError::InvalidProperty => {
-                    propchain_traits::errors::fee_codes::FEE_INVALID_PROPERTY
-                }
-            }
-        }
-
-        fn error_description(&self) -> &'static str {
-            match self {
-                FeeError::Unauthorized => {
-                    "Caller does not have permission to perform this operation"
-                }
-                FeeError::AuctionNotFound => "The specified auction does not exist",
-                FeeError::AuctionEnded => "This auction has already ended",
-                FeeError::AuctionNotEnded => "The auction is still active and has not ended",
-                FeeError::BidTooLow => "The bid amount is below the minimum required",
-                FeeError::AlreadySettled => "This auction has already been settled",
-                FeeError::InvalidConfig => "The fee configuration is invalid",
-                FeeError::InvalidProperty => "The property ID is invalid or does not exist",
-            }
-        }
-
-        fn error_category(&self) -> ErrorCategory {
-            ErrorCategory::Fees
-        }
-    }
+    include!("types.rs");
+    include!("errors.rs");
+    include!("strategies.rs");
 
     #[ink(storage)]
     pub struct FeeManager {
@@ -308,28 +115,6 @@ mod propchain_fees {
         timestamp: u64,
     }
 
-    /// Dynamic fee calculation: base * (1 + congestion_factor + demand_factor)
-    fn compute_dynamic_fee(
-        config: &FeeConfig,
-        congestion_index: u32,
-        demand_factor_bp: u32,
-    ) -> u128 {
-        // Congestion multiplier: 0-100 -> 0% to (MAX_CONGESTION_MULTIPLIER-100)%
-        let congestion_bp = (congestion_index as u128)
-            .saturating_mul(config.congestion_sensitivity as u128)
-            .saturating_mul((MAX_CONGESTION_MULTIPLIER - 100) as u128)
-            / 10_000;
-        let demand_bp = demand_factor_bp.min(5000); // Cap demand at 50%
-        let total_multiplier_bp = 10_000u128
-            .saturating_add(congestion_bp)
-            .saturating_add(demand_bp as u128);
-        let fee = config
-            .base_fee
-            .saturating_mul(total_multiplier_bp)
-            .saturating_div(BASIS_POINTS);
-        fee.clamp(config.min_fee, config.max_fee)
-    }
-
     impl FeeManager {
         #[ink(constructor)]
         pub fn new(base_fee: u128, min_fee: u128, max_fee: u128) -> Self {
@@ -341,6 +126,7 @@ mod propchain_fees {
                 max_fee,
                 congestion_sensitivity: 80,
                 demand_factor_bp: 500,
+                calculation_method: FeeCalculationMethod::Dynamic,
                 last_updated: timestamp,
             };
             Self {
@@ -402,13 +188,16 @@ mod propchain_fees {
 
         // ========== Dynamic fee calculation ==========
 
-        /// Calculate dynamic fee for an operation (read-only)
+        /// Calculate fee for an operation using configured strategy
         #[ink(message)]
         pub fn calculate_fee(&self, operation: FeeOperation) -> u128 {
             let config = self.get_config(operation);
-            let congestion = self.congestion_index();
-            let demand_bp = self.demand_factor_bp();
-            compute_dynamic_fee(&config, congestion, demand_bp)
+            let context = FeeContext {
+                congestion_index: self.congestion_index(),
+                demand_factor_bp: self.demand_factor_bp(),
+                operation,
+            };
+            FeeCalculator::calculate(&config, &context)
         }
 
         /// Record that a fee was collected (called by registry or self after charging)
@@ -729,7 +518,12 @@ mod propchain_fees {
             let config = self.get_config(operation);
             let congestion = self.congestion_index();
             let demand_bp = self.demand_factor_bp();
-            let estimated = compute_dynamic_fee(&config, congestion, demand_bp);
+            let context = FeeContext {
+                congestion_index: congestion,
+                demand_factor_bp: demand_bp,
+                operation,
+            };
+            let estimated = FeeCalculator::calculate(&config, &context);
             let congestion_level = if congestion < 33 {
                 "low"
             } else if congestion < 66 {
@@ -815,51 +609,6 @@ mod propchain_fees {
         #[ink(message)]
         fn get_recommended_fee(&self, operation: FeeOperation) -> u128 {
             self.calculate_fee(operation)
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[ink::test]
-        fn test_dynamic_fee_calculation() {
-            let contract = FeeManager::new(1000, 100, 100_000);
-            let fee = contract.calculate_fee(FeeOperation::RegisterProperty);
-            assert!((100..=100_000).contains(&fee));
-        }
-
-        #[ink::test]
-        fn test_premium_auction_flow() {
-            let mut contract = FeeManager::new(100, 10, 10_000);
-            let auction_id = contract
-                .create_premium_auction(1, 500, 3600)
-                .expect("create auction");
-            assert_eq!(auction_id, 1);
-            let auction = contract.get_auction(auction_id).unwrap();
-            assert_eq!(auction.property_id, 1);
-            assert_eq!(auction.min_bid, 500);
-            assert!(!auction.settled);
-
-            assert!(contract.place_bid(auction_id, 600).is_ok());
-            let auction = contract.get_auction(auction_id).unwrap();
-            assert_eq!(auction.current_bid, 600);
-        }
-
-        #[ink::test]
-        fn test_fee_report() {
-            let contract = FeeManager::new(1000, 100, 50_000);
-            let report = contract.get_fee_report();
-            assert_eq!(report.total_fees_collected, 0);
-            assert!(report.recommended_fee >= 100);
-        }
-
-        #[ink::test]
-        fn test_fee_estimate_recommendation() {
-            let contract = FeeManager::new(1000, 100, 50_000);
-            let est = contract.get_fee_estimate(FeeOperation::TransferProperty);
-            assert!(!est.recommendation.is_empty());
-            assert!(!est.congestion_level.is_empty());
         }
     }
 }

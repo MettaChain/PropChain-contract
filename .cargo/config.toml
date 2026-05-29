@@ -1,0 +1,6 @@
+# Cargo configuration for PropChain-contract
+# Uses the LLVM lld linker to avoid MSVC link.exe permission issues on Windows
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"
+rustflags = ["-C", "linker=rust-lld"]

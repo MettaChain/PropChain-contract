@@ -1,0 +1,27 @@
+[package]
+name = "propchain-multicall"
+version = "1.0.0"
+authors = ["PropChain Team <dev@propchain.io>"]
+edition = "2021"
+publish = false
+
+[dependencies]
+ink = { workspace = true, default-features = false }
+scale = { workspace = true, default-features = false, features = ["derive"] }
+scale-info = { workspace = true, default-features = false, features = ["derive"] }
+propchain-traits = { path = "../traits", default-features = false }
+
+[lib]
+name = "propchain_multicall"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[features]
+default = ["std"]
+std = [
+    "ink/std",
+    "scale/std",
+    "scale-info/std",
+    "propchain-traits/std",
+]
+ink-as-dependency = []

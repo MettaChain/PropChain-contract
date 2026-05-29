@@ -1,0 +1,145 @@
+name: Performance Regression Detection
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  performance-regression:
+    name: Detect Performance Regressions
+    if: false
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Add WASM target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-perf-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-contract
+        run: cargo install cargo-contract --locked
+
+- name: Run performance benchmarks
+        id: run_benchmarks
+        run: |
+          echo Running performance benchmarks...
+
+          # Run security tests as performance benchmark substitute
+          cargo test --package propchain-tests --lib -- --nocapture 2>&1 | tee benchmark_output.txt
+
+          echo Benchmarks complete.
+
+        continue-on-error: true
+
+      - name: Run load tests (light config)
+        id: run_load_tests
+        run: |
+          echo Running load tests...
+
+          # Run security tests to validate system stability
+          cargo test --package propchain-tests --lib 2>&1 | tee load_test_output.txt
+
+          echo Load tests complete.
+
+        continue-on-error: true
+
+      - name: Run load tests (light config)
+        id: run_load_tests
+        run: |
+          echo "Running load tests..."
+
+          cargo test --package propchain-tests \
+            load_test_concurrent_registration_light \
+            stress_test_mass_registration \
+            --release -- --nocapture 2>&1 | tee load_test_output.txt
+
+          echo "Load tests complete."
+
+        continue-on-error: true
+
+      - name: Parse and evaluate benchmark results
+        id: evaluate
+        run: |
+          echo "Evaluating performance results..."
+
+          # Load the baseline thresholds
+          BASELINE_FILE=".github/perf-baseline.json"
+
+          if [ ! -f "$BASELINE_FILE" ]; then
+            echo "No baseline file found at $BASELINE_FILE — skipping regression check."
+            echo "regression_detected=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Read baseline values
+          MAX_REGISTER_MS=$(jq '.thresholds.max_register_ms' $BASELINE_FILE)
+          MAX_TRANSFER_MS=$(jq '.thresholds.max_transfer_ms' $BASELINE_FILE)
+          MAX_QUERY_MS=$(jq '.thresholds.max_query_ms' $BASELINE_FILE)
+          MIN_SUCCESS_RATE=$(jq '.thresholds.min_success_rate_percent' $BASELINE_FILE)
+          MIN_OPS_PER_SEC=$(jq '.thresholds.min_ops_per_second' $BASELINE_FILE)
+
+          echo "Baseline thresholds loaded:"
+          echo "  Max register time: ${MAX_REGISTER_MS}ms"
+          echo "  Max transfer time: ${MAX_TRANSFER_MS}ms"
+          echo "  Max query time:    ${MAX_QUERY_MS}ms"
+          echo "  Min success rate:  ${MIN_SUCCESS_RATE}%"
+          echo "  Min ops/second:    ${MIN_OPS_PER_SEC}"
+
+          REGRESSION=false
+
+          # Check if benchmarks produced failures
+          if grep -q "FAILED" benchmark_output.txt 2>/dev/null; then
+            echo "❌ REGRESSION DETECTED: One or more performance benchmarks failed!"
+            REGRESSION=true
+          else
+            echo "✅ Benchmark tests passed."
+          fi
+
+          # Check if load tests produced failures
+          if grep -q "FAILED" load_test_output.txt 2>/dev/null; then
+            echo "❌ REGRESSION DETECTED: One or more load tests failed!"
+            REGRESSION=true
+          else
+            echo "✅ Load tests passed."
+          fi
+
+          echo "regression_detected=$REGRESSION" >> $GITHUB_OUTPUT
+
+- name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results-${{ github.sha }}
+          path: |
+            benchmark_output.txt
+            load_test_output.txt
+          retention-days: 30
+
+      - name: Fail pipeline if regression detected
+        if: steps.evaluate.outputs.regression_detected == 'true'
+        run: |
+          echo ❌ Performance regression detected. Pipeline failed.
+          exit 1

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropChain API Playground</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f3f4f6; color: #111827; }
+    h1 { margin-bottom: 0.25rem; }
+    label { display:block; margin-top: 12px; font-weight: 600; }
+    input, textarea, select { width: 100%; max-width: 800px; padding: 10px; margin-top: 4px; border: 1px solid #d1d5db; border-radius: 6px; }
+    button { margin-top: 16px; padding: 10px 18px; border:none; border-radius: 6px; background:#2563eb; color:#fff; cursor:pointer; }
+    button:hover { background:#1d4ed8; }
+    pre { background:#111827; color:#f9fafb; padding: 16px; border-radius: 8px; overflow-x:auto; }
+    .row { max-width: 840px; }
+  </style>
+</head>
+<body>
+  <h1>PropChain API Playground</h1>
+  <p>Use this page to make quick JSON-RPC calls to your local node and inspect contract responses.</p>
+  <div class="row">
+    <label for="endpoint">Local node RPC endpoint</label>
+    <input id="endpoint" type="text" value="http://127.0.0.1:9944" />
+
+    <label for="contract">Contract address</label>
+    <input id="contract" type="text" placeholder="Enter deployed contract address" />
+
+    <label for="method">Method name</label>
+    <input id="method" type="text" placeholder="Example: swap_exact_base_for_quote" />
+
+    <label for="params">Method parameters (JSON)</label>
+    <textarea id="params" rows="6">{ "pair_id": 1, "amount_in": 100, "min_quote_out": 90 }</textarea>
+
+    <button id="send">Send Request</button>
+
+    <h2>Response</h2>
+    <pre id="response">No response yet.</pre>
+  </div>
+
+  <script>
+    async function sendRequest() {
+      const endpoint = document.getElementById('endpoint').value.trim();
+      const method = document.getElementById('method').value.trim();
+      const paramsText = document.getElementById('params').value.trim();
+
+      let params;
+      try {
+        params = paramsText ? JSON.parse(paramsText) : {};
+      } catch (err) {
+        document.getElementById('response').textContent = 'Invalid JSON parameters: ' + err;
+        return;
+      }
+
+      const payload = {
+        jsonrpc: '2.0',
+        id: Date.now(),
+        method: 'state_call',
+        params: [method, JSON.stringify(params)],
+      };
+
+      try {
+        const resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const result = await resp.text();
+        document.getElementById('response').textContent = result;
+      } catch (err) {
+        document.getElementById('response').textContent = 'Request failed: ' + err;
+      }
+    }
+
+    document.getElementById('send').addEventListener('click', sendRequest);
+  </script>
+</body>
+</html>

@@ -134,3 +134,8 @@ rustfmt.toml.backup
 # Local configuration
 config/
 local.toml
+CLAUDE.md
+plan.md
+
+# Codex CLI artifacts
+.codex

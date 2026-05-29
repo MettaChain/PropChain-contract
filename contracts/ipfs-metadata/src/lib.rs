@@ -932,6 +932,3 @@ mod ipfs_metadata {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

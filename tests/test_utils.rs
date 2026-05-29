@@ -5,7 +5,6 @@
 
 #![cfg(feature = "std")]
 
-use ink::env::test::DefaultAccounts;
 use ink::env::DefaultEnvironment;
 use ink::primitives::AccountId;
 use propchain_traits::*;
@@ -15,26 +14,27 @@ pub struct TestAccounts {
     pub alice: AccountId,
     pub bob: AccountId,
     pub charlie: AccountId,
-    pub dave: AccountId,
+    pub django: AccountId,
     pub eve: AccountId,
 }
 
-impl TestAccounts {
-    /// Get default test accounts
-    pub fn default() -> Self {
+impl Default for TestAccounts {
+    fn default() -> Self {
         let accounts = ink::env::test::default_accounts::<DefaultEnvironment>();
         Self {
             alice: accounts.alice,
             bob: accounts.bob,
             charlie: accounts.charlie,
-            dave: accounts.dave,
+            django: accounts.django,
             eve: accounts.eve,
         }
     }
+}
 
+impl TestAccounts {
     /// Get all accounts as a vector
     pub fn all(&self) -> Vec<AccountId> {
-        vec![self.alice, self.bob, self.charlie, self.dave, self.eve]
+        vec![self.alice, self.bob, self.charlie, self.django, self.eve]
     }
 }
 
@@ -69,7 +69,8 @@ impl PropertyMetadataFixtures {
         PropertyMetadata {
             location: "456 Oak Avenue, Metropolitan City, State 67890".to_string(),
             size: 10_000,
-            legal_description: "Large commercial property with extensive legal description".to_string(),
+            legal_description: "Large commercial property with extensive legal description"
+                .to_string(),
             valuation: 5_000_000,
             documents_url: "https://ipfs.io/ipfs/QmLarge".to_string(),
         }
@@ -144,7 +145,7 @@ impl TestEnv {
 
     /// Advance block timestamp by specified amount
     pub fn advance_time(seconds: u64) {
-        let current = ink::env::test::get_block_timestamp::<DefaultEnvironment>();
+        let current = ink::env::block_timestamp::<DefaultEnvironment>();
         ink::env::test::set_block_timestamp::<DefaultEnvironment>(current + seconds);
     }
 
@@ -198,9 +199,8 @@ pub mod generators {
     /// Generate a random AccountId for testing
     pub fn random_account_id(seed: u8) -> AccountId {
         let mut bytes = [seed; 32];
-        // Simple pseudo-random generation
-        for i in 0..32 {
-            bytes[i] = seed.wrapping_add(i as u8);
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            *byte = seed.wrapping_add(i as u8);
         }
         AccountId::from(bytes)
     }
@@ -233,9 +233,9 @@ pub mod performance {
     where
         F: FnOnce() -> T,
     {
-        let start = ink::env::test::get_block_timestamp::<DefaultEnvironment>();
+        let start = ink::env::block_timestamp::<DefaultEnvironment>();
         let result = f();
-        let end = ink::env::test::get_block_timestamp::<DefaultEnvironment>();
+        let end = ink::env::block_timestamp::<DefaultEnvironment>();
         (result, end.saturating_sub(start))
     }
 
@@ -246,7 +246,7 @@ pub mod performance {
     {
         (0..iterations)
             .map(|_| {
-                let (_, time) = measure_time(|| f());
+                let (_, time) = measure_time(&f);
                 time
             })
             .collect()

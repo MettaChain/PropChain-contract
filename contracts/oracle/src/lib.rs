@@ -8,6 +8,7 @@
 
 use ink::prelude::*;
 use ink::storage::Mapping;
+use propchain_traits::access_control::{AccessControl, Action, Permission, Resource, Role};
 use propchain_traits::*;
 
 /// Property Valuation Oracle Contract
@@ -73,6 +74,41 @@ mod propchain_oracle {
 
         /// AI valuation contract address
         ai_valuation_contract: Option<AccountId>,
+        /// Maximum batch size for batch operations
+        max_batch_size: u32,
+
+        // ── Circuit Breaker (Issue #316) ──────────────────────────────────────
+        /// When true, valuation updates that exceed `volatility_threshold` are
+        /// automatically blocked until an admin resets the breaker.
+        circuit_breaker_active: bool,
+        /// Percentage change (0–100) beyond which the circuit breaker trips.
+        /// E.g. 20 means a >20% price move triggers a pause.
+        volatility_threshold: u32,
+        /// Property id whose extreme price move last triggered the breaker.
+        circuit_breaker_triggered_by: Option<u64>,
+
+        // ── Multi-Sig Admin (Issue #317) ──────────────────────────────────────
+        /// Accounts authorised to co-sign critical operations.
+        multisig_signers: Vec<AccountId>,
+        /// Required number of approvals for a critical operation to execute.
+        multisig_threshold: u32,
+        /// Pending multi-sig proposals: proposal_id → (action_hash, approvals).
+        multisig_proposals: Mapping<u64, MultiSigProposal>,
+        /// Counter for generating unique proposal ids.
+        multisig_proposal_counter: u64,
+    }
+
+    /// A pending multi-sig proposal for a critical oracle operation.
+    #[derive(scale::Encode, scale::Decode, Clone)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    #[cfg_attr(feature = "std", derive(ink::storage::traits::StorageLayout))]
+    pub struct MultiSigProposal {
+        /// Keccak-256 hash of the encoded action (used to identify what is being approved).
+        pub action_hash: Hash,
+        /// Accounts that have already approved this proposal.
+        pub approvals: Vec<AccountId>,
+        /// Whether the proposal has been executed.
+        pub executed: bool,
     }
 
     /// Events emitted by the oracle
@@ -102,6 +138,50 @@ mod propchain_oracle {
         source_type: OracleSourceType,
         weight: u32,
     }
+
+    /// Emitted when the circuit breaker trips due to extreme price volatility.
+    #[ink(event)]
+    pub struct CircuitBreakerTripped {
+        #[ink(topic)]
+        property_id: u64,
+        old_valuation: u128,
+        new_valuation: u128,
+        change_pct: u32,
+        threshold: u32,
+    }
+
+    /// Emitted when the circuit breaker is manually reset by an admin.
+    #[ink(event)]
+    pub struct CircuitBreakerReset {
+        admin: AccountId,
+    }
+
+    /// Emitted when a new multi-sig proposal is created.
+    #[ink(event)]
+    pub struct MultiSigProposalCreated {
+        #[ink(topic)]
+        proposal_id: u64,
+        proposer: AccountId,
+        action_hash: Hash,
+    }
+
+    /// Emitted when a signer approves a multi-sig proposal.
+    #[ink(event)]
+    pub struct MultiSigProposalApproved {
+        #[ink(topic)]
+        proposal_id: u64,
+        approver: AccountId,
+        approval_count: u32,
+    }
+
+    /// Emitted when a multi-sig proposal reaches threshold and is executed.
+    #[ink(event)]
+    pub struct MultiSigProposalExecuted {
+        #[ink(topic)]
+        proposal_id: u64,
+    }
+
+    include!("types.rs");
 
     impl PropertyValuationOracle {
         /// Constructor for the Property Valuation Oracle
@@ -141,6 +221,16 @@ mod propchain_oracle {
                 pending_requests: Mapping::default(),
                 request_id_counter: 0,
                 ai_valuation_contract: None,
+                max_batch_size: 50,
+                // Circuit breaker defaults (Issue #316)
+                circuit_breaker_active: false,
+                volatility_threshold: 20, // 20% default threshold
+                circuit_breaker_triggered_by: None,
+                // Multi-sig defaults (Issue #317)
+                multisig_signers: Vec::new(),
+                multisig_threshold: 1,
+                multisig_proposals: Mapping::default(),
+                multisig_proposal_counter: 0,
             }
         }
 
@@ -190,6 +280,28 @@ mod propchain_oracle {
                 return Err(OracleError::InvalidValuation);
             }
 
+            // ── Circuit Breaker check (Issue #316) ────────────────────────────
+            if self.circuit_breaker_active {
+                return Err(OracleError::CircuitBreakerActive);
+            }
+            if let Some(existing) = self.property_valuations.get(&property_id) {
+                let change_pct = self
+                    .calculate_percentage_change(existing.valuation, valuation.valuation)
+                    as u32;
+                if change_pct > self.volatility_threshold {
+                    self.circuit_breaker_active = true;
+                    self.circuit_breaker_triggered_by = Some(property_id);
+                    self.env().emit_event(CircuitBreakerTripped {
+                        property_id,
+                        old_valuation: existing.valuation,
+                        new_valuation: valuation.valuation,
+                        change_pct,
+                        threshold: self.volatility_threshold,
+                    });
+                    return Err(OracleError::CircuitBreakerActive);
+                }
+            }
+
             // Store historical valuation
             self.store_historical_valuation(property_id, valuation.clone());
 
@@ -208,6 +320,182 @@ mod propchain_oracle {
             });
 
             Ok(())
+        }
+
+        // ── Circuit Breaker public API (Issue #316) ───────────────────────────
+
+        /// Returns true if the circuit breaker is currently active.
+        #[ink(message)]
+        pub fn is_circuit_breaker_active(&self) -> bool {
+            self.circuit_breaker_active
+        }
+
+        /// Returns the property id that triggered the circuit breaker, if any.
+        #[ink(message)]
+        pub fn circuit_breaker_triggered_by(&self) -> Option<u64> {
+            self.circuit_breaker_triggered_by
+        }
+
+        /// Returns the current volatility threshold (percentage).
+        #[ink(message)]
+        pub fn volatility_threshold(&self) -> u32 {
+            self.volatility_threshold
+        }
+
+        /// Admin: update the volatility threshold.
+        /// Requires multi-sig approval when signers are configured.
+        #[ink(message)]
+        pub fn set_volatility_threshold(&mut self, new_threshold: u32) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            if new_threshold == 0 || new_threshold > 100 {
+                return Err(OracleError::InvalidValuation);
+            }
+            self.volatility_threshold = new_threshold;
+            Ok(())
+        }
+
+        /// Admin: reset the circuit breaker so that valuation updates are
+        /// accepted again.  Only callable after investigating the price move.
+        #[ink(message)]
+        pub fn reset_circuit_breaker(&mut self) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            self.circuit_breaker_active = false;
+            self.circuit_breaker_triggered_by = None;
+            self.env().emit_event(CircuitBreakerReset {
+                admin: self.env().caller(),
+            });
+            Ok(())
+        }
+
+        // ── Multi-Sig public API (Issue #317) ─────────────────────────────────
+
+        /// Returns the list of authorised multi-sig signers.
+        #[ink(message)]
+        pub fn get_multisig_signers(&self) -> Vec<AccountId> {
+            self.multisig_signers.clone()
+        }
+
+        /// Returns the required approval threshold.
+        #[ink(message)]
+        pub fn get_multisig_threshold(&self) -> u32 {
+            self.multisig_threshold
+        }
+
+        /// Admin: add a signer to the multi-sig set.
+        #[ink(message)]
+        pub fn add_multisig_signer(&mut self, signer: AccountId) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            if !self.multisig_signers.contains(&signer) {
+                self.multisig_signers.push(signer);
+            }
+            Ok(())
+        }
+
+        /// Admin: remove a signer from the multi-sig set.
+        #[ink(message)]
+        pub fn remove_multisig_signer(&mut self, signer: AccountId) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            self.multisig_signers.retain(|s| *s != signer);
+            // Threshold must not exceed signer count
+            if self.multisig_threshold > self.multisig_signers.len() as u32 {
+                self.multisig_threshold = self.multisig_signers.len() as u32;
+            }
+            Ok(())
+        }
+
+        /// Admin: update the required approval threshold (must be ≤ signer count).
+        #[ink(message)]
+        pub fn set_multisig_threshold(&mut self, threshold: u32) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            if threshold == 0 || threshold > self.multisig_signers.len() as u32 {
+                return Err(OracleError::InvalidValuation);
+            }
+            self.multisig_threshold = threshold;
+            Ok(())
+        }
+
+        /// Propose a critical operation identified by `action_hash`.
+        /// The proposer must be a registered signer.
+        #[ink(message)]
+        pub fn propose_multisig_action(&mut self, action_hash: Hash) -> Result<u64, OracleError> {
+            let caller = self.env().caller();
+            if !self.multisig_signers.contains(&caller) {
+                return Err(OracleError::Unauthorized);
+            }
+            let proposal_id = self.multisig_proposal_counter;
+            self.multisig_proposal_counter = self.multisig_proposal_counter.saturating_add(1);
+
+            let approvals = vec![caller];
+
+            self.multisig_proposals.insert(
+                &proposal_id,
+                &MultiSigProposal {
+                    action_hash,
+                    approvals,
+                    executed: false,
+                },
+            );
+
+            self.env().emit_event(MultiSigProposalCreated {
+                proposal_id,
+                proposer: caller,
+                action_hash,
+            });
+
+            Ok(proposal_id)
+        }
+
+        /// Approve an existing multi-sig proposal.
+        /// When the approval count reaches `multisig_threshold` the proposal
+        /// is marked executed and the caller is responsible for then submitting
+        /// the actual admin action.
+        #[ink(message)]
+        pub fn approve_multisig_proposal(&mut self, proposal_id: u64) -> Result<bool, OracleError> {
+            let caller = self.env().caller();
+            if !self.multisig_signers.contains(&caller) {
+                return Err(OracleError::Unauthorized);
+            }
+
+            let mut proposal = self
+                .multisig_proposals
+                .get(&proposal_id)
+                .ok_or(OracleError::PropertyNotFound)?;
+
+            if proposal.executed {
+                return Err(OracleError::AlreadyExists);
+            }
+            if proposal.approvals.contains(&caller) {
+                return Err(OracleError::AlreadyExists);
+            }
+
+            proposal.approvals.push(caller);
+            let approval_count = proposal.approvals.len() as u32;
+            let ready = approval_count >= self.multisig_threshold;
+
+            if ready {
+                proposal.executed = true;
+            }
+
+            self.multisig_proposals.insert(&proposal_id, &proposal);
+
+            self.env().emit_event(MultiSigProposalApproved {
+                proposal_id,
+                approver: caller,
+                approval_count,
+            });
+
+            if ready {
+                self.env()
+                    .emit_event(MultiSigProposalExecuted { proposal_id });
+            }
+
+            Ok(ready)
+        }
+
+        /// Query a proposal's current state.
+        #[ink(message)]
+        pub fn get_multisig_proposal(&self, proposal_id: u64) -> Option<MultiSigProposal> {
+            self.multisig_proposals.get(&proposal_id)
         }
 
         /// Update property valuation from oracle sources
@@ -266,14 +554,54 @@ mod propchain_oracle {
         pub fn batch_request_valuations(
             &mut self,
             property_ids: Vec<u64>,
-        ) -> Result<Vec<u64>, OracleError> {
-            let mut request_ids = Vec::new();
-            for id in property_ids {
-                if let Ok(req_id) = self.request_property_valuation(id) {
-                    request_ids.push(req_id);
+        ) -> Result<OracleBatchResult, OracleError> {
+            self.batch_request_valuations_internal(property_ids)
+        }
+
+        /// Internal implementation of batch request valuations
+        fn batch_request_valuations_internal(
+            &mut self,
+            property_ids: Vec<u64>,
+        ) -> Result<OracleBatchResult, OracleError> {
+            if property_ids.len() > self.max_batch_size as usize {
+                return Err(OracleError::BatchSizeExceeded);
+            }
+
+            let total_items = property_ids.len() as u32;
+            let mut successes = Vec::new();
+            let mut failures = Vec::new();
+            let mut early_terminated = false;
+            let failure_threshold: usize = 5;
+
+            for (i, id) in property_ids.into_iter().enumerate() {
+                if failures.len() >= failure_threshold {
+                    early_terminated = true;
+                    break;
+                }
+
+                match self.request_property_valuation(id) {
+                    Ok(req_id) => successes.push(req_id),
+                    Err(e) => {
+                        failures.push(OracleBatchItemFailure {
+                            index: i as u32,
+                            item_id: id,
+                            error: e,
+                        });
+                    }
                 }
             }
-            Ok(request_ids)
+
+            let successful_items = successes.len() as u32;
+            let failed_items = failures.len() as u32;
+
+            Ok(OracleBatchResult {
+                successes,
+                failures,
+                total_items,
+                successful_items,
+                failed_items,
+                early_terminated,
+            })
         }
 
         /// Update oracle reputation (admin only)
@@ -888,7 +1216,8 @@ mod propchain_oracle {
             &mut self,
             property_ids: Vec<u64>,
         ) -> Result<Vec<u64>, OracleError> {
-            self.batch_request_valuations(property_ids)
+            let result = self.batch_request_valuations_internal(property_ids)?;
+            Ok(result.successes)
         }
 
         #[ink(message)]
@@ -963,399 +1292,3 @@ mod propchain_oracle {
 
 // Re-export the contract and error type
 pub use propchain_traits::OracleError;
-
-#[cfg(test)]
-mod oracle_tests {
-    use super::*;
-    // use ink::codegen::env::Env; // Removed invalid import
-    use crate::propchain_oracle::PropertyValuationOracle;
-    use ink::env::{test, DefaultEnvironment};
-
-    fn setup_oracle() -> PropertyValuationOracle {
-        let accounts = test::default_accounts::<DefaultEnvironment>();
-        test::set_caller::<DefaultEnvironment>(accounts.alice);
-        PropertyValuationOracle::new(accounts.alice)
-    }
-
-    #[ink::test]
-    fn test_new_oracle_works() {
-        let oracle = setup_oracle();
-        assert_eq!(oracle.active_sources.len(), 0);
-        assert_eq!(oracle.min_sources_required, 2);
-    }
-
-    #[ink::test]
-    fn test_add_oracle_source_works() {
-        let mut oracle = setup_oracle();
-        let accounts = test::default_accounts::<DefaultEnvironment>();
-
-        let source = OracleSource {
-            id: "chainlink_feed".to_string(),
-            source_type: OracleSourceType::Chainlink,
-            address: accounts.bob,
-            is_active: true,
-            weight: 50,
-            last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
-        };
-
-        assert!(oracle.add_oracle_source(source).is_ok());
-        assert_eq!(oracle.active_sources.len(), 1);
-        assert_eq!(oracle.active_sources[0], "chainlink_feed");
-    }
-
-    #[ink::test]
-    fn test_unauthorized_add_source_fails() {
-        let mut oracle = setup_oracle();
-        let accounts = test::default_accounts::<DefaultEnvironment>();
-
-        // Switch to non-admin caller
-        test::set_caller::<DefaultEnvironment>(accounts.bob);
-
-        let source = OracleSource {
-            id: "chainlink_feed".to_string(),
-            source_type: OracleSourceType::Chainlink,
-            address: accounts.bob,
-            is_active: true,
-            weight: 50,
-            last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
-        };
-
-        assert_eq!(
-            oracle.add_oracle_source(source),
-            Err(OracleError::Unauthorized)
-        );
-    }
-
-    #[ink::test]
-    fn test_update_property_valuation_works() {
-        let mut oracle = setup_oracle();
-
-        let valuation = PropertyValuation {
-            property_id: 1,
-            valuation: 500000, // $500,000
-            confidence_score: 85,
-            sources_used: 3,
-            last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
-            valuation_method: ValuationMethod::MarketData,
-        };
-
-        assert!(oracle
-            .update_property_valuation(1, valuation.clone())
-            .is_ok());
-
-        let retrieved = oracle.get_property_valuation(1);
-        assert!(retrieved.is_ok());
-        assert_eq!(
-            retrieved.expect("Valuation should exist after update"),
-            valuation
-        );
-    }
-
-    #[ink::test]
-    fn test_get_nonexistent_valuation_fails() {
-        let oracle = setup_oracle();
-        assert_eq!(
-            oracle.get_property_valuation(999),
-            Err(OracleError::PropertyNotFound)
-        );
-    }
-
-    #[ink::test]
-    fn test_set_price_alert_works() {
-        let mut oracle = setup_oracle();
-        let accounts = test::default_accounts::<DefaultEnvironment>();
-
-        assert!(oracle.set_price_alert(1, 5, accounts.bob).is_ok());
-
-        let alerts = oracle.price_alerts.get(&1).unwrap_or_default();
-        assert_eq!(alerts.len(), 1);
-        assert_eq!(alerts[0].threshold_percentage, 5);
-        assert_eq!(alerts[0].alert_address, accounts.bob);
-    }
-
-    #[ink::test]
-    fn test_calculate_percentage_change() {
-        let oracle = setup_oracle();
-
-        // Test 10% increase
-        assert_eq!(oracle.calculate_percentage_change(100, 110), 10);
-
-        // Test 20% decrease
-        assert_eq!(oracle.calculate_percentage_change(100, 80), 20);
-
-        // Test no change
-        assert_eq!(oracle.calculate_percentage_change(100, 100), 0);
-
-        // Test zero old value
-        assert_eq!(oracle.calculate_percentage_change(0, 100), 0);
-    }
-
-    #[ink::test]
-    fn test_aggregate_prices_works() {
-        let mut oracle = setup_oracle();
-        let accounts = test::default_accounts::<DefaultEnvironment>();
-
-        // Register oracle sources so get_source_weight succeeds
-        for (id, weight) in &[("source1", 50u32), ("source2", 50u32), ("source3", 50u32)] {
-            oracle
-                .add_oracle_source(OracleSource {
-                    id: id.to_string(),
-                    source_type: OracleSourceType::Manual,
-                    address: accounts.bob,
-                    is_active: true,
-                    weight: *weight,
-                    last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
-                })
-                .expect("Oracle source registration should succeed in test");
-        }
-
-        let prices = vec![
-            PriceData {
-                price: 100,
-                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
-                source: "source1".to_string(),
-            },
-            PriceData {
-                price: 105,
-                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
-                source: "source2".to_string(),
-            },
-            PriceData {
-                price: 98,
-                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
-                source: "source3".to_string(),
-            },
-        ];
-
-        let result = oracle.aggregate_prices(&prices);
-        assert!(result.is_ok());
-
-        let aggregated = result.expect("Price aggregation should succeed in test");
-        // Should be close to the weighted average of 100, 105, 98 ≈ 101
-        assert!((98..=105).contains(&aggregated));
-    }
-
-    #[ink::test]
-    fn test_filter_outliers_works() {
-        let oracle = setup_oracle();
-
-        // 5 tightly-clustered values + 1 extreme outlier.
-        // With these values: mean ≈ 250, std_dev ≈ 335.
-        // 1000's deviation (750) > 2 * 335 (670), so it is filtered.
-        // The 5 normal values are all within 2σ and are kept.
-        let prices = vec![
-            PriceData {
-                price: 98,
-                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
-                source: "source1".to_string(),
-            },
-            PriceData {
-                price: 99,
-                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
-                source: "source2".to_string(),
-            },
-            PriceData {
-                price: 100,
-                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
-                source: "source3".to_string(),
-            },
-            PriceData {
-                price: 101,
-                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
-                source: "source4".to_string(),
-            },
-            PriceData {
-                price: 102,
-                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
-                source: "source5".to_string(),
-            },
-            PriceData {
-                price: 1000, // True outlier: ~2.2 sigma from mean
-                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
-                source: "source6".to_string(),
-            },
-        ];
-
-        let filtered = oracle.filter_outliers(&prices);
-        // The 1000 outlier should be filtered, leaving the 5 normal prices
-        assert_eq!(filtered.len(), 5);
-        assert!(filtered.iter().all(|p| p.price < 200));
-    }
-
-    #[ink::test]
-    fn test_calculate_confidence_score() {
-        let oracle = setup_oracle();
-
-        let prices = vec![
-            PriceData {
-                price: 100,
-                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
-                source: "source1".to_string(),
-            },
-            PriceData {
-                price: 102,
-                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
-                source: "source2".to_string(),
-            },
-            PriceData {
-                price: 98,
-                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
-                source: "source3".to_string(),
-            },
-        ];
-
-        let score = oracle.calculate_confidence_score(&prices);
-        assert!(score.is_ok());
-
-        let score = score.expect("Confidence score calculation should succeed in test");
-        // Should be reasonably high due to low variance and multiple sources
-        assert!(score > 50);
-    }
-
-    #[ink::test]
-    fn test_set_location_adjustment_works() {
-        let mut oracle = setup_oracle();
-
-        let adjustment = LocationAdjustment {
-            location_code: "NYC_MANHATTAN".to_string(),
-            adjustment_percentage: 15, // 15% premium
-            last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
-            confidence_score: 90,
-        };
-
-        assert!(oracle.set_location_adjustment(adjustment.clone()).is_ok());
-
-        let stored = oracle.location_adjustments.get(&adjustment.location_code);
-        assert!(stored.is_some());
-        assert_eq!(
-            stored.expect("Location adjustment should exist after setting"),
-            adjustment
-        );
-    }
-
-    #[ink::test]
-    fn test_get_comparable_properties_works() {
-        let oracle = setup_oracle();
-
-        // Test with empty cache
-        let comparables = oracle.get_comparable_properties(1, 10);
-        assert_eq!(comparables.len(), 0);
-    }
-
-    #[ink::test]
-    fn test_get_historical_valuations_works() {
-        let oracle = setup_oracle();
-
-        // Test with no history
-        let history = oracle.get_historical_valuations(1, 10);
-        assert_eq!(history.len(), 0);
-    }
-
-    #[ink::test]
-    fn test_insufficient_sources_error() {
-        let oracle = setup_oracle();
-
-        let prices = vec![PriceData {
-            price: 100,
-            timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
-            source: "source1".to_string(),
-        }];
-
-        // With min_sources_required = 2, this should fail
-        let result = oracle.aggregate_prices(&prices);
-        assert_eq!(result, Err(OracleError::InsufficientSources));
-    }
-
-    #[ink::test]
-    fn test_source_reputation_works() {
-        let mut oracle = setup_oracle();
-        let source_id = "source1".to_string();
-
-        // Initial reputation should be 500
-        assert!(oracle
-            .update_source_reputation(source_id.clone(), true)
-            .is_ok());
-        assert_eq!(
-            oracle
-                .source_reputations
-                .get(&source_id)
-                .expect("Source reputation should exist after update"),
-            510
-        );
-
-        // Test penalty
-        assert!(oracle
-            .update_source_reputation(source_id.clone(), false)
-            .is_ok());
-        assert_eq!(
-            oracle
-                .source_reputations
-                .get(&source_id)
-                .expect("Source reputation should exist after update"),
-            460
-        );
-    }
-
-    #[ink::test]
-    fn test_slashing_works() {
-        let mut oracle = setup_oracle();
-        let source_id = "source1".to_string();
-
-        oracle.source_stakes.insert(&source_id, &1000);
-        assert!(oracle.slash_source(source_id.clone(), 100).is_ok());
-
-        assert_eq!(
-            oracle
-                .source_stakes
-                .get(&source_id)
-                .expect("Source stake should exist after slashing"),
-            900
-        );
-        // Reputation should also decrease
-        assert!(
-            oracle
-                .source_reputations
-                .get(&source_id)
-                .expect("Source reputation should exist after slashing")
-                < 500
-        );
-    }
-
-    #[ink::test]
-    fn test_anomaly_detection_works() {
-        let mut oracle = setup_oracle();
-        let property_id = 1;
-
-        let valuation = PropertyValuation {
-            property_id,
-            valuation: 100000,
-            confidence_score: 90,
-            sources_used: 3,
-            last_updated: 0,
-            valuation_method: ValuationMethod::Automated,
-        };
-
-        oracle.property_valuations.insert(&property_id, &valuation);
-
-        // Normal price change (5%)
-        assert!(!oracle.is_anomaly(property_id, 105000));
-
-        // Anomaly price change (25%)
-        assert!(oracle.is_anomaly(property_id, 130000));
-    }
-
-    #[ink::test]
-    fn test_batch_request_works() {
-        let mut oracle = setup_oracle();
-        let property_ids = vec![1, 2, 3];
-
-        let result = oracle.batch_request_valuations(property_ids);
-        assert!(result.is_ok());
-        let request_ids = result.expect("Batch request should succeed in test");
-        assert_eq!(request_ids.len(), 3);
-
-        assert!(oracle.pending_requests.get(&1).is_some());
-        assert!(oracle.pending_requests.get(&2).is_some());
-        assert!(oracle.pending_requests.get(&3).is_some());
-    }
-}

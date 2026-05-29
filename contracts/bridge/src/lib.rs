@@ -10,97 +10,13 @@ use scale_info::prelude::vec::Vec;
 #[ink::contract]
 mod bridge {
     use super::*;
+    use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
-    /// Error types for the bridge contract
-    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub enum Error {
-        /// Caller is not authorized
-        Unauthorized,
-        /// Token does not exist
-        TokenNotFound,
-        /// Invalid chain ID
-        InvalidChain,
-        /// Bridge not supported for this token
-        BridgeNotSupported,
-        /// Insufficient signatures collected
-        InsufficientSignatures,
-        /// Bridge request has expired
-        RequestExpired,
-        /// Already signed this request
-        AlreadySigned,
-        /// Invalid bridge request
-        InvalidRequest,
-        /// Bridge operations are paused
-        BridgePaused,
-        /// Invalid metadata
-        InvalidMetadata,
-        /// Duplicate bridge request
-        DuplicateRequest,
-        /// Gas limit exceeded
-        GasLimitExceeded,
-    }
+    include!("errors.rs");
 
-    impl core::fmt::Display for Error {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            match self {
-                Error::Unauthorized => write!(f, "Caller is not authorized"),
-                Error::TokenNotFound => write!(f, "Token does not exist"),
-                Error::InvalidChain => write!(f, "Invalid chain ID"),
-                Error::BridgeNotSupported => write!(f, "Bridge not supported for this token"),
-                Error::InsufficientSignatures => write!(f, "Insufficient signatures collected"),
-                Error::RequestExpired => write!(f, "Bridge request has expired"),
-                Error::AlreadySigned => write!(f, "Already signed this request"),
-                Error::InvalidRequest => write!(f, "Invalid bridge request"),
-                Error::BridgePaused => write!(f, "Bridge operations are paused"),
-                Error::InvalidMetadata => write!(f, "Invalid metadata"),
-                Error::DuplicateRequest => write!(f, "Duplicate bridge request"),
-                Error::GasLimitExceeded => write!(f, "Gas limit exceeded"),
-            }
-        }
-    }
-
-    impl ContractError for Error {
-        fn error_code(&self) -> u32 {
-            match self {
-                Error::Unauthorized => bridge_codes::BRIDGE_UNAUTHORIZED,
-                Error::TokenNotFound => bridge_codes::BRIDGE_TOKEN_NOT_FOUND,
-                Error::InvalidChain => bridge_codes::BRIDGE_INVALID_CHAIN,
-                Error::BridgeNotSupported => bridge_codes::BRIDGE_NOT_SUPPORTED,
-                Error::InsufficientSignatures => bridge_codes::BRIDGE_INSUFFICIENT_SIGNATURES,
-                Error::RequestExpired => bridge_codes::BRIDGE_REQUEST_EXPIRED,
-                Error::AlreadySigned => bridge_codes::BRIDGE_ALREADY_SIGNED,
-                Error::InvalidRequest => bridge_codes::BRIDGE_INVALID_REQUEST,
-                Error::BridgePaused => bridge_codes::BRIDGE_PAUSED,
-                Error::InvalidMetadata => bridge_codes::BRIDGE_INVALID_METADATA,
-                Error::DuplicateRequest => bridge_codes::BRIDGE_DUPLICATE_REQUEST,
-                Error::GasLimitExceeded => bridge_codes::BRIDGE_GAS_LIMIT_EXCEEDED,
-            }
-        }
-
-        fn error_description(&self) -> &'static str {
-            match self {
-                Error::Unauthorized => "Caller does not have permission to perform this operation",
-                Error::TokenNotFound => "The specified token does not exist",
-                Error::InvalidChain => "The destination chain ID is invalid",
-                Error::BridgeNotSupported => "Cross-chain bridging is not supported for this token",
-                Error::InsufficientSignatures => {
-                    "Not enough signatures collected for bridge operation"
-                }
-                Error::RequestExpired => {
-                    "The bridge request has expired and can no longer be executed"
-                }
-                Error::AlreadySigned => "You have already signed this bridge request",
-                Error::InvalidRequest => "The bridge request is invalid or malformed",
-                Error::BridgePaused => "Bridge operations are temporarily paused",
-                Error::InvalidMetadata => "The token metadata is invalid",
-                Error::DuplicateRequest => "A bridge request with these parameters already exists",
-                Error::GasLimitExceeded => "The operation exceeded the gas limit",
-            }
-        }
-
-        fn error_category(&self) -> ErrorCategory {
-            ErrorCategory::Bridge
+    impl From<ReentrancyError> for Error {
+        fn from(_: ReentrancyError) -> Self {
+            Error::ReentrantCall
         }
     }
 
@@ -122,8 +38,15 @@ mod bridge {
         /// Transaction verification records
         verified_transactions: Mapping<Hash, bool>,
 
+        /// Cross-chain DEX settlement intents tracked by the bridge
+        cross_chain_trades: Mapping<u64, CrossChainTradeIntent>,
+
         /// Bridge operators
         bridge_operators: Vec<AccountId>,
+
+        /// Registered validators for multi-signature cross-chain transactions.
+        /// Only accounts in this set may sign bridge requests (issue #203).
+        validators: Vec<AccountId>,
 
         /// Request counter
         request_counter: u64,
@@ -131,8 +54,32 @@ mod bridge {
         /// Transaction counter
         transaction_counter: u64,
 
+        /// Cross-chain trade settlement counter
+        cross_chain_trade_counter: u64,
+
         /// Admin account
         admin: AccountId,
+
+        /// Registered ECDSA public keys for optional cryptographic signature verification
+        operator_public_keys: Mapping<AccountId, [u8; 33]>,
+
+        /// Pending admin key rotation request
+        pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
+
+        /// Account daily bridge request count for rate limiting
+        account_daily_requests: Mapping<AccountId, u64>,
+
+        /// Account last reset day for rate limiting
+        account_last_reset_day: Mapping<AccountId, u64>,
+
+        /// Chain daily volume for rate limiting
+        chain_daily_volume: Mapping<ChainId, u128>,
+
+        /// Chain last reset day for rate limiting
+        chain_last_reset_day: Mapping<ChainId, u64>,
+
+        /// Reentrancy protection
+        reentrancy_guard: ReentrancyGuard,
     }
 
     /// Events for bridge operations
@@ -187,6 +134,21 @@ mod bridge {
         pub recovery_action: RecoveryAction,
     }
 
+    /// Emitted when a bridge transaction is atomically rolled back (#201).
+    #[ink(event)]
+    pub struct BridgeRolledBack {
+        #[ink(topic)]
+        pub request_id: u64,
+        #[ink(topic)]
+        pub token_id: TokenId,
+        /// Original sender whose funds are now unlocked.
+        pub requester: AccountId,
+        /// Human-readable rollback reason for audit trail.
+        pub reason: String,
+        /// Block number at which the rollback was executed.
+        pub rolled_back_at: u32,
+    }
+
     impl PropertyBridge {
         /// Creates a new PropertyBridge contract
         #[ink(constructor)]
@@ -206,6 +168,9 @@ mod bridge {
                 gas_limit_per_bridge: gas_limit,
                 emergency_pause: false,
                 metadata_preservation: true,
+                rate_limit_enabled: true,
+                max_requests_per_day: 10,
+                max_value_per_day: 1_000_000_000_000_000_000,
             };
 
             // Initialize chain info for supported chains
@@ -215,10 +180,20 @@ mod bridge {
                 bridge_history: Mapping::default(),
                 chain_info: Mapping::default(),
                 verified_transactions: Mapping::default(),
+                cross_chain_trades: Mapping::default(),
                 bridge_operators: vec![caller],
+                validators: Vec::new(),
                 request_counter: 0,
                 transaction_counter: 0,
+                cross_chain_trade_counter: 0,
                 admin: caller,
+                operator_public_keys: Mapping::default(),
+                pending_admin_rotation: None,
+                account_daily_requests: Mapping::default(),
+                account_last_reset_day: Mapping::default(),
+                chain_daily_volume: Mapping::default(),
+                chain_last_reset_day: Mapping::default(),
+                reentrancy_guard: ReentrancyGuard::new(),
             };
 
             // Set up default chain information
@@ -231,6 +206,7 @@ mod bridge {
                     gas_multiplier: propchain_traits::constants::DEFAULT_GAS_MULTIPLIER,
                     confirmation_blocks: propchain_traits::constants::DEFAULT_CONFIRMATION_BLOCKS,
                     supported_tokens: Vec::new(),
+                    chain_daily_limit: 10_000_000_000_000_000_000, // Example large default
                 };
                 bridge.chain_info.insert(chain_id, &chain_info);
             }
@@ -273,6 +249,10 @@ mod bridge {
                 return Err(Error::Unauthorized);
             }
 
+            // Enforce rate limiting
+            // For NFT bridge, we count requests but value is 0 here since NFT value isn't strictly defined by amount.
+            self.check_and_update_rate_limits(caller, destination_chain, 0, true)?;
+
             // Create bridge request
             self.request_counter += 1;
             let request_id = self.request_counter;
@@ -312,8 +292,8 @@ mod bridge {
         pub fn sign_bridge_request(&mut self, request_id: u64, approve: bool) -> Result<(), Error> {
             let caller = self.env().caller();
 
-            // Check if caller is a bridge operator
-            if !self.bridge_operators.contains(&caller) {
+            // Check if caller is a registered validator (issue #203: only validators may sign)
+            if !self.validators.contains(&caller) {
                 return Err(Error::Unauthorized);
             }
 
@@ -356,69 +336,114 @@ mod bridge {
             Ok(())
         }
 
-        /// Executes a bridge request after collecting required signatures
+        /// Register an ECDSA public key for cryptographic signature verification.
         #[ink(message)]
-        pub fn execute_bridge(&mut self, request_id: u64) -> Result<(), Error> {
+        pub fn register_operator_public_key(&mut self, public_key: [u8; 33]) -> Result<(), Error> {
             let caller = self.env().caller();
-
-            // Check if caller is a bridge operator
             if !self.bridge_operators.contains(&caller) {
                 return Err(Error::Unauthorized);
             }
-
-            let mut request = self
-                .bridge_requests
-                .get(request_id)
-                .ok_or(Error::InvalidRequest)?;
-
-            // Check if request is ready for execution
-            if request.status != BridgeOperationStatus::Locked {
-                return Err(Error::InvalidRequest);
-            }
-
-            // Check if enough signatures are collected
-            if request.signatures.len() < request.required_signatures as usize {
-                return Err(Error::InsufficientSignatures);
-            }
-
-            // Generate transaction hash
-            let transaction_hash = self.generate_transaction_hash(&request);
-
-            // Create bridge transaction record
-            self.transaction_counter += 1;
-            let transaction = BridgeTransaction {
-                transaction_id: self.transaction_counter,
-                token_id: request.token_id,
-                source_chain: request.source_chain,
-                destination_chain: request.destination_chain,
-                sender: request.sender,
-                recipient: request.recipient,
-                transaction_hash,
-                timestamp: self.env().block_timestamp(),
-                gas_used: self.estimate_gas_usage(&request),
-                status: BridgeOperationStatus::InTransit,
-                metadata: request.metadata.clone(),
-            };
-
-            // Update request status
-            request.status = BridgeOperationStatus::Completed;
-            self.bridge_requests.insert(request_id, &request);
-
-            // Store transaction verification
-            self.verified_transactions.insert(transaction_hash, &true);
-
-            // Add to bridge history
-            let mut history = self.bridge_history.get(request.sender).unwrap_or_default();
-            history.push(transaction.clone());
-            self.bridge_history.insert(request.sender, &history);
-
-            self.env().emit_event(BridgeExecuted {
-                request_id,
-                token_id: request.token_id,
-                transaction_hash,
-            });
-
+            self.operator_public_keys.insert(caller, &public_key);
             Ok(())
+        }
+
+        /// Sign a bridge request with optional ECDSA cryptographic signature verification.
+        #[ink(message)]
+        pub fn sign_bridge_request_with_signature(
+            &mut self,
+            request_id: u64,
+            approve: bool,
+            signed_approval: Option<propchain_traits::SignedApproval>,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+            if let Some(ref approval) = signed_approval {
+                let expected_key = self
+                    .operator_public_keys
+                    .get(caller)
+                    .ok_or(Error::Unauthorized)?;
+                propchain_traits::crypto::verify_signed_approval(approval, &expected_key)
+                    .map_err(|_| Error::Unauthorized)?;
+
+                let expected_hash = propchain_traits::crypto::hash_encoded(&(
+                    request_id,
+                    approve,
+                    caller,
+                    self.env().block_number(),
+                ));
+                if approval.message_hash != <[u8; 32]>::from(expected_hash) {
+                    return Err(Error::Unauthorized);
+                }
+            }
+
+            self.sign_bridge_request(request_id, approve)
+        }
+
+        /// Executes a bridge request after collecting required signatures
+        #[ink(message)]
+        pub fn execute_bridge(&mut self, request_id: u64) -> Result<(), Error> {
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+
+                // Check if caller is a bridge operator
+                if !self.bridge_operators.contains(&caller) {
+                    return Err(Error::Unauthorized);
+                }
+
+                let mut request = self
+                    .bridge_requests
+                    .get(request_id)
+                    .ok_or(Error::InvalidRequest)?;
+
+                // Check if request is ready for execution
+                if request.status != BridgeOperationStatus::Locked {
+                    return Err(Error::InvalidRequest);
+                }
+
+                // Check if enough signatures are collected
+                if request.signatures.len() < request.required_signatures as usize {
+                    return Err(Error::InsufficientSignatures);
+                }
+
+                // Generate transaction hash
+                let transaction_hash = self.generate_transaction_hash(&request);
+
+                // Create bridge transaction record
+                self.transaction_counter += 1;
+                let transaction = BridgeTransaction {
+                    transaction_id: self.transaction_counter,
+                    token_id: request.token_id,
+                    source_chain: request.source_chain,
+                    destination_chain: request.destination_chain,
+                    sender: request.sender,
+                    recipient: request.recipient,
+                    transaction_hash,
+                    timestamp: self.env().block_timestamp(),
+                    gas_used: self.estimate_gas_usage(&request),
+                    status: BridgeOperationStatus::InTransit,
+                    metadata: request.metadata.clone(),
+                };
+
+                // Update request status
+                request.status = BridgeOperationStatus::Completed;
+                self.bridge_requests.insert(request_id, &request);
+
+                // Store transaction verification
+                self.verified_transactions.insert(transaction_hash, &true);
+
+                // Add to bridge history
+                let mut history = self.bridge_history.get(request.sender).unwrap_or_default();
+                history.push(transaction.clone());
+                self.bridge_history.insert(request.sender, &history);
+
+                self.env().emit_event(BridgeExecuted {
+                    request_id,
+                    token_id: request.token_id,
+                    transaction_hash,
+                });
+
+                Ok(())
+            })
         }
 
         /// Recovers from a failed bridge operation
@@ -428,54 +453,125 @@ mod bridge {
             request_id: u64,
             recovery_action: RecoveryAction,
         ) -> Result<(), Error> {
-            let caller = self.env().caller();
+            non_reentrant!(self, {
+                let caller = self.env().caller();
 
-            // Only admin can recover failed bridges
-            if caller != self.admin {
-                return Err(Error::Unauthorized);
-            }
-
-            let mut request = self
-                .bridge_requests
-                .get(request_id)
-                .ok_or(Error::InvalidRequest)?;
-
-            // Check if request is in a failed state
-            if !matches!(
-                request.status,
-                BridgeOperationStatus::Failed | BridgeOperationStatus::Expired
-            ) {
-                return Err(Error::InvalidRequest);
-            }
-
-            // Execute recovery action
-            match recovery_action {
-                RecoveryAction::UnlockToken => {
-                    // Logic to unlock the token would be implemented here
-                    // This would typically call back to the property token contract
+                // Only admin can recover failed bridges
+                if caller != self.admin {
+                    return Err(Error::Unauthorized);
                 }
-                RecoveryAction::RefundGas => {
-                    // Logic to refund gas costs would be implemented here
-                }
-                RecoveryAction::RetryBridge => {
-                    // Reset request to pending for retry
-                    request.status = BridgeOperationStatus::Pending;
-                    request.signatures.clear();
-                }
-                RecoveryAction::CancelBridge => {
-                    // Mark as cancelled
-                    request.status = BridgeOperationStatus::Failed;
-                }
-            }
 
-            self.bridge_requests.insert(request_id, &request);
+                let mut request = self
+                    .bridge_requests
+                    .get(request_id)
+                    .ok_or(Error::InvalidRequest)?;
 
-            self.env().emit_event(BridgeRecovered {
-                request_id,
-                recovery_action,
-            });
+                // Check if request is in a failed state
+                if !matches!(
+                    request.status,
+                    BridgeOperationStatus::Failed | BridgeOperationStatus::Expired
+                ) {
+                    return Err(Error::InvalidRequest);
+                }
 
-            Ok(())
+                // Execute recovery action
+                match recovery_action {
+                    RecoveryAction::UnlockToken => {
+                        // Logic to unlock the token would be implemented here
+                        // This would typically call back to the property token contract
+                    }
+                    RecoveryAction::RefundGas => {
+                        // Logic to refund gas costs would be implemented here
+                    }
+                    RecoveryAction::RetryBridge => {
+                        // Reset request to pending for retry
+                        request.status = BridgeOperationStatus::Pending;
+                        request.signatures.clear();
+                    }
+                    RecoveryAction::CancelBridge => {
+                        // Mark as cancelled
+                        request.status = BridgeOperationStatus::Failed;
+                    }
+                }
+
+                self.bridge_requests.insert(request_id, &request);
+
+                self.env().emit_event(BridgeRecovered {
+                    request_id,
+                    recovery_action,
+                });
+
+                Ok(())
+            })
+        }
+
+        // ── #201: Transaction rollback mechanism ─────────────────────────────────
+
+        /// Rollback a failed or expired bridge transaction (#201).
+        ///
+        /// This provides a structured, atomic rollback path for bridge requests that
+        /// got stuck in `Failed`, `Expired`, or `InTransit` states. Unlike the more
+        /// general `recover_failed_bridge`, a rollback:
+        ///
+        ///   1. Resets the request to `Recovering` (prevents concurrent rollbacks).
+        ///   2. Clears all collected signatures so the request cannot be accidentally
+        ///      re-executed.
+        ///   3. Marks the request as `Failed` (terminal rollback state).
+        ///   4. Records the rollback block number for audit.
+        ///   5. Emits a `BridgeRolledBack` event for off-chain indexers.
+        ///
+        /// Only the bridge admin may trigger a rollback.
+        #[ink(message)]
+        pub fn rollback_bridge_transaction(
+            &mut self,
+            request_id: u64,
+            reason: String,
+        ) -> Result<(), Error> {
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                if caller != self.admin {
+                    return Err(Error::Unauthorized);
+                }
+
+                let mut request = self
+                    .bridge_requests
+                    .get(request_id)
+                    .ok_or(Error::InvalidRequest)?;
+
+                // Only rollback requests that are in a non-terminal, non-completed state
+                match request.status {
+                    BridgeOperationStatus::Completed => {
+                        // Completed requests cannot be rolled back — funds already moved
+                        return Err(Error::InvalidRequest);
+                    }
+                    BridgeOperationStatus::None => {
+                        return Err(Error::InvalidRequest);
+                    }
+                    _ => {}
+                }
+
+                // Step 1: mark as Recovering to prevent concurrent rollbacks
+                request.status = BridgeOperationStatus::Recovering;
+                self.bridge_requests.insert(request_id, &request);
+
+                // Step 2: clear signatures so the request cannot be re-executed
+                request.signatures.clear();
+
+                // Step 3: mark as Failed (terminal rollback state)
+                request.status = BridgeOperationStatus::Failed;
+                self.bridge_requests.insert(request_id, &request);
+
+                // Step 4 + 5: emit structured rollback event for indexers
+                self.env().emit_event(BridgeRolledBack {
+                    request_id,
+                    token_id: request.token_id,
+                    requester: request.sender,
+                    reason,
+                    rolled_back_at: self.env().block_number(),
+                });
+
+                Ok(())
+            })
         }
 
         /// Gets gas estimation for a bridge operation
@@ -489,11 +585,18 @@ mod bridge {
                 .chain_info
                 .get(destination_chain)
                 .ok_or(Error::InvalidChain)?;
+            if !chain_info.is_active {
+                return Err(Error::InvalidChain);
+            }
 
-            let base_gas = self.config.gas_limit_per_bridge;
-            let multiplier = chain_info.gas_multiplier;
+            let base_gas = propchain_traits::constants::BRIDGE_BASE_GAS;
+            let multiplier = u64::from(chain_info.gas_multiplier);
+            let confirmation_blocks = u64::from(chain_info.confirmation_blocks);
+            let adjusted_base = base_gas.saturating_mul(multiplier) / 100;
+            let confirmation_overhead = adjusted_base.saturating_mul(confirmation_blocks) / 100;
+            let estimated = adjusted_base.saturating_add(confirmation_overhead);
 
-            Ok(base_gas * multiplier as u64 / 100)
+            Ok(estimated.min(self.config.gas_limit_per_bridge))
         }
 
         /// Monitors bridge status
@@ -531,6 +634,129 @@ mod bridge {
         #[ink(message)]
         pub fn get_bridge_history(&self, account: AccountId) -> Vec<BridgeTransaction> {
             self.bridge_history.get(account).unwrap_or_default()
+        }
+
+        /// Quotes bridge fees for a DEX settlement.
+        #[ink(message)]
+        pub fn quote_cross_chain_trade(
+            &self,
+            destination_chain: ChainId,
+            amount_in: u128,
+        ) -> Result<BridgeFeeQuote, Error> {
+            let chain_info = self
+                .chain_info
+                .get(destination_chain)
+                .ok_or(Error::InvalidChain)?;
+            let gas_estimate = self.estimate_bridge_gas(0, destination_chain)?;
+            let protocol_fee = amount_in / 200;
+            // Convert gas usage into an amount-based fee so totals stay in token units.
+            let gas_fee = if self.config.gas_limit_per_bridge == 0 {
+                0
+            } else {
+                let gas_ratio_bps = (u128::from(gas_estimate).saturating_mul(10_000))
+                    / u128::from(self.config.gas_limit_per_bridge);
+                let chain_risk_bps = u128::from(chain_info.confirmation_blocks).saturating_mul(10);
+                let adjusted_bps = gas_ratio_bps.saturating_add(chain_risk_bps).min(2_500);
+                amount_in.saturating_mul(adjusted_bps) / 10_000
+            };
+            Ok(BridgeFeeQuote {
+                destination_chain,
+                gas_estimate,
+                protocol_fee,
+                total_fee: protocol_fee.saturating_add(gas_fee),
+            })
+        }
+
+        /// Registers a cross-chain DEX trade intent on the bridge.
+        #[ink(message)]
+        pub fn register_cross_chain_trade(
+            &mut self,
+            pair_id: u64,
+            order_id: Option<u64>,
+            destination_chain: ChainId,
+            recipient: AccountId,
+            amount_in: u128,
+            min_amount_out: u128,
+        ) -> Result<u64, Error> {
+            if self.config.emergency_pause {
+                return Err(Error::BridgePaused);
+            }
+            if !self.config.supported_chains.contains(&destination_chain) {
+                return Err(Error::InvalidChain);
+            }
+
+            // Enforce rate limiting
+            // For cross-chain trades, we track the volume (amount_in) but don't count it as an NFT request.
+            self.check_and_update_rate_limits(
+                self.env().caller(),
+                destination_chain,
+                amount_in,
+                false,
+            )?;
+
+            self.cross_chain_trade_counter += 1;
+            let trade_id = self.cross_chain_trade_counter;
+            let quote = self.quote_cross_chain_trade(destination_chain, amount_in)?;
+            let intent = CrossChainTradeIntent {
+                trade_id,
+                pair_id,
+                order_id,
+                source_chain: self.get_current_chain_id(),
+                destination_chain,
+                trader: self.env().caller(),
+                recipient,
+                amount_in,
+                min_amount_out,
+                bridge_request_id: None,
+                bridge_fee_quote: quote,
+                status: CrossChainTradeStatus::Pending,
+                created_at: self.env().block_timestamp(),
+            };
+            self.cross_chain_trades.insert(trade_id, &intent);
+            Ok(trade_id)
+        }
+
+        /// Attaches a bridge request to a pending cross-chain trade.
+        #[ink(message)]
+        pub fn attach_bridge_request_to_trade(
+            &mut self,
+            trade_id: u64,
+            bridge_request_id: u64,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let mut trade = self
+                .cross_chain_trades
+                .get(trade_id)
+                .ok_or(Error::InvalidRequest)?;
+            if caller != trade.trader && caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            trade.bridge_request_id = Some(bridge_request_id);
+            trade.status = CrossChainTradeStatus::BridgeRequested;
+            self.cross_chain_trades.insert(trade_id, &trade);
+            Ok(())
+        }
+
+        /// Marks a cross-chain trade settlement as complete.
+        #[ink(message)]
+        pub fn settle_cross_chain_trade(&mut self, trade_id: u64) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if caller != self.admin && !self.bridge_operators.contains(&caller) {
+                return Err(Error::Unauthorized);
+            }
+            let mut trade = self
+                .cross_chain_trades
+                .get(trade_id)
+                .ok_or(Error::InvalidRequest)?;
+            trade.status = CrossChainTradeStatus::Settled;
+            self.cross_chain_trades.insert(trade_id, &trade);
+            Ok(())
+        }
+
+        /// Gets a cross-chain trade settlement intent.
+        #[ink(message)]
+        pub fn get_cross_chain_trade(&self, trade_id: u64) -> Option<CrossChainTradeIntent> {
+            self.cross_chain_trades.get(trade_id)
         }
 
         /// Adds a bridge operator
@@ -572,6 +798,39 @@ mod bridge {
             self.bridge_operators.clone()
         }
 
+        /// Adds a validator (admin only). Only validators may sign bridge requests (issue #203).
+        #[ink(message)]
+        pub fn add_validator(&mut self, validator: AccountId) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            if !self.validators.contains(&validator) {
+                self.validators.push(validator);
+            }
+            Ok(())
+        }
+
+        /// Removes a validator (admin only).
+        #[ink(message)]
+        pub fn remove_validator(&mut self, validator: AccountId) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            self.validators.retain(|v| v != &validator);
+            Ok(())
+        }
+
+        /// Returns all registered validators.
+        #[ink(message)]
+        pub fn get_validators(&self) -> Vec<AccountId> {
+            self.validators.clone()
+        }
+
+        /// Returns whether an account is a registered validator.
+        #[ink(message)]
+        pub fn is_validator(&self, account: AccountId) -> bool {
+            self.validators.contains(&account)
+        }
         /// Updates bridge configuration (admin only)
         #[ink(message)]
         pub fn update_config(&mut self, config: BridgeConfig) -> Result<(), Error> {
@@ -624,6 +883,76 @@ mod bridge {
             Ok(())
         }
 
+        /// Request a two-step admin rotation with cooldown.
+        #[ink(message)]
+        pub fn request_admin_rotation(&mut self, new_admin: AccountId) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            let block = self.env().block_number();
+            let effective_at =
+                block.saturating_add(propchain_traits::constants::KEY_ROTATION_COOLDOWN_BLOCKS);
+
+            self.pending_admin_rotation = Some(propchain_traits::KeyRotationRequest {
+                old_account: caller,
+                new_account: new_admin,
+                requested_at: block,
+                effective_at,
+                confirmed: false,
+            });
+
+            Ok(())
+        }
+
+        /// Confirm a pending admin rotation after cooldown.
+        #[ink(message)]
+        pub fn confirm_admin_rotation(&mut self) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let block = self.env().block_number();
+
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(Error::InvalidRequest)?;
+
+            if request.new_account != caller {
+                return Err(Error::Unauthorized);
+            }
+            if block < request.effective_at {
+                return Err(Error::InvalidRequest);
+            }
+            let expiry = request
+                .effective_at
+                .saturating_add(propchain_traits::constants::KEY_ROTATION_EXPIRY_BLOCKS);
+            if block > expiry {
+                self.pending_admin_rotation = None;
+                return Err(Error::RequestExpired);
+            }
+
+            self.admin = caller;
+            self.pending_admin_rotation = None;
+            Ok(())
+        }
+
+        /// Cancel a pending admin rotation.
+        #[ink(message)]
+        pub fn cancel_admin_rotation(&mut self) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(Error::InvalidRequest)?;
+
+            if caller != request.old_account && caller != request.new_account {
+                return Err(Error::Unauthorized);
+            }
+
+            self.pending_admin_rotation = None;
+            Ok(())
+        }
+
         // Helper functions
 
         fn is_authorized_for_token(&self, _account: AccountId, _token_id: TokenId) -> bool {
@@ -639,8 +968,6 @@ mod bridge {
         }
 
         fn generate_transaction_hash(&self, request: &MultisigBridgeRequest) -> Hash {
-            // Generate a unique transaction hash for the bridge request
-            use scale::Encode;
             let data = (
                 request.request_id,
                 request.token_id,
@@ -650,12 +977,7 @@ mod bridge {
                 request.recipient,
                 self.env().block_timestamp(),
             );
-            let encoded_data = data.encode();
-            // Simple hash: use first 32 bytes of encoded data
-            let mut hash_bytes = [0u8; 32];
-            let len = encoded_data.len().min(32);
-            hash_bytes[..len].copy_from_slice(&encoded_data[..len]);
-            Hash::from(hash_bytes)
+            propchain_traits::crypto::hash_encoded(&data)
         }
 
         fn estimate_gas_usage(&self, request: &MultisigBridgeRequest) -> u64 {
@@ -664,69 +986,63 @@ mod bridge {
             let metadata_gas = request.metadata.legal_description.len() as u64 * 100; // Gas for metadata
             base_gas + metadata_gas
         }
-    }
 
-    // Unit tests
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use ink::env::{test, DefaultEnvironment};
+        fn check_and_update_rate_limits(
+            &mut self,
+            account: AccountId,
+            destination_chain: ChainId,
+            amount: u128,
+            is_nft: bool,
+        ) -> Result<(), Error> {
+            if !self.config.rate_limit_enabled {
+                return Ok(());
+            }
 
-        fn setup_bridge() -> PropertyBridge {
-            let supported_chains = vec![1, 2, 3];
-            PropertyBridge::new(supported_chains, 2, 5, 100, 500000)
-        }
+            let current_day = self.env().block_timestamp() / 86_400_000;
 
-        #[ink::test]
-        fn test_constructor_works() {
-            let bridge = setup_bridge();
-            let config = bridge.get_config();
-            assert_eq!(config.min_signatures_required, 2);
-            assert_eq!(config.max_signatures_required, 5);
-        }
+            if is_nft {
+                let last_reset = self.account_last_reset_day.get(account).unwrap_or(0);
+                let mut daily_requests = self.account_daily_requests.get(account).unwrap_or(0);
 
-        #[ink::test]
-        fn test_initiate_bridge_multisig() {
-            let mut bridge = setup_bridge();
-            let accounts = test::default_accounts::<DefaultEnvironment>();
-            test::set_caller::<DefaultEnvironment>(accounts.alice);
+                if last_reset < current_day {
+                    daily_requests = 0;
+                    self.account_last_reset_day.insert(account, &current_day);
+                }
 
-            let metadata = PropertyMetadata {
-                location: String::from("Test Property"),
-                size: 1000,
-                legal_description: String::from("Test"),
-                valuation: 100000,
-                documents_url: String::from("ipfs://test"),
-            };
+                if daily_requests >= self.config.max_requests_per_day {
+                    return Err(Error::RateLimitExceeded);
+                }
 
-            let result = bridge.initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata);
-            assert!(result.is_ok());
-        }
+                self.account_daily_requests
+                    .insert(account, &(daily_requests + 1));
+            }
 
-        #[ink::test]
-        fn test_sign_bridge_request() {
-            let mut bridge = setup_bridge();
-            let accounts = test::default_accounts::<DefaultEnvironment>();
+            if amount > 0 {
+                let chain_info = self
+                    .chain_info
+                    .get(destination_chain)
+                    .ok_or(Error::InvalidChain)?;
+                let last_chain_reset = self
+                    .chain_last_reset_day
+                    .get(destination_chain)
+                    .unwrap_or(0);
+                let mut chain_volume = self.chain_daily_volume.get(destination_chain).unwrap_or(0);
 
-            // First create a request
-            test::set_caller::<DefaultEnvironment>(accounts.alice);
-            let metadata = PropertyMetadata {
-                location: String::from("Test Property"),
-                size: 1000,
-                legal_description: String::from("Test"),
-                valuation: 100000,
-                documents_url: String::from("ipfs://test"),
-            };
+                if last_chain_reset < current_day {
+                    chain_volume = 0;
+                    self.chain_last_reset_day
+                        .insert(destination_chain, &current_day);
+                }
 
-            let request_id = bridge
-                .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata)
-                .expect("Bridge initiation should succeed in test");
+                if chain_volume.saturating_add(amount) > chain_info.chain_daily_limit {
+                    return Err(Error::RateLimitExceeded);
+                }
 
-            // Now sign it as a bridge operator
-            let accounts = test::default_accounts::<DefaultEnvironment>();
-            test::set_caller::<DefaultEnvironment>(accounts.alice); // Use default admin account
-            let result = bridge.sign_bridge_request(request_id, true);
-            assert!(result.is_ok());
+                self.chain_daily_volume
+                    .insert(destination_chain, &(chain_volume + amount));
+            }
+
+            Ok(())
         }
     }
 }

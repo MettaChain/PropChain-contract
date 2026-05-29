@@ -58,6 +58,24 @@ services:
     networks:
       - propchain-network
 
+  # Event indexer and API
+  indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile.indexer
+    container_name: propchain-indexer
+    environment:
+      DATABASE_URL: postgres://propchain:propchain123@postgres:5432/propchain
+      SUBSTRATE_WS: ws://substrate-node:9944
+      BIND_ADDR: 0.0.0.0:8088
+    depends_on:
+      - postgres
+      - substrate-node
+    ports:
+      - "8088:8088"
+    networks:
+      - propchain-network
+
 volumes:
   substrate_data:
   ipfs_data:

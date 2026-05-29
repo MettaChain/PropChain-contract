@@ -4,6 +4,7 @@
 #[ink::contract]
 mod propchain_prediction_market {
     use ink::storage::Mapping;
+    use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(
@@ -82,6 +83,9 @@ mod propchain_prediction_market {
 
         // Protocol fee basis points
         fee_bips: u32,
+
+        // Reentrancy protection
+        reentrancy_guard: ReentrancyGuard,
     }
 
     #[ink(event)]
@@ -143,6 +147,13 @@ mod propchain_prediction_market {
         OracleNotSet,
         TransferFailed,
         LoserCannotClaim,
+        ReentrantCall,
+    }
+
+    impl From<ReentrancyError> for Error {
+        fn from(_: ReentrancyError) -> Self {
+            Error::ReentrantCall
+        }
     }
 
     impl PredictionMarket {
@@ -156,6 +167,7 @@ mod propchain_prediction_market {
                 reputations: Mapping::default(),
                 oracle_address: None,
                 fee_bips,
+                reentrancy_guard: ReentrancyGuard::new(),
             }
         }
 
@@ -298,58 +310,60 @@ mod propchain_prediction_market {
 
         #[ink(message)]
         pub fn claim_reward(&mut self, market_id: u64) -> Result<(), Error> {
-            let caller = self.env().caller();
-            let market = self.markets.get(&market_id).ok_or(Error::MarketNotFound)?;
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                let market = self.markets.get(&market_id).ok_or(Error::MarketNotFound)?;
 
-            if market.status != MarketStatus::Resolved {
-                return Err(Error::MarketNotActive); // Need better error naming
-            }
+                if market.status != MarketStatus::Resolved {
+                    return Err(Error::MarketNotActive); // Need better error naming
+                }
 
-            let winning_dir = market.winning_direction.as_ref().unwrap();
+                let winning_dir = market.winning_direction.as_ref().unwrap();
 
-            let key = (market_id, caller);
-            let mut stake = self.stakes.get(&key).ok_or(Error::StakeNotFound)?;
+                let key = (market_id, caller);
+                let mut stake = self.stakes.get(&key).ok_or(Error::StakeNotFound)?;
 
-            if stake.claimed {
-                return Err(Error::RewardAlreadyClaimed);
-            }
-            if stake.direction != *winning_dir {
-                // Record bad reputation
-                self.update_reputation(caller, false);
-                return Err(Error::LoserCannotClaim);
-            }
+                if stake.claimed {
+                    return Err(Error::RewardAlreadyClaimed);
+                }
+                if stake.direction != *winning_dir {
+                    // Record bad reputation
+                    self.update_reputation(caller, false);
+                    return Err(Error::LoserCannotClaim);
+                }
 
-            // Calculate reward:
-            let (winning_pool, losing_pool) = match winning_dir {
-                PredictionDirection::Long => (market.total_long, market.total_short),
-                PredictionDirection::Short => (market.total_short, market.total_long),
-            };
+                // Calculate reward:
+                let (winning_pool, losing_pool) = match winning_dir {
+                    PredictionDirection::Long => (market.total_long, market.total_short),
+                    PredictionDirection::Short => (market.total_short, market.total_long),
+                };
 
-            // Proportion of the winning pool
-            // total_reward = user_stake + (user_stake * losing_pool) / winning_pool
-            let total_reward = stake.amount + (stake.amount * losing_pool) / winning_pool;
+                // Proportion of the winning pool
+                // total_reward = user_stake + (user_stake * losing_pool) / winning_pool
+                let total_reward = stake.amount + (stake.amount * losing_pool) / winning_pool;
 
-            let fee = (total_reward * self.fee_bips as u128) / 10000;
-            let final_payout = total_reward.saturating_sub(fee);
+                let fee = (total_reward * self.fee_bips as u128) / 10000;
+                let final_payout = total_reward.saturating_sub(fee);
 
-            stake.claimed = true;
-            self.stakes.insert(&key, &stake);
+                stake.claimed = true;
+                self.stakes.insert(&key, &stake);
 
-            // Record good reputation
-            self.update_reputation(caller, true);
+                // Record good reputation
+                self.update_reputation(caller, true);
 
-            // Transfer payout to user
-            if self.env().transfer(caller, final_payout).is_err() {
-                return Err(Error::TransferFailed);
-            }
+                // Transfer payout to user
+                if self.env().transfer(caller, final_payout).is_err() {
+                    return Err(Error::TransferFailed);
+                }
 
-            self.env().emit_event(RewardClaimed {
-                market_id,
-                user: caller,
-                amount: final_payout,
-            });
+                self.env().emit_event(RewardClaimed {
+                    market_id,
+                    user: caller,
+                    amount: final_payout,
+                });
 
-            Ok(())
+                Ok(())
+            })
         }
 
         #[ink(message)]

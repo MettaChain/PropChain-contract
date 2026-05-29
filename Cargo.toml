@@ -3,6 +3,7 @@ members = [
     "contracts/lib",
     "contracts/traits",
     "contracts/proxy",
+    "contracts/factory",
     "contracts/escrow",
     "contracts/ipfs-metadata",
     "security-audit",
@@ -12,11 +13,24 @@ members = [
     "contracts/insurance",
     "contracts/analytics",
     "contracts/fees",
+    "contracts/dex",
     "contracts/compliance_registry",
+    "contracts/property-management",
+    "contracts/tax-compliance",
     "contracts/fractional",
     "contracts/prediction-market",
+    "contracts/identity",
     "contracts/governance",
+    "contracts/crowdfunding",
+    "contracts/lending",
+    "contracts/metadata",
+    "contracts/multicall",
+    "contracts/database",
+    "contracts/third-party",
     "contracts/staking",
+    "contracts/hello-world", # Added this
+    "tests",
+    "indexer",
 ]
 resolver = "2"
 
@@ -32,9 +46,10 @@ version = "1.0.0"
 ink = { version = "5.0.0", default-features = false }
 scale = { package = "parity-scale-codec", version = "3.6.9", default-features = false, features = ["derive"] }
 scale-info = { version = "2.10.0", default-features = false, features = ["derive"] }
+soroban-sdk = "22.0.10"
 
 [profile.release]
-overflow-checks = false
+overflow-checks = true # Changed to true for better math safety in lending
 lto = "fat"
 codegen-units = 1
 opt-level = "z"

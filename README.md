@@ -9,6 +9,7 @@ Built with Rust and ink! for Substrate/Polkadot ecosystem, these smart contracts
 ## 🚀 Features
 
 ### Core Capabilities
+
 - **🏠 Asset Tokenization**: Transform physical real estate properties into tradable NFTs with legal compliance
 - **💰 Secure Transfers**: Multi-signature property transfers with escrow protection
 - **🔗 Property Registry**: On-chain property ownership registry with metadata storage
@@ -17,15 +18,18 @@ Built with Rust and ink! for Substrate/Polkadot ecosystem, these smart contracts
 - **💾 On-chain Storage**: Decentralized storage for property documents and metadata
 
 ### Advanced Features
+
 - **⛓️ Cross-Chain Compatibility**: Designed for Substrate/Polkadot ecosystem with EVM compatibility
 - **📈 Property Valuation**: On-chain valuation oracle integration for real-time pricing
 - **🔍 Property Discovery**: Efficient on-chain search and filtering capabilities
 - **📱 Mobile Integration**: Lightweight contract interfaces for mobile dApps
 - **🛡️ Security First**: Formal verification and comprehensive audit coverage
+- **📅 Tax Compliance**: Automated tax calculation, payments, and deadline notifications
 
 ## 👥 Target Audience
 
 This smart contract system is designed for:
+
 - **Real Estate Tech Companies** building blockchain-based property platforms
 - **Property Investment Firms** seeking fractional ownership solutions
 - **Blockchain Developers** creating DeFi real estate applications on Substrate
@@ -35,7 +39,9 @@ This smart contract system is designed for:
 ## 🛠️ Quick Start
 
 ### Prerequisites
+
 Ensure you have the following installed:
+
 - **Rust** 1.70+ (stable toolchain)
 - **ink! CLI** for smart contract development
 - **Substrate Node** for local testing
@@ -69,6 +75,7 @@ The contracts will be compiled and ready for deployment to Substrate-based netwo
 ## 🚀 Development & Deployment
 
 ### Development Environment
+
 ```bash
 ./scripts/build.sh        # Build contracts in debug mode
 ./scripts/test.sh         # Run unit tests
@@ -76,6 +83,7 @@ cargo test                 # Run all tests including integration
 ```
 
 ### Production Deployment
+
 ```bash
 ./scripts/build.sh --release  # Build optimized contracts
 ./scripts/deploy.sh --network westend  # Deploy to testnet
@@ -83,21 +91,31 @@ cargo test                 # Run all tests including integration
 ```
 
 ### Testing Suite
+
 ```bash
 ./scripts/test.sh                      # Run all tests
 ./scripts/test.sh --coverage           # Run with coverage
 ./scripts/e2e-test.sh                  # Run E2E tests
+
+# Load Testing (Performance Validation)
+./scripts/load_test.sh                 # Run full load test suite
+cargo test --package propchain-tests load_test_concurrent_registration_light --release  # Quick validation
+cargo test --package propchain-tests stress_test_mass_registration --release  # Stress test
 ```
+
+For comprehensive load testing documentation, see [Load Testing Guide](docs/LOAD_TESTING_GUIDE.md).
 
 ## 🌐 Network Configuration
 
 ### Supported Blockchains
+
 - **Polkadot** (Mainnet, Westend Testnet)
 - **Kusama** (Mainnet)
 - **Substrate-based Parachains** (Custom networks)
 - **Local Development** (Substrate Node)
 
 ### Environment Configuration
+
 ```env
 # Network
 NETWORK=westend
@@ -114,24 +132,48 @@ TARGET=wasm32-unknown-unknown
 
 ## 📚 Documentation & Resources
 
+### 🏗️ Architecture Documentation (NEW!)
+
+- **[📋 Architecture Index](./docs/ARCHITECTURE_INDEX.md)** - Complete guide to all architecture docs
+- **[🌐 System Architecture Overview](./docs/SYSTEM_ARCHITECTURE_OVERVIEW.md)** - High-level system design and components
+- **[🔗 Component Interaction Diagrams](./docs/COMPONENT_INTERACTION_DIAGRAMS.md)** - Detailed interaction sequences
+- **[🔍 Interactive Diagram Explorer](./docs/interactive-diagrams/index.html)** - Clickable, explorable SVG visualizations
+- **[📐 Architectural Principles](./docs/ARCHITECTURAL_PRINCIPLES.md)** - Design philosophy and decisions
+- **[📝 Documentation Maintenance](./docs/ARCHITECTURE_DOCUMENTATION_MAINTENANCE.md)** - How we keep docs current
+
 ### Contract Documentation
+
 - **[📖 Contract API](./docs/contracts.md)** - Complete contract interface documentation
 - **[🔗 Integration Guide](./docs/integration.md)** - How to integrate with frontend applications
 - **[🚀 Deployment Guide](./docs/deployment.md)** - Contract deployment best practices
 - **[🏗️ Architecture](./docs/architecture.md)** - Contract design and technical architecture
 
+### Frontend SDK
+
+- **[📦 Frontend SDK](./sdk/frontend/)** - TypeScript SDK for dApp integration
+- **[📖 Frontend SDK Guide](./docs/FRONTEND_SDK_GUIDE.md)** - Comprehensive usage guide with API reference
+- **[💻 Example React App](./sdk/frontend/examples/react-app/)** - Working Vite + React example
+
 ### Development Documentation
+
 - **[🛠️ Development Setup](./DEVELOPMENT.md)** - Complete development environment setup
 - **[📋 Contributing Guide](./CONTRIBUTING.md)** - How to contribute effectively
 - **[🎓 Tutorials](./docs/tutorials/)** - Step-by-step integration tutorials
 
 ### Repository Structure
+
 ```
 PropChain-contract/
 ├── 📁 contracts/           # Main smart contract source code
 │   ├── 📁 lib/            # Contract logic and implementations
 │   ├── 📁 traits/         # Shared trait definitions
 │   └── 📁 tests/          # Contract unit tests
+├── 📁 sdk/                # SDK packages
+│   ├── 📁 frontend/      # TypeScript SDK for dApp integration
+│   │   ├── 📁 src/       # SDK source (types, clients, utils)
+│   │   ├── 📁 __tests__/ # Unit and integration tests
+│   │   └── 📁 examples/  # Example React application
+│   └── 📁 mobile/        # Mobile SDK (React Native, Flutter)
 ├── 📁 scripts/            # Deployment and utility scripts
 ├── 📁 tests/              # Integration and E2E tests
 ├── 📁 docs/               # Comprehensive documentation
@@ -143,24 +185,28 @@ PropChain-contract/
 ## 🛠️ Technology Stack
 
 ### Smart Contract Development
+
 - **🦀 Language**: Rust - Memory safety and performance
 - **⚡ Framework**: ink! - Substrate smart contract framework
 - **⛓️ Platform**: Substrate/Polkadot - Enterprise blockchain framework
 - **🔗 WASM**: WebAssembly compilation for blockchain deployment
 
 ### Development Tools
+
 - **🛠️ Build**: Cargo - Rust package manager and build system
 - **🧪 Testing**: Built-in Rust testing framework + ink! testing
 - **📖 Documentation**: rustdoc - Auto-generated documentation
 - **🔄 CI/CD**: GitHub Actions - Automated testing and deployment
 
 ### Blockchain Infrastructure
+
 - **⛓️ Networks**: Polkadot, Kusama, Substrate parachains
 - **🔐 Wallets**: Polkadot.js, Substrate-native wallets
 - **📊 Oracles**: Chainlink, Substrate price feeds
 - **🔍 Explorers**: Subscan, Polkadot.js explorer
 
 ### Security & Verification
+
 - **🛡️ Security**: Formal verification with cargo-contract
 - **🔍 Auditing**: Comprehensive security audit process
 - **📋 Standards**: ERC-721/1155 compatibility layers
@@ -169,6 +215,7 @@ PropChain-contract/
 ## 🏆 Project Status
 
 ### ✅ Completed Features
+
 - [x] Property Registry Contract
 - [x] Escrow System
 - [x] Token Contract (ERC-721 compatible)
@@ -179,12 +226,21 @@ PropChain-contract/
 - [x] Documentation
 
 ### 🚧 In Progress
+
 - [ ] Oracle Integration
 - [ ] Cross-chain Bridge
 - [ ] Mobile SDK
 - [ ] Advanced Analytics
 
+### ✅ Recently Completed
+
+- [x] Frontend SDK with TypeScript support
+- [x] Example React frontend application
+- [x] Frontend integration testing
+- [x] Frontend SDK documentation
+
 ### 📋 Planned Features
+
 - [ ] Governance System
 - [ ] Insurance Integration
 - [ ] Mortgage Lending Protocol
@@ -192,9 +248,10 @@ PropChain-contract/
 
 ## 🤝 Contributing
 
-We welcome contributions! Please read our [Contributing Guide](./CONTRIBUTING.md) to get started. 
+We welcome contributions! Please read our [Contributing Guide](./CONTRIBUTING.md) to get started.
 
 **Quick contribution steps:**
+
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Run tests (`./scripts/test.sh`)
@@ -209,12 +266,14 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 ## 🤝 Support & Community
 
 ### Get Help
+
 - **🐛 Report Issues**: [GitHub Issues](https://github.com/MettaChain/PropChain-contract/issues)
 - **📧 Email Support**: contracts@propchain.io
 - **📖 Documentation**: [docs.propchain.io](https://docs.propchain.io)
 - **💬 Discord**: [PropChain Community](https://discord.gg/propchain)
 
 ### Additional Resources
+
 - **[🌐 Frontend Application](https://github.com/MettaChain/PropChain-FrontEnd)** - Client-side React/Next.js application
 - **[🔒 Security Audits](./audits/)** - Third-party security audit reports
 - **[📊 Performance Metrics](./docs/performance.md)** - Benchmarks and optimization guides

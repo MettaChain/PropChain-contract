@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "description": "Performance baseline thresholds for PropChain CI regression detection",
+  "updated": "2026-04-22",
+  "thresholds": {
+    "max_register_ms": 1000,
+    "max_transfer_ms": 500,
+    "max_query_ms": 100,
+    "min_success_rate_percent": 95.0,
+    "min_ops_per_second": 10.0
+  },
+  "notes": {
+    "max_register_ms": "Maximum allowed time for a single property registration",
+    "max_transfer_ms": "Maximum allowed time for a property transfer",
+    "max_query_ms": "Maximum allowed time for a property query",
+    "min_success_rate_percent": "Minimum percentage of operations that must succeed under load",
+    "min_ops_per_second": "Minimum throughput required during load tests"
+  }
+}

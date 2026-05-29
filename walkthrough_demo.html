@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PropChain Contract Walkthrough</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --secondary: #10b981;
+            --accent: #f59e0b;
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --success: #22c55e;
+            --warning: #eab308;
+            --error: #ef4444;
+            --glass: rgba(30, 41, 59, 0.7);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        h1, h2, h3 {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 4rem;
+            animation: fadeInDown 0.8s ease-out;
+        }
+
+        header h1 {
+            font-size: 3.5rem;
+            background: linear-gradient(to right, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+        }
+
+        header p {
+            color: var(--text-muted);
+            font-size: 1.2rem;
+        }
+
+        .walkthrough-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 4rem;
+        }
+
+        .section-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 2.5rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .section-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 25px 30px -5px rgba(0, 0, 0, 0.2);
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .icon-box {
+            width: 48px;
+            height: 48px;
+            background: rgba(99, 102, 241, 0.1);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary);
+            font-size: 1.5rem;
+        }
+
+        .flow-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+
+        .step-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .step {
+            display: flex;
+            gap: 1rem;
+            opacity: 0.5;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            padding: 1rem;
+            border-radius: 12px;
+            border: 1px solid transparent;
+        }
+
+        .step.active {
+            opacity: 1;
+            background: rgba(255, 255, 255, 0.03);
+            border-color: var(--border);
+            transform: scale(1.02);
+        }
+
+        .step-number {
+            width: 28px;
+            height: 28px;
+            background: var(--primary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .step-content h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .step-content p {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        .code-display {
+            background: #000;
+            border-radius: 16px;
+            padding: 1.5rem;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid var(--border);
+        }
+
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid #333;
+            padding-bottom: 0.5rem;
+            color: var(--text-muted);
+        }
+
+        .code-snippet {
+            white-space: pre-wrap;
+            color: #d1d5db;
+        }
+
+        .highlight {
+            color: #fbbf24;
+        }
+
+        .keyword {
+            color: #c084fc;
+        }
+
+        .function {
+            color: #60a5fa;
+        }
+
+        .string {
+            color: #34d399;
+        }
+
+        .comment {
+            color: #6b7280;
+            font-style: italic;
+        }
+
+        /* Animations */
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .visual-demo {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 16px;
+            padding: 2rem;
+        }
+
+        .entity {
+            width: 120px;
+            height: 60px;
+            background: var(--glass);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            position: relative;
+            z-index: 2;
+        }
+
+        .data-dot {
+            width: 12px;
+            height: 12px;
+            background: var(--primary);
+            border-radius: 50%;
+            position: absolute;
+            z-index: 1;
+            filter: blur(2px);
+            box-shadow: 0 0 10px var(--primary);
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .status-created { background: #3b82f6; }
+        .status-funded { background: #f59e0b; }
+        .status-active { background: #10b981; }
+        .status-released { background: #8b5cf6; }
+
+        @media (max-width: 1024px) {
+            .flow-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>PropChain Protocol</h1>
+            <p>Interactive Walkthrough of Core Contract Methods</p>
+        </header>
+
+        <div class="walkthrough-grid">
+            <!-- Register Property Section -->
+            <section class="section-card" id="register-property">
+                <div class="section-header">
+                    <div class="icon-box">🏠</div>
+                    <h2>Property Registration Flow</h2>
+                </div>
+                <div class="flow-container">
+                    <div class="step-list">
+                        <div class="step active" data-step="1">
+                            <div class="step-number">1</div>
+                            <div class="step-content">
+                                <h3>Validate Identity</h3>
+                                <p>Checks if the caller has a verified identity and meets the minimum reputation score.</p>
+                            </div>
+                        </div>
+                        <div class="step" data-step="2">
+                            <div class="step-number">2</div>
+                            <div class="step-content">
+                                <h3>Compliance Check</h3>
+                                <p>Ensures the account is compliant with regional regulations via the Compliance Registry.</p>
+                            </div>
+                        </div>
+                        <div class="step" data-step="3">
+                            <div class="step-number">3</div>
+                            <div class="step-content">
+                                <h3>State Update</h3>
+                                <p>Increments property counter and maps metadata to the new unique Property ID.</p>
+                            </div>
+                        </div>
+                        <div class="step" data-step="4">
+                            <div class="step-number">4</div>
+                            <div class="step-content">
+                                <h3>Emit Events</h3>
+                                <p>Publishes a PropertyRegistered event for off-chain indexing and audit logging.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="code-display">
+                        <div class="code-header">
+                            <span>contracts/lib/src/lib.rs</span>
+                            <span>Rust</span>
+                        </div>
+                        <div class="code-snippet" id="rp-code">
+<span class="keyword">pub fn</span> <span class="function">register_property</span>(&mut <span class="keyword">self</span>, metadata: PropertyMetadata) -> Result&lt;u64, Error&gt; {
+    <span class="keyword">self</span>.ensure_not_paused()?;
+    <span class="comment">// 1. Check identity requirements</span>
+    <span class="keyword">self</span>.check_identity_requirements(caller)?;
+
+    <span class="comment">// 2. Check compliance</span>
+    <span class="keyword">self</span>.check_compliance(caller)?;
+
+    <span class="comment">// 3. Update Storage</span>
+    <span class="keyword">self</span>.property_count += 1;
+    <span class="keyword">self</span>.properties.insert(property_id, &property_info);
+
+    <span class="comment">// 4. Emit Event</span>
+    <span class="keyword">self</span>.env().emit_event(PropertyRegistered { ... });
+    Ok(property_id)
+}</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Escrow Flow Section -->
+            <section class="section-card" id="escrow-flow">
+                <div class="section-header">
+                    <div class="icon-box">⚖️</div>
+                    <h2>Advanced Escrow Lifecycle</h2>
+                </div>
+                <div class="flow-container">
+                    <div class="step-list">
+                        <div class="step active" data-step="1">
+                            <div class="step-number">1</div>
+                            <div class="step-content">
+                                <h3>Initialization</h3>
+                                <p>Creates escrow with multi-sig configuration, participants, and optional time-locks.</p>
+                            </div>
+                        </div>
+                        <div class="step" data-step="2">
+                            <div class="step-number">2</div>
+                            <div class="step-content">
+                                <h3>Funding</h3>
+                                <p>Buyer deposits funds. Status shifts from Created to Funded/Active.</p>
+                            </div>
+                        </div>
+                        <div class="step" data-step="3">
+                            <div class="step-number">3</div>
+                            <div class="step-content">
+                                <h3>Conditions & Verification</h3>
+                                <p>Participants upload documents and mark conditions as met.</p>
+                            </div>
+                        </div>
+                        <div class="step" data-step="4">
+                            <div class="step-number">4</div>
+                            <div class="step-content">
+                                <h3>Multi-Sig Approval</h3>
+                                <p>Required participants sign off on the fund release.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="visual-demo">
+                        <div style="display: flex; gap: 4rem; position: relative;">
+                            <div class="entity" id="buyer">Buyer</div>
+                            <div class="entity" style="background: var(--primary); border-color: var(--primary-hover);" id="escrow-vault">Vault</div>
+                            <div class="entity" id="seller">Seller</div>
+                        </div>
+                        <div style="margin-top: 2rem;">
+                            <span class="status-badge status-created" id="escrow-status">Status: Created</span>
+                        </div>
+                        <div id="escrow-details" style="margin-top: 1rem; color: var(--text-muted); font-size: 0.9rem;">
+                            Waiting for deposit...
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script>
+        // Interactive Logic
+        const rpSteps = document.querySelectorAll('#register-property .step');
+        const escrowSteps = document.querySelectorAll('#escrow-flow .step');
+
+        let currentRpStep = 0;
+        let currentEscrowStep = 0;
+
+        function animateRp() {
+            rpSteps.forEach(s => s.classList.remove('active'));
+            rpSteps[currentRpStep].classList.add('active');
+            currentRpStep = (currentRpStep + 1) % rpSteps.length;
+        }
+
+        const escrowStatus = document.getElementById('escrow-status');
+        const escrowDetails = document.getElementById('escrow-details');
+        const vault = document.getElementById('escrow-vault');
+
+        function animateEscrow() {
+            escrowSteps.forEach(s => s.classList.remove('active'));
+            escrowSteps[currentEscrowStep].classList.add('active');
+
+            switch(currentEscrowStep) {
+                case 0:
+                    escrowStatus.textContent = "Status: Created";
+                    escrowStatus.className = "status-badge status-created";
+                    escrowDetails.textContent = "Waiting for deposit...";
+                    break;
+                case 1:
+                    escrowStatus.textContent = "Status: Funded";
+                    escrowStatus.className = "status-badge status-funded";
+                    escrowDetails.textContent = "Buyer deposited 5,000 GLD";
+                    createDataFlow('buyer', 'escrow-vault');
+                    break;
+                case 2:
+                    escrowStatus.textContent = "Status: Active";
+                    escrowStatus.className = "status-badge status-active";
+                    escrowDetails.textContent = "Conditions met: Title Deed Verified";
+                    break;
+                case 3:
+                    escrowStatus.textContent = "Status: Released";
+                    escrowStatus.className = "status-badge status-released";
+                    escrowDetails.textContent = "Multi-sig 2/2 signed. Funds sent to Seller.";
+                    createDataFlow('escrow-vault', 'seller');
+                    break;
+            }
+
+            currentEscrowStep = (currentEscrowStep + 1) % escrowSteps.length;
+        }
+
+        function createDataFlow(fromId, toId) {
+            const from = document.getElementById(fromId);
+            const to = document.getElementById(toId);
+            const fromRect = from.getBoundingClientRect();
+            const toRect = to.getBoundingClientRect();
+
+            const dot = document.createElement('div');
+            dot.className = 'data-dot';
+            dot.style.left = (fromRect.left + fromRect.width / 2) + 'px';
+            dot.style.top = (fromRect.top + fromRect.height / 2) + 'px';
+            document.body.appendChild(dot);
+
+            const animation = dot.animate([
+                { left: (fromRect.left + fromRect.width / 2) + 'px', top: (fromRect.top + fromRect.height / 2) + 'px', opacity: 1 },
+                { left: (toRect.left + toRect.width / 2) + 'px', top: (toRect.top + toRect.height / 2) + 'px', opacity: 1 }
+            ], {
+                duration: 1000,
+                easing: 'ease-in-out'
+            });
+
+            animation.onfinish = () => dot.remove();
+        }
+
+        setInterval(animateRp, 3000);
+        setInterval(animateEscrow, 4000);
+    </script>
+</body>
+</html>

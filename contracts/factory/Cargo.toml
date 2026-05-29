@@ -1,0 +1,25 @@
+[package]
+name = "propchain-factory"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+ink = { workspace = true }
+scale = { workspace = true, features = ["derive"] }
+scale-info = { workspace = true, features = ["derive"] }
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = ["std"]
+std = [
+    "ink/std",
+    "scale/std",
+    "scale-info/std",
+]
+ink-as-dependency = []

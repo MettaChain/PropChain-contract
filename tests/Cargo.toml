@@ -16,12 +16,16 @@ scale = { package = "parity-scale-codec", version = "3.6.9", default-features = 
 scale-info = { version = "2.10.0", default-features = false, features = ["derive"] }
 
 # Testing dependencies
-ink_e2e = "5.0.0"
+ink_e2e = { version = "5.0.0", optional = true }
 ink_env = { version = "5.0.0", default-features = false }
 
 # Contract dependencies
+propchain-traits = { path = "../contracts/traits", default-features = false }
 propchain-contracts = { path = "../contracts/lib", default-features = false }
 property-token = { path = "../contracts/property-token", default-features = false }
+propchain-monitoring = { path = "../contracts/monitoring", default-features = false, features = ["ink-as-dependency"] }
+tax-compliance = { path = "../contracts/tax-compliance", default-features = false }
+compliance_registry = { path = "../contracts/compliance_registry", default-features = false }
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"], optional = true }
@@ -29,19 +33,16 @@ tokio = { version = "1.0", features = ["full"], optional = true }
 # Utilities
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false }
-
-
-# Coverage tools (optional)
-[dev-dependencies.cargo-tarpaulin]
-version = "0.27"
-optional = true
+rand = "0.8"
 
 [dev-dependencies]
-ink_e2e = "5.0.0"
 tokio = { version = "1.0", features = ["full"] }
 propchain-contracts = { path = "../contracts/lib", default-features = false }
 property-token = { path = "../contracts/property-token", default-features = false }
-proptest = { version = "1.4", default-features = false }
+propchain-monitoring = { path = "../contracts/monitoring", default-features = false, features = ["ink-as-dependency"] }
+tax-compliance = { path = "../contracts/tax-compliance", default-features = false }
+compliance_registry = { path = "../contracts/compliance_registry", default-features = false }
+proptest = { version = "1.4", features = ["std"] }
 
 [features]
 default = ["std"]
@@ -51,8 +52,14 @@ std = [
     "scale-info/std",
     "propchain-contracts/std",
     "property-token/std",
+    "propchain-monitoring/std",
+    "tax-compliance/std",
+    "compliance_registry/std",
     "serde/std",
     "serde_json/std",
     "tokio",
 ]
 e2e-tests = ["std", "ink_e2e"]
+security-tests = ["std"]
+disabled_test = []
+

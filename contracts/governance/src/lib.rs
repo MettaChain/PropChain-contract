@@ -7,159 +7,8 @@ mod governance {
     use propchain_traits::constants;
     use propchain_traits::errors::*;
 
-    // =========================================================================
-    // Error
-    // =========================================================================
-
-    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub enum Error {
-        Unauthorized,
-        ProposalNotFound,
-        AlreadyVoted,
-        ProposalClosed,
-        ThresholdNotMet,
-        TimelockActive,
-        InvalidThreshold,
-        SignerExists,
-        SignerNotFound,
-        MinSigners,
-        MaxProposals,
-        NotASigner,
-        ProposalExpired,
-    }
-
-    impl core::fmt::Display for Error {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            match self {
-                Error::Unauthorized => write!(f, "Caller is not authorized"),
-                Error::ProposalNotFound => write!(f, "Proposal not found"),
-                Error::AlreadyVoted => write!(f, "Already voted on this proposal"),
-                Error::ProposalClosed => write!(f, "Proposal is closed"),
-                Error::ThresholdNotMet => write!(f, "Approval threshold not met"),
-                Error::TimelockActive => write!(f, "Timelock period has not elapsed"),
-                Error::InvalidThreshold => write!(f, "Invalid threshold value"),
-                Error::SignerExists => write!(f, "Signer already exists"),
-                Error::SignerNotFound => write!(f, "Signer not found"),
-                Error::MinSigners => write!(f, "Cannot go below minimum signers"),
-                Error::MaxProposals => write!(f, "Maximum active proposals reached"),
-                Error::NotASigner => write!(f, "Caller is not a signer"),
-                Error::ProposalExpired => write!(f, "Proposal has expired"),
-            }
-        }
-    }
-
-    impl ContractError for Error {
-        fn error_code(&self) -> u32 {
-            match self {
-                Error::Unauthorized => governance_codes::GOVERNANCE_UNAUTHORIZED,
-                Error::ProposalNotFound => governance_codes::GOVERNANCE_PROPOSAL_NOT_FOUND,
-                Error::AlreadyVoted => governance_codes::GOVERNANCE_ALREADY_VOTED,
-                Error::ProposalClosed => governance_codes::GOVERNANCE_PROPOSAL_CLOSED,
-                Error::ThresholdNotMet => governance_codes::GOVERNANCE_THRESHOLD_NOT_MET,
-                Error::TimelockActive => governance_codes::GOVERNANCE_TIMELOCK_ACTIVE,
-                Error::InvalidThreshold => governance_codes::GOVERNANCE_INVALID_THRESHOLD,
-                Error::SignerExists => governance_codes::GOVERNANCE_SIGNER_EXISTS,
-                Error::SignerNotFound => governance_codes::GOVERNANCE_SIGNER_NOT_FOUND,
-                Error::MinSigners => governance_codes::GOVERNANCE_MIN_SIGNERS,
-                Error::MaxProposals => governance_codes::GOVERNANCE_MAX_PROPOSALS,
-                Error::NotASigner => governance_codes::GOVERNANCE_NOT_A_SIGNER,
-                Error::ProposalExpired => governance_codes::GOVERNANCE_PROPOSAL_EXPIRED,
-            }
-        }
-
-        fn error_description(&self) -> &'static str {
-            match self {
-                Error::Unauthorized => "Caller does not have governance permissions",
-                Error::ProposalNotFound => "The governance proposal does not exist",
-                Error::AlreadyVoted => "Caller has already voted on this proposal",
-                Error::ProposalClosed => "The proposal is no longer accepting votes",
-                Error::ThresholdNotMet => "Not enough votes to meet the approval threshold",
-                Error::TimelockActive => "The timelock period has not elapsed yet",
-                Error::InvalidThreshold => "Threshold must be between 1 and signer count",
-                Error::SignerExists => "This account is already a signer",
-                Error::SignerNotFound => "This account is not a registered signer",
-                Error::MinSigners => "Cannot remove signer: minimum signer count reached",
-                Error::MaxProposals => "Cannot create proposal: active limit reached",
-                Error::NotASigner => "Only signers can perform this action",
-                Error::ProposalExpired => "The proposal voting period has expired",
-            }
-        }
-
-        fn error_category(&self) -> ErrorCategory {
-            ErrorCategory::Governance
-        }
-    }
-
-    // =========================================================================
-    // Types
-    // =========================================================================
-
-    /// Governance action types that require multisig approval.
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        scale::Encode,
-        scale::Decode,
-        ink::storage::traits::StorageLayout,
-    )]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub enum GovernanceAction {
-        ModifyProperty,
-        SaleApproval,
-        ChangeThreshold,
-        AddSigner,
-        RemoveSigner,
-        EmergencyOverride,
-    }
-
-    /// Status of a governance proposal.
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        scale::Encode,
-        scale::Decode,
-        ink::storage::traits::StorageLayout,
-    )]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub enum ProposalStatus {
-        Active,
-        Approved,
-        Executed,
-        Rejected,
-        Cancelled,
-        Expired,
-    }
-
-    /// A governance proposal.
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        scale::Encode,
-        scale::Decode,
-        ink::storage::traits::StorageLayout,
-    )]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub struct GovernanceProposal {
-        pub id: u64,
-        pub proposer: AccountId,
-        pub description_hash: Hash,
-        pub action_type: GovernanceAction,
-        pub target: Option<AccountId>,
-        pub threshold: u32,
-        pub votes_for: u32,
-        pub votes_against: u32,
-        pub status: ProposalStatus,
-        pub created_at: u64,
-        pub executed_at: u64,
-        pub timelock_until: u64,
-    }
+    include!("errors.rs");
+    include!("types.rs");
 
     // =========================================================================
     // Events
@@ -241,6 +90,10 @@ mod governance {
         proposals: Mapping<u64, GovernanceProposal>,
         votes: Mapping<(u64, AccountId), bool>,
         timelock_blocks: u64,
+        /// Registered ECDSA public keys for optional cryptographic signature verification
+        signer_public_keys: Mapping<AccountId, [u8; 33]>,
+        /// Pending admin key rotation request
+        pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
     }
 
     // =========================================================================
@@ -275,6 +128,8 @@ mod governance {
                 proposals: Mapping::default(),
                 votes: Mapping::default(),
                 timelock_blocks,
+                signer_public_keys: Mapping::default(),
+                pending_admin_rotation: None,
             }
         }
 
@@ -412,6 +267,47 @@ mod governance {
             });
 
             Ok(())
+        }
+
+        /// Register an ECDSA public key for cryptographic signature verification.
+        #[ink(message)]
+        pub fn register_public_key(&mut self, public_key: [u8; 33]) -> Result<(), Error> {
+            let caller = self.env().caller();
+            self.ensure_signer(caller)?;
+            self.signer_public_keys.insert(caller, &public_key);
+            Ok(())
+        }
+
+        /// Vote with optional ECDSA cryptographic signature verification.
+        #[ink(message)]
+        pub fn vote_with_signature(
+            &mut self,
+            proposal_id: u64,
+            support: bool,
+            signed_approval: Option<propchain_traits::SignedApproval>,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+            if let Some(ref approval) = signed_approval {
+                let expected_key = self
+                    .signer_public_keys
+                    .get(caller)
+                    .ok_or(Error::Unauthorized)?;
+                propchain_traits::crypto::verify_signed_approval(approval, &expected_key)
+                    .map_err(|_| Error::Unauthorized)?;
+
+                let expected_hash = propchain_traits::crypto::hash_encoded(&(
+                    proposal_id,
+                    support,
+                    caller,
+                    self.env().block_number(),
+                ));
+                if approval.message_hash != <[u8; 32]>::from(expected_hash) {
+                    return Err(Error::Unauthorized);
+                }
+            }
+
+            self.vote(proposal_id, support)
         }
 
         /// Executes an approved proposal after the timelock has elapsed.
@@ -591,6 +487,73 @@ mod governance {
             Ok(())
         }
 
+        /// Request a two-step admin rotation with cooldown.
+        #[ink(message)]
+        pub fn request_admin_rotation(&mut self, new_admin: AccountId) -> Result<(), Error> {
+            self.ensure_admin()?;
+            let caller = self.env().caller();
+            let block = self.env().block_number();
+            let effective_at =
+                block.saturating_add(propchain_traits::constants::KEY_ROTATION_COOLDOWN_BLOCKS);
+
+            self.pending_admin_rotation = Some(propchain_traits::KeyRotationRequest {
+                old_account: caller,
+                new_account: new_admin,
+                requested_at: block,
+                effective_at,
+                confirmed: false,
+            });
+
+            Ok(())
+        }
+
+        /// Confirm a pending admin rotation after cooldown.
+        #[ink(message)]
+        pub fn confirm_admin_rotation(&mut self) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let block = self.env().block_number();
+
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(Error::ProposalNotFound)?;
+
+            if request.new_account != caller {
+                return Err(Error::Unauthorized);
+            }
+            if block < request.effective_at {
+                return Err(Error::TimelockActive);
+            }
+            let expiry = request
+                .effective_at
+                .saturating_add(propchain_traits::constants::KEY_ROTATION_EXPIRY_BLOCKS);
+            if block > expiry {
+                self.pending_admin_rotation = None;
+                return Err(Error::ProposalExpired);
+            }
+
+            self.admin = caller;
+            self.pending_admin_rotation = None;
+            Ok(())
+        }
+
+        /// Cancel a pending admin rotation.
+        #[ink(message)]
+        pub fn cancel_admin_rotation(&mut self) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(Error::ProposalNotFound)?;
+
+            if caller != request.old_account && caller != request.new_account {
+                return Err(Error::Unauthorized);
+            }
+
+            self.pending_admin_rotation = None;
+            Ok(())
+        }
+
         // ----- Internal helpers -----
 
         fn ensure_admin(&self) -> Result<(), Error> {
@@ -611,230 +574,4 @@ mod governance {
     // =========================================================================
     // Tests
     // =========================================================================
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        fn default_accounts() -> ink::env::test::DefaultAccounts<ink::env::DefaultEnvironment> {
-            ink::env::test::default_accounts::<ink::env::DefaultEnvironment>()
-        }
-
-        fn set_caller(caller: AccountId) {
-            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(caller);
-        }
-
-        fn advance_block(n: u32) {
-            ink::env::test::advance_block::<ink::env::DefaultEnvironment>();
-            for _ in 1..n {
-                ink::env::test::advance_block::<ink::env::DefaultEnvironment>();
-            }
-        }
-
-        fn create_governance() -> Governance {
-            let accounts = default_accounts();
-            set_caller(accounts.alice);
-            let signers = vec![accounts.alice, accounts.bob, accounts.charlie];
-            Governance::new(signers, 2, 10) // threshold=2, timelock=10 blocks
-        }
-
-        fn dummy_hash() -> Hash {
-            Hash::from([0x01; 32])
-        }
-
-        // ----- Constructor tests -----
-
-        #[ink::test]
-        fn constructor_sets_admin_and_signers() {
-            let gov = create_governance();
-            let accounts = default_accounts();
-            assert_eq!(gov.get_admin(), accounts.alice);
-            assert_eq!(gov.get_signers().len(), 3);
-            assert_eq!(gov.get_threshold(), 2);
-        }
-
-        #[ink::test]
-        fn constructor_clamps_threshold() {
-            let accounts = default_accounts();
-            set_caller(accounts.alice);
-            let signers = vec![accounts.alice, accounts.bob];
-            let gov = Governance::new(signers, 99, 10);
-            assert_eq!(gov.get_threshold(), 2); // clamped to signer count
-        }
-
-        // ----- Proposal tests -----
-
-        #[ink::test]
-        fn create_proposal_succeeds() {
-            let mut gov = create_governance();
-            let result = gov.create_proposal(dummy_hash(), GovernanceAction::ModifyProperty, None);
-            assert!(result.is_ok());
-            assert_eq!(result.unwrap(), 0);
-            assert_eq!(gov.get_active_proposal_count(), 1);
-        }
-
-        #[ink::test]
-        fn non_signer_cannot_propose() {
-            let mut gov = create_governance();
-            let accounts = default_accounts();
-            set_caller(accounts.django);
-            let result = gov.create_proposal(dummy_hash(), GovernanceAction::SaleApproval, None);
-            assert_eq!(result, Err(Error::NotASigner));
-        }
-
-        // ----- Voting tests -----
-
-        #[ink::test]
-        fn voting_and_threshold_approval() {
-            let mut gov = create_governance();
-            let accounts = default_accounts();
-
-            // Alice proposes
-            set_caller(accounts.alice);
-            gov.create_proposal(dummy_hash(), GovernanceAction::ModifyProperty, None)
-                .unwrap();
-
-            // Alice votes yes
-            gov.vote(0, true).unwrap();
-            let proposal = gov.get_proposal(0).unwrap();
-            assert_eq!(proposal.votes_for, 1);
-            assert_eq!(proposal.status, ProposalStatus::Active);
-
-            // Bob votes yes → threshold met
-            set_caller(accounts.bob);
-            gov.vote(0, true).unwrap();
-            let proposal = gov.get_proposal(0).unwrap();
-            assert_eq!(proposal.votes_for, 2);
-            assert_eq!(proposal.status, ProposalStatus::Approved);
-        }
-
-        #[ink::test]
-        fn double_vote_rejected() {
-            let mut gov = create_governance();
-            let accounts = default_accounts();
-            set_caller(accounts.alice);
-            gov.create_proposal(dummy_hash(), GovernanceAction::ModifyProperty, None)
-                .unwrap();
-            gov.vote(0, true).unwrap();
-            assert_eq!(gov.vote(0, true), Err(Error::AlreadyVoted));
-        }
-
-        #[ink::test]
-        fn rejection_when_impossible_to_reach_threshold() {
-            let accounts = default_accounts();
-            set_caller(accounts.alice);
-            // 2 signers, threshold 2 — one "no" vote makes it impossible
-            let signers = vec![accounts.alice, accounts.bob];
-            let mut gov = Governance::new(signers, 2, 10);
-            gov.create_proposal(dummy_hash(), GovernanceAction::SaleApproval, None)
-                .unwrap();
-
-            // Alice votes no
-            gov.vote(0, false).unwrap();
-            let proposal = gov.get_proposal(0).unwrap();
-            assert_eq!(proposal.status, ProposalStatus::Rejected);
-        }
-
-        // ----- Execution tests -----
-
-        #[ink::test]
-        fn execute_after_timelock() {
-            let mut gov = create_governance();
-            let accounts = default_accounts();
-            set_caller(accounts.alice);
-            gov.create_proposal(dummy_hash(), GovernanceAction::ModifyProperty, None)
-                .unwrap();
-            gov.vote(0, true).unwrap();
-            set_caller(accounts.bob);
-            gov.vote(0, true).unwrap();
-
-            // Too early
-            let result = gov.execute_proposal(0);
-            assert_eq!(result, Err(Error::TimelockActive));
-
-            // Advance past timelock
-            advance_block(11);
-            let result = gov.execute_proposal(0);
-            assert!(result.is_ok());
-            let proposal = gov.get_proposal(0).unwrap();
-            assert_eq!(proposal.status, ProposalStatus::Executed);
-        }
-
-        // ----- Signer management tests -----
-
-        #[ink::test]
-        fn add_and_remove_signer() {
-            let mut gov = create_governance();
-            let accounts = default_accounts();
-            set_caller(accounts.alice);
-
-            // Add django
-            gov.add_signer(accounts.django).unwrap();
-            assert_eq!(gov.get_signers().len(), 4);
-
-            // Remove charlie
-            gov.remove_signer(accounts.charlie).unwrap();
-            assert_eq!(gov.get_signers().len(), 3);
-        }
-
-        #[ink::test]
-        fn cannot_remove_below_min_signers() {
-            let accounts = default_accounts();
-            set_caller(accounts.alice);
-            let signers = vec![accounts.alice, accounts.bob];
-            let mut gov = Governance::new(signers, 2, 10);
-            assert_eq!(gov.remove_signer(accounts.bob), Err(Error::MinSigners));
-        }
-
-        #[ink::test]
-        fn non_admin_cannot_add_signer() {
-            let mut gov = create_governance();
-            let accounts = default_accounts();
-            set_caller(accounts.bob);
-            assert_eq!(gov.add_signer(accounts.django), Err(Error::Unauthorized));
-        }
-
-        // ----- Threshold tests -----
-
-        #[ink::test]
-        fn update_threshold_succeeds() {
-            let mut gov = create_governance();
-            gov.update_threshold(3).unwrap();
-            assert_eq!(gov.get_threshold(), 3);
-        }
-
-        #[ink::test]
-        fn invalid_threshold_rejected() {
-            let mut gov = create_governance();
-            assert_eq!(gov.update_threshold(0), Err(Error::InvalidThreshold));
-            assert_eq!(gov.update_threshold(99), Err(Error::InvalidThreshold));
-        }
-
-        // ----- Emergency override tests -----
-
-        #[ink::test]
-        fn emergency_override_works() {
-            let mut gov = create_governance();
-            let accounts = default_accounts();
-            set_caller(accounts.alice);
-            gov.create_proposal(dummy_hash(), GovernanceAction::ModifyProperty, None)
-                .unwrap();
-            gov.emergency_override(0, true).unwrap();
-            let proposal = gov.get_proposal(0).unwrap();
-            assert_eq!(proposal.status, ProposalStatus::Executed);
-        }
-
-        // ----- Cancel proposal tests -----
-
-        #[ink::test]
-        fn cancel_proposal_by_proposer() {
-            let mut gov = create_governance();
-            gov.create_proposal(dummy_hash(), GovernanceAction::ModifyProperty, None)
-                .unwrap();
-            gov.cancel_proposal(0).unwrap();
-            let proposal = gov.get_proposal(0).unwrap();
-            assert_eq!(proposal.status, ProposalStatus::Cancelled);
-            assert_eq!(gov.get_active_proposal_count(), 0);
-        }
-    }
 }

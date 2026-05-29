@@ -1,0 +1,11 @@
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 46s
+warning: the following packages contain code that will be rejected by a future version of Rust: subxt v0.35.3, trie-db v0.28.0
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 2`
+     Running unittests src/lib.rs (/workspaces/PropChain-contract/target/debug/deps/propchain_contracts-4240128583d02b91)
+
+running 1 test
+test tests_pause::test_pause_resume_flow ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

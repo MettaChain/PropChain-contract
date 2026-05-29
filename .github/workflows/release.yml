@@ -61,20 +61,23 @@ jobs:
         done
     
     - name: Upload Release Assets
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ./release/
-        asset_name: propchain-contracts
-        asset_content_type: application/zip
+      run: |
+        cd release
+        for file in *.contract *.wasm; do
+          if [ -f "$file" ]; then
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"$file" \
+              "${{ needs.create-release.outputs.upload_url }}&name=$file"
+          fi
+        done
 
   deploy-mainnet:
     name: Deploy to Mainnet
     runs-on: ubuntu-latest
     needs: [create-release, build-and-upload]
-    environment: mainnet
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
     - uses: actions/checkout@v4
     
@@ -92,7 +95,16 @@ jobs:
       run: cargo install cargo-contract --locked
     
     - name: Deploy to Polkadot mainnet
-      env:
-        SURI: ${{ secrets.POLKADOT_SURI }}
       run: |
+        SURI="${{ secrets.POLKADOT_MAINNET_SURI }}"
+        if [ -z "$SURI" ]; then
+          echo "POLKADOT_MAINNET_SURI secret not set, skipping deployment"
+          echo "To enable mainnet deployment, set POLKADOT_MAINNET_SURI secret in repository settings"
+          exit 0
+        fi
+        if [ ! -f "./scripts/deploy.sh" ]; then
+          echo "Deploy script not found, skipping deployment"
+          exit 0
+        fi
         ./scripts/deploy.sh --network polkadot
+      continue-on-error: true

@@ -18,8 +18,19 @@ pub mod escrow_tests {
 
     #[ink::test]
     fn test_new_contract() {
-        let contract = AdvancedEscrow::new(1_000_000);
+        let contract = AdvancedEscrow::new(1_000_000, None);
         assert_eq!(contract.get_high_value_threshold(), 1_000_000);
+    }
+
+    #[ink::test]
+    fn test_set_tax_compliance_contract() {
+        let accounts = default_accounts();
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
+        
+        let result = contract.set_tax_compliance_contract(Some(accounts.charlie));
+        assert!(result.is_ok());
+        // Since there is no getter, we just verify it doesn't error.
+        // We could add a getter if needed.
     }
 
     #[ink::test]
@@ -27,7 +38,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         let participants = vec![accounts.alice, accounts.bob, accounts.charlie];
         let result = contract.create_escrow_advanced(
@@ -59,7 +70,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         // Test with more required signatures than participants
         let participants = vec![accounts.alice, accounts.bob];
@@ -82,7 +93,7 @@ pub mod escrow_tests {
         set_caller(accounts.alice);
         set_balance(accounts.alice, 2_000_000);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         let participants = vec![accounts.alice, accounts.bob];
         let escrow_id = contract
@@ -114,7 +125,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         let participants = vec![accounts.alice, accounts.bob];
         let escrow_id = contract
@@ -146,7 +157,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         let participants = vec![accounts.alice, accounts.bob];
         let escrow_id = contract
@@ -179,7 +190,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         let participants = vec![accounts.alice, accounts.bob];
         let escrow_id = contract
@@ -211,7 +222,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         let participants = vec![accounts.alice, accounts.bob];
         let escrow_id = contract
@@ -243,7 +254,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         let participants = vec![accounts.alice, accounts.bob];
         let escrow_id = contract
@@ -279,7 +290,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         let participants = vec![accounts.alice, accounts.bob];
         let escrow_id = contract
@@ -308,7 +319,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         let participants = vec![accounts.alice, accounts.bob];
         let escrow_id = contract
@@ -346,7 +357,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
         let admin = contract.get_admin();
 
         let participants = vec![accounts.alice, accounts.bob];
@@ -392,7 +403,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         let participants = vec![accounts.alice, accounts.bob];
         let escrow_id = contract
@@ -422,7 +433,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         let participants = vec![accounts.alice, accounts.bob];
         let escrow_id = contract
@@ -473,7 +484,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         let participants = vec![accounts.alice, accounts.bob];
         let escrow_id = contract
@@ -513,7 +524,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
         let original_admin = contract.get_admin();
         assert_eq!(original_admin, accounts.alice);
 
@@ -529,7 +540,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         // Try to set admin as non-admin
         set_caller(accounts.bob);
@@ -542,7 +553,7 @@ pub mod escrow_tests {
         let accounts = default_accounts();
         set_caller(accounts.alice);
 
-        let mut contract = AdvancedEscrow::new(1_000_000);
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
 
         let participants = vec![accounts.alice, accounts.bob, accounts.charlie];
         let escrow_id = contract

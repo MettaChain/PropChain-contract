@@ -11,6 +11,7 @@ Multi-jurisdictional compliance and regulatory framework for PropChain: KYC/AML,
 - **Audit**: Audit log per account; compliance report and sanctions screening summary.
 - **Workflow**: Create verification request → off-chain processing → process_verification_request; workflow status query.
 - **Regulatory reporting**: `get_regulatory_report(jurisdiction, period_start, period_end)`.
+- **KYC funnel analytics**: `get_kyc_metrics()` and `get_jurisdiction_kyc_metrics(jurisdiction)` expose request counts, verification attempts, conversions, and rates.
 - **Transaction compliance**: `check_transaction_compliance(account, operation)` for rules-engine style checks.
 - **Integration**: Implements `ComplianceChecker` trait for PropertyRegistry cross-calls.
 
