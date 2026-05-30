@@ -13,7 +13,7 @@ pub mod fraud_detection {
     const CLAIMS_SHORT_PERIOD_DAYS: u64 = 30; // Days window for multiple claims
     const CLAIMS_SHORT_PERIOD_SECONDS: u64 = CLAIMS_SHORT_PERIOD_DAYS * 86_400;
     const SUSPICIOUS_TIME_WEEKEND_THRESHOLD: u32 = 200; // Extra points for weekend claims
-    const ANOMALOUS_CLAIM_MULTIPLIER: u32 = 150; // 150% of average
+    const ANOMALOUS_CLAIM_MULTIPLIER: u128 = 150; // 150% of average
     const HIGH_RISK_FRAUD_SCORE: u32 = 200;
 
     /// Detect multiple claims in a short time period
