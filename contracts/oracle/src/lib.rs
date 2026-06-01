@@ -77,6 +77,10 @@ mod propchain_oracle {
         /// Maximum batch size for batch operations
         max_batch_size: u32,
 
+        // ── Aggregation Strategy (Issue #224) ────────────────────────────────
+        /// Current aggregation method
+        aggregation_method: AggregationMethod,
+
         // ── Circuit Breaker (Issue #316) ──────────────────────────────────────
         /// When true, valuation updates that exceed `volatility_threshold` are
         /// automatically blocked until an admin resets the breaker.
@@ -181,6 +185,14 @@ mod propchain_oracle {
         proposal_id: u64,
     }
 
+    // ── Aggregation Events (Issue #224) ─────────────────────────────────────
+
+    #[ink(event)]
+    pub struct AggregationMethodUpdated {
+        old_method: AggregationMethod,
+        new_method: AggregationMethod,
+    }
+
     include!("types.rs");
 
     impl PropertyValuationOracle {
@@ -231,6 +243,8 @@ mod propchain_oracle {
                 multisig_threshold: 1,
                 multisig_proposals: Mapping::default(),
                 multisig_proposal_counter: 0,
+                // Aggregation defaults (Issue #224)
+                aggregation_method: AggregationMethod::WeightedMean,
             }
         }
 
@@ -747,6 +761,27 @@ mod propchain_oracle {
             self.ai_valuation_contract
         }
 
+        // ── Aggregation API (Issue #224) ─────────────────────────────────────
+
+        /// Returns the current aggregation method.
+        #[ink(message)]
+        pub fn get_aggregation_method(&self) -> AggregationMethod {
+            self.aggregation_method.clone()
+        }
+
+        /// Admin: set the aggregation method.
+        #[ink(message)]
+        pub fn set_aggregation_method(&mut self, method: AggregationMethod) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            let old = self.aggregation_method.clone();
+            self.aggregation_method = method;
+            self.env().emit_event(AggregationMethodUpdated {
+                old_method: old,
+                new_method: self.aggregation_method.clone(),
+            });
+            Ok(())
+        }
+
         /// Add oracle source (admin only)
         #[ink(message)]
         pub fn add_oracle_source(&mut self, source: OracleSource) -> Result<(), OracleError> {
@@ -959,27 +994,48 @@ mod propchain_oracle {
             }
 
             // Remove outliers
-            let filtered_prices = self.filter_outliers(prices);
+            let filtered = self.filter_outliers(prices);
 
-            if filtered_prices.is_empty() {
+            if filtered.is_empty() {
                 return Err(OracleError::InsufficientSources);
             }
 
-            // Weighted average based on source weights
-            let mut total_weighted_price = 0u128;
-            let mut total_weight = 0u32;
-
-            for price_data in &filtered_prices {
-                let weight = self.get_source_weight(&price_data.source)?;
-                total_weighted_price += price_data.price * weight as u128;
-                total_weight += weight;
+            match self.aggregation_method {
+                AggregationMethod::WeightedMean => {
+                    let mut total_weighted = 0u128;
+                    let mut total_weight = 0u32;
+                    for p in &filtered {
+                        let w = self.get_source_weight(&p.source)?;
+                        total_weighted += p.price * w as u128;
+                        total_weight += w;
+                    }
+                    if total_weight == 0 {
+                        return Err(OracleError::InvalidParameters);
+                    }
+                    Ok(total_weighted / total_weight as u128)
+                }
+                AggregationMethod::Median => {
+                    let mut sorted: Vec<u128> = filtered.iter().map(|p| p.price).collect();
+                    sorted.sort();
+                    let len = sorted.len();
+                    if len % 2 == 0 {
+                        Ok((sorted[len / 2 - 1] + sorted[len / 2]) / 2)
+                    } else {
+                        Ok(sorted[len / 2])
+                    }
+                }
+                AggregationMethod::TrimmedMean(trim_count) => {
+                    let mut sorted: Vec<u128> = filtered.iter().map(|p| p.price).collect();
+                    sorted.sort();
+                    let trim = (trim_count as usize).min(sorted.len() / 3);
+                    let trimmed = &sorted[trim..sorted.len() - trim];
+                    if trimmed.is_empty() {
+                        return Err(OracleError::InsufficientSources);
+                    }
+                    let sum: u128 = trimmed.iter().sum();
+                    Ok(sum / trimmed.len() as u128)
+                }
             }
-
-            if total_weight == 0 {
-                return Err(OracleError::InvalidParameters);
-            }
-
-            Ok(total_weighted_price / total_weight as u128)
         }
 
         pub fn filter_outliers(&self, prices: &[PriceData]) -> Vec<PriceData> {
