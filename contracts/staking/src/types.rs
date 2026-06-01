@@ -16,6 +16,8 @@ pub enum LockPeriod {
     ThirtyDays,
     NinetyDays,
     OneYear,
+    /// User-defined lock duration in blocks
+    Custom(u64),
 }
 
 impl LockPeriod {
@@ -25,6 +27,7 @@ impl LockPeriod {
             LockPeriod::ThirtyDays => constants::LOCK_PERIOD_30_DAYS,
             LockPeriod::NinetyDays => constants::LOCK_PERIOD_90_DAYS,
             LockPeriod::OneYear => constants::LOCK_PERIOD_1_YEAR,
+            LockPeriod::Custom(blocks) => *blocks,
         }
     }
 
@@ -34,6 +37,21 @@ impl LockPeriod {
             LockPeriod::ThirtyDays => constants::MULTIPLIER_30_DAYS,
             LockPeriod::NinetyDays => constants::MULTIPLIER_90_DAYS,
             LockPeriod::OneYear => constants::MULTIPLIER_1_YEAR,
+            // Custom lock period reward multiplier scales linearly
+            // between Flexible (1.0x) and OneYear (2.5x) based on duration
+            LockPeriod::Custom(blocks) => {
+                let max_blocks = constants::LOCK_PERIOD_1_YEAR;
+                let ratio = if max_blocks > 0 {
+                    (*blocks as u128).min(max_blocks as u128)
+                } else {
+                    0
+                };
+                // Scale from MULTIPLIER_FLEXIBLE (100) to MULTIPLIER_1_YEAR (250)
+                let range = constants::MULTIPLIER_1_YEAR.saturating_sub(constants::MULTIPLIER_FLEXIBLE);
+                constants::MULTIPLIER_FLEXIBLE.saturating_add(
+                    range.saturating_mul(ratio) / max_blocks as u128
+                )
+            }
         }
     }
 }
