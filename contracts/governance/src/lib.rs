@@ -34,6 +34,17 @@ mod governance {
     }
 
     #[ink(event)]
+    pub struct QuadraticVoteCast {
+        #[ink(topic)]
+        pub proposal_id: u64,
+        #[ink(topic)]
+        pub voter: AccountId,
+        pub support: bool,
+        pub credits_spent: u32,
+        pub voting_weight: u32,
+    }
+
+    #[ink(event)]
     pub struct ProposalExecuted {
         #[ink(topic)]
         pub proposal_id: u64,
