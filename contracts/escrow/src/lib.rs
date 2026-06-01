@@ -68,6 +68,10 @@ mod propchain_escrow {
         very_large_transfer_threshold: u128,
         /// Tax compliance contract address
         tax_compliance_contract: Option<AccountId>,
+        /// Escrow fee rate in basis points (e.g. 100 = 1%)
+        fee_rate_bps: u16,
+        /// Fee recipient account
+        fee_recipient: Option<AccountId>,
     }
 
     // Events
@@ -95,6 +99,15 @@ mod propchain_escrow {
         escrow_id: u64,
         amount: u128,
         recipient: AccountId,
+    }
+
+    #[ink(event)]
+    pub struct FundsPartiallyReleased {
+        #[ink(topic)]
+        escrow_id: u64,
+        amount: u128,
+        recipient: AccountId,
+        remaining: u128,
     }
 
     #[ink(event)]
@@ -166,6 +179,32 @@ mod propchain_escrow {
         #[ink(topic)]
         escrow_id: u64,
         admin: AccountId,
+    }
+
+    #[ink(event)]
+    pub struct FeeCollected {
+        #[ink(topic)]
+        escrow_id: u64,
+        #[ink(topic)]
+        fee_recipient: AccountId,
+        fee_amount: u128,
+        fee_rate_bps: u16,
+    }
+
+    #[ink(event)]
+    pub struct FeeRateUpdated {
+        #[ink(topic)]
+        updated_by: AccountId,
+        old_rate: u16,
+        new_rate: u16,
+    }
+
+    #[ink(event)]
+    pub struct FeeRecipientUpdated {
+        #[ink(topic)]
+        updated_by: AccountId,
+        old_recipient: Option<AccountId>,
+        new_recipient: Option<AccountId>,
     }
 
     // ── Large-Transfer Multi-Step Approval Events ────────────────────────────
@@ -244,6 +283,8 @@ mod propchain_escrow {
                 large_transfer_threshold: 0,
                 very_large_transfer_threshold: 0,
                 tax_compliance_contract,
+                fee_rate_bps: 0,
+                fee_recipient: None,
             }
         }
 
@@ -287,6 +328,7 @@ mod propchain_escrow {
                 release_time_lock,
                 participants: participants.clone(),
                 jurisdiction,
+                total_released: 0,
             };
 
             self.escrows.insert(&escrow_id, &escrow_data);
@@ -457,6 +499,30 @@ mod propchain_escrow {
                 }
                 // ── End Tax Withholding ──────────────────────────────────────
 
+                // ── Fee Deduction ───────────────────────────────────────────
+                let fee = if self.fee_rate_bps > 0 && self.fee_recipient.is_some() {
+                    let calculated = final_transfer_amount
+                        .saturating_mul(self.fee_rate_bps as u128)
+                        / 10_000;
+                    if calculated > 0 {
+                        let recipient = self.fee_recipient.unwrap();
+                        if self.env().transfer(recipient, calculated).is_err() {
+                            return Err(Error::InvalidFeeAmount);
+                        }
+                        self.env().emit_event(FeeCollected {
+                            escrow_id,
+                            fee_recipient: recipient,
+                            fee_amount: calculated,
+                            fee_rate_bps: self.fee_rate_bps,
+                        });
+                    }
+                    calculated
+                } else {
+                    0
+                };
+                final_transfer_amount = final_transfer_amount.saturating_sub(fee);
+                // ── End Fee Deduction ───────────────────────────────────────
+
                 // Transfer remaining funds to seller
                 if self
                     .env()
@@ -483,6 +549,79 @@ mod propchain_escrow {
                     escrow_id,
                     amount: escrow.deposited_amount,
                     recipient: escrow.seller,
+                });
+
+                Ok(())
+            })
+        }
+
+        /// Release a partial amount from escrow to the seller.
+        /// The escrow remains active for any remaining balance.
+        #[ink(message)]
+        pub fn release_funds_partial(
+            &mut self,
+            escrow_id: u64,
+            amount: u128,
+        ) -> Result<(), Error> {
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                let mut escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
+
+                if escrow.status != EscrowStatus::Active {
+                    return Err(Error::InvalidStatus);
+                }
+
+                if amount == 0 || amount > escrow.deposited_amount.saturating_sub(escrow.total_released) {
+                    return Err(Error::InsufficientFunds);
+                }
+
+                // Check for active dispute
+                if let Some(dispute) = self.disputes.get(&escrow_id) {
+                    if !dispute.resolved {
+                        return Err(Error::DisputeActive);
+                    }
+                }
+
+                // Check time lock
+                if let Some(time_lock) = escrow.release_time_lock {
+                    if self.env().block_timestamp() < time_lock {
+                        return Err(Error::TimeLockActive);
+                    }
+                }
+
+                // Check multi-sig threshold
+                if !self.check_signature_threshold(escrow_id, ApprovalType::Release)? {
+                    return Err(Error::SignatureThresholdNotMet);
+                }
+
+                // Transfer the partial amount
+                if self.env().transfer(escrow.seller, amount).is_err() {
+                    return Err(Error::InsufficientFunds);
+                }
+
+                escrow.total_released = escrow.total_released.saturating_add(amount);
+
+                // If fully released, mark as Released
+                if escrow.total_released >= escrow.deposited_amount {
+                    escrow.status = EscrowStatus::Released;
+                }
+
+                self.escrows.insert(&escrow_id, &escrow);
+
+                let remaining = escrow.deposited_amount.saturating_sub(escrow.total_released);
+
+                self.add_audit_entry(
+                    escrow_id,
+                    caller,
+                    "FundsPartiallyReleased".to_string(),
+                    format!("Amount: {} to seller, remaining: {}", amount, remaining),
+                );
+
+                self.env().emit_event(FundsPartiallyReleased {
+                    escrow_id,
+                    amount,
+                    recipient: escrow.seller,
+                    remaining,
                 });
 
                 Ok(())
@@ -1402,6 +1541,38 @@ mod propchain_escrow {
             Ok(conditions.iter().all(|c| c.met))
         }
 
+        /// Returns the multi-sig status summary for an escrow:
+        /// (required_signatures, current_signatures_for_release, current_signatures_for_refund, signers)
+        #[ink(message)]
+        pub fn get_multi_sig_status(&self, escrow_id: u64) -> Result<(u8, u8, u8, Vec<AccountId>), Error> {
+            let config = self
+                .multi_sig_configs
+                .get(&escrow_id)
+                .ok_or(Error::EscrowNotFound)?;
+            let release_count = self
+                .signature_counts
+                .get(&(escrow_id, ApprovalType::Release))
+                .unwrap_or(0);
+            let refund_count = self
+                .signature_counts
+                .get(&(escrow_id, ApprovalType::Refund))
+                .unwrap_or(0);
+            Ok((
+                config.required_signatures,
+                release_count,
+                refund_count,
+                config.signers.clone(),
+            ))
+        }
+
+        /// Returns whether a specific participant has signed for a given approval type.
+        #[ink(message)]
+        pub fn has_signed(&self, escrow_id: u64, approval_type: ApprovalType, signer: AccountId) -> bool {
+            self.signatures
+                .get(&(escrow_id, approval_type, signer))
+                .unwrap_or(false)
+        }
+
         /// Set admin (deprecated — prefer request_admin_rotation + confirm_admin_rotation)
         #[ink(message)]
         pub fn set_admin(&mut self, new_admin: AccountId) -> Result<(), Error> {
@@ -1517,6 +1688,61 @@ mod propchain_escrow {
         #[ink(message)]
         pub fn get_high_value_threshold(&self) -> u128 {
             self.min_high_value_threshold
+        }
+
+        // ── Fee Configuration Messages ──────────────────────────────────────
+
+        /// Set the escrow fee rate (admin only). Rate is in basis points, max 1000 (10%).
+        #[ink(message)]
+        pub fn set_fee_rate(&mut self, rate_bps: u16) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            if rate_bps > 1000 {
+                return Err(Error::FeeRateTooHigh);
+            }
+            let old_rate = self.fee_rate_bps;
+            self.fee_rate_bps = rate_bps;
+            self.env().emit_event(FeeRateUpdated {
+                updated_by: self.env().caller(),
+                old_rate,
+                new_rate: rate_bps,
+            });
+            Ok(())
+        }
+
+        /// Set the fee recipient account (admin only).
+        #[ink(message)]
+        pub fn set_fee_recipient(&mut self, recipient: Option<AccountId>) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            let old_recipient = self.fee_recipient;
+            self.fee_recipient = recipient;
+            self.env().emit_event(FeeRecipientUpdated {
+                updated_by: self.env().caller(),
+                old_recipient,
+                new_recipient: recipient,
+            });
+            Ok(())
+        }
+
+        /// Get the current fee configuration.
+        #[ink(message)]
+        pub fn get_fee_config(&self) -> (u16, Option<AccountId>) {
+            (self.fee_rate_bps, self.fee_recipient)
+        }
+
+        /// Calculate the fee for a given amount using the current fee rate.
+        #[ink(message)]
+        pub fn calculate_fee(&self, amount: u128) -> Result<u128, Error> {
+            if self.fee_rate_bps == 0 || self.fee_recipient.is_none() {
+                return Ok(0);
+            }
+            let fee = amount
+                .saturating_mul(self.fee_rate_bps as u128)
+                / 10_000;
+            Ok(fee)
         }
 
         // Helper functions

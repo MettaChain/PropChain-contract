@@ -661,7 +661,7 @@ mod propchain_insurance {
                 coverage_amount,
                 &coverage_type,
                 &pool,
-                actuarial_model,
+                actuarial_model.as_ref(),
                 &modifiers,
                 duration_seconds,
             );

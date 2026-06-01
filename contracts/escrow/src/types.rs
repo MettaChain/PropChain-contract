@@ -38,6 +38,8 @@ pub struct EscrowData {
     pub release_time_lock: Option<u64>,
     pub participants: Vec<AccountId>,
     pub jurisdiction: Jurisdiction,
+    /// Total amount already released in partial releases
+    pub total_released: u128,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
