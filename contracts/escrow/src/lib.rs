@@ -256,6 +256,21 @@ mod propchain_escrow {
         pub cancelled_by: AccountId,
     }
 
+    // ── Rating Events (Issue #216) ───────────────────────────────────────────
+
+    /// Emitted when a participant rates another participant after an escrow.
+    #[ink(event)]
+    pub struct ParticipantRated {
+        #[ink(topic)]
+        escrow_id: u64,
+        #[ink(topic)]
+        rater: AccountId,
+        #[ink(topic)]
+        participant: AccountId,
+        score: u8,
+        rating_id: u64,
+    }
+
     impl AdvancedEscrow {
         /// Constructor
         #[ink(constructor)]
