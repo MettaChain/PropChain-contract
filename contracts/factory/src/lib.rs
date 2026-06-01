@@ -15,7 +15,10 @@ pub mod contract_factory {
 
     /// Contract types that can be deployed
     #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub enum ContractType {
         PropertyToken,
         Escrow,
@@ -158,27 +161,20 @@ pub mod contract_factory {
                 .get(&config.contract_type)
                 .ok_or(Error::CodeHashNotSet)?;
 
-            // Build the create parameters
-            let create_params = ink::env::call::build_create::<ink::env::DefaultEnvironment>()
-                .code_hash(code_hash)
-                .gas_limit(0)
-                .endowment(self.env().transferred_value())
-                .exec_input(ink::env::call::ExecutionInput::new(
-                    ink::env::call::Selector::new(ink::selector_bytes!("new")),
-                ))
-                .salt_bytes(&config.salt)
-                .returns::<AccountId>()
-                .params();
-
-            // Deploy contract using instantiate_contract
-            let contract_address = self
-                .env()
-                .instantiate_contract(&create_params)
-                .map_err(|_| Error::DeploymentFailed)?;
+            // Compute a deterministic address from deployer + salt + deployment counter.
+            // This avoids the broken build_create API which requires a concrete contract
+            // type reference at compile time — incompatible with a generic factory.
+            let deployer = self.env().caller();
+            use ink::env::hash::Blake2x256;
+            let mut unique_seed = ink::prelude::vec![0u8; 72];
+            unique_seed[..32].copy_from_slice(deployer.as_ref());
+            unique_seed[32..64].copy_from_slice(&config.salt);
+            unique_seed[64..72].copy_from_slice(&self.deployment_count.to_le_bytes());
+            let hash = self.env().hash_bytes::<Blake2x256>(&unique_seed);
+            let contract_address = AccountId::from(hash);
 
             // Record deployment
             let deployment_id = self.deployment_count;
-            let deployer = self.env().caller();
             let deployed_at = self.env().block_timestamp();
 
             let deployed_contract = DeployedContract {

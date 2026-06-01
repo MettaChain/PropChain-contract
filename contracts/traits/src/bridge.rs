@@ -380,6 +380,58 @@ impl SuspiciousActivityConfig {
 }
 
 // =========================================================================
+// Bridge Analytics Dashboard Types (Issue #208)
+// =========================================================================
+
+/// Aggregate bridge analytics returned by get_bridge_analytics.
+#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub struct BridgeAnalytics {
+    pub total_requests: u64,
+    pub total_transactions: u64,
+    pub total_cross_chain_trades: u64,
+    pub active_validators: u32,
+    pub active_operators: u32,
+    pub supported_chains: u32,
+    pub guardian_count: u32,
+}
+
+/// Per-chain volume statistics returned by get_chain_volume_stats.
+#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub struct ChainVolumeStats {
+    pub chain_id: ChainId,
+    pub chain_name: String,
+    pub is_active: bool,
+    pub daily_volume: u128,
+    pub hourly_volume: u128,
+    pub daily_limit: u128,
+}
+
+/// Bridge health status summary returned by get_bridge_health_status.
+#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub struct BridgeHealthStatus {
+    pub is_paused: bool,
+    pub new_requests_paused: bool,
+    pub signing_paused: bool,
+    pub execution_paused: bool,
+    pub cross_chain_trades_paused: bool,
+    pub active_validator_count: u32,
+    pub active_operator_count: u32,
+    pub guardian_count: u32,
+}
+
+// =========================================================================
 // Trait Definitions
 // =========================================================================
 

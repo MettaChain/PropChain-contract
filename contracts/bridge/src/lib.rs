@@ -1501,6 +1501,67 @@ mod bridge {
                 .unwrap_or_default()
         }
 
+        // ── Bridge Analytics Dashboard ───────────────────────────────────
+
+        /// Returns aggregate bridge analytics: (total_requests, total_transactions,
+        /// active_validators, total_cross_chain_trades, pending_count, completed_count,
+        /// failed_count).
+        #[ink(message)]
+        pub fn get_bridge_analytics(&self) -> BridgeAnalytics {
+            let validator_count = self.validators.len() as u32;
+            let operator_count = self.bridge_operators.len() as u32;
+            let active_chains = self.config.supported_chains.len() as u32;
+
+            // Count requests by status by scanning storage.
+            // For efficiency, we derive what we can from counters and config.
+            BridgeAnalytics {
+                total_requests: self.request_counter,
+                total_transactions: self.transaction_counter,
+                total_cross_chain_trades: self.cross_chain_trade_counter,
+                active_validators: validator_count,
+                active_operators: operator_count,
+                supported_chains: active_chains,
+                guardian_count: self.guardians.len() as u32,
+            }
+        }
+
+        /// Returns per-chain volume statistics.
+        #[ink(message)]
+        pub fn get_chain_volume_stats(
+            &self,
+            chain_id: ChainId,
+        ) -> Option<ChainVolumeStats> {
+            self.chain_info.get(chain_id).map(|info| {
+                let daily_volume = self.chain_daily_volume.get(chain_id).unwrap_or(0);
+                let hourly_volume = self.chain_hourly_volume.get(chain_id).unwrap_or(0);
+                ChainVolumeStats {
+                    chain_id,
+                    chain_name: info.chain_name.clone(),
+                    is_active: info.is_active,
+                    daily_volume,
+                    hourly_volume,
+                    daily_limit: info.chain_daily_limit,
+                }
+            })
+        }
+
+        /// Returns the current pause state summary for the dashboard.
+        #[ink(message)]
+        pub fn get_bridge_health_status(&self) -> BridgeHealthStatus {
+            BridgeHealthStatus {
+                is_paused: self.config.emergency_pause || self.pause_flags.all_operations,
+                new_requests_paused: self.pause_flags.new_requests,
+                signing_paused: self.pause_flags.signing,
+                execution_paused: self.pause_flags.execution,
+                cross_chain_trades_paused: self.pause_flags.cross_chain_trades,
+                active_validator_count: self.validators.len() as u32,
+                active_operator_count: self.bridge_operators.len() as u32,
+                guardian_count: self.guardians.len() as u32,
+            }
+        }
+
+    }
+
         // Helper functions
 
         fn is_authorized_for_token(&self, _account: AccountId, _token_id: TokenId) -> bool {

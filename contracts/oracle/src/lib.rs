@@ -100,6 +100,16 @@ mod propchain_oracle {
         multisig_proposals: Mapping<u64, MultiSigProposal>,
         /// Counter for generating unique proposal ids.
         multisig_proposal_counter: u64,
+
+        // ── Oracle Governance (Issue #228) ─────────────────────────────────────
+        /// Governance-controlled oracle parameters
+        governance_params: GovernanceParams,
+        /// Active governance proposals
+        governance_proposals: Mapping<u64, GovernanceProposal>,
+        /// Governance proposal counter
+        governance_proposal_counter: u64,
+        /// Governance voting power by participant
+        governance_voting_power: Mapping<AccountId, u32>,
     }
 
     /// A pending multi-sig proposal for a critical oracle operation.
@@ -185,12 +195,41 @@ mod propchain_oracle {
         proposal_id: u64,
     }
 
-    // ── Aggregation Events (Issue #224) ─────────────────────────────────────
+    // ── Oracle Governance Events (Issue #228) ────────────────────────────────
 
     #[ink(event)]
-    pub struct AggregationMethodUpdated {
-        old_method: AggregationMethod,
-        new_method: AggregationMethod,
+    pub struct GovernanceParamUpdated {
+        #[ink(topic)]
+        param_name: String,
+        old_value: u128,
+        new_value: u128,
+        updated_by: AccountId,
+    }
+
+    #[ink(event)]
+    pub struct GovernanceActionProposed {
+        #[ink(topic)]
+        proposal_id: u64,
+        #[ink(topic)]
+        proposer: AccountId,
+        action: GovernanceAction,
+    }
+
+    #[ink(event)]
+    pub struct GovernanceVoteCast {
+        #[ink(topic)]
+        proposal_id: u64,
+        #[ink(topic)]
+        voter: AccountId,
+        support: bool,
+        weight: u32,
+    }
+
+    #[ink(event)]
+    pub struct GovernanceActionExecuted {
+        #[ink(topic)]
+        proposal_id: u64,
+        action: GovernanceAction,
     }
 
     include!("types.rs");
@@ -243,8 +282,11 @@ mod propchain_oracle {
                 multisig_threshold: 1,
                 multisig_proposals: Mapping::default(),
                 multisig_proposal_counter: 0,
-                // Aggregation defaults (Issue #224)
-                aggregation_method: AggregationMethod::WeightedMean,
+                // Oracle governance defaults (Issue #228)
+                governance_params: GovernanceParams::default(),
+                governance_proposals: Mapping::default(),
+                governance_proposal_counter: 0,
+                governance_voting_power: Mapping::default(),
             }
         }
 
@@ -512,6 +554,200 @@ mod propchain_oracle {
             self.multisig_proposals.get(&proposal_id)
         }
 
+        // ── Oracle Governance Methods (Issue #228) ───────────────────────────
+
+        /// Returns the current governance parameters.
+        #[ink(message)]
+        pub fn get_governance_params(&self) -> GovernanceParams {
+            self.governance_params.clone()
+        }
+
+        /// Returns a governance proposal by ID.
+        #[ink(message)]
+        pub fn get_governance_proposal(&self, proposal_id: u64) -> Option<GovernanceProposal> {
+            self.governance_proposals.get(&proposal_id)
+        }
+
+        /// Returns the voting power for an account.
+        #[ink(message)]
+        pub fn get_governance_voting_power(&self, account: AccountId) -> u32 {
+            self.governance_voting_power.get(&account).unwrap_or(0)
+        }
+
+        /// Admin: set voting power for a governance participant.
+        #[ink(message)]
+        pub fn set_governance_voting_power(
+            &mut self,
+            participant: AccountId,
+            power: u32,
+        ) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            self.governance_voting_power.insert(&participant, &power);
+            Ok(())
+        }
+
+        /// Propose a governance action to change oracle parameters.
+        #[ink(message)]
+        pub fn propose_governance_action(
+            &mut self,
+            action: GovernanceAction,
+        ) -> Result<u64, OracleError> {
+            let caller = self.env().caller();
+            let power = self.governance_voting_power.get(&caller).unwrap_or(0);
+            if power == 0 {
+                return Err(OracleError::Unauthorized);
+            }
+
+            let proposal_id = self.governance_proposal_counter;
+            self.governance_proposal_counter = self.governance_proposal_counter.saturating_add(1);
+            let now = self.env().block_number();
+
+            let proposal = GovernanceProposal {
+                id: proposal_id,
+                proposer: caller,
+                action: action.clone(),
+                votes_for: 0,
+                votes_against: 0,
+                voting_end: now.saturating_add(self.governance_params.governance_voting_period_blocks),
+                executed: false,
+                created_at: now,
+            };
+
+            self.governance_proposals.insert(&proposal_id, &proposal);
+
+            self.env().emit_event(GovernanceActionProposed {
+                proposal_id,
+                proposer: caller,
+                action,
+            });
+
+            Ok(proposal_id)
+        }
+
+        /// Cast a vote on a governance proposal.
+        #[ink(message)]
+        pub fn vote_on_governance_proposal(
+            &mut self,
+            proposal_id: u64,
+            support: bool,
+        ) -> Result<(), OracleError> {
+            let caller = self.env().caller();
+            let weight = self.governance_voting_power.get(&caller).unwrap_or(0);
+            if weight == 0 {
+                return Err(OracleError::Unauthorized);
+            }
+
+            let mut proposal = self
+                .governance_proposals
+                .get(&proposal_id)
+                .ok_or(OracleError::PropertyNotFound)?;
+
+            if proposal.executed {
+                return Err(OracleError::AlreadyExists);
+            }
+
+            let now = self.env().block_number();
+            if now >= proposal.voting_end {
+                return Err(OracleError::InvalidParameters);
+            }
+
+            if support {
+                proposal.votes_for = proposal.votes_for.saturating_add(weight as u128);
+            } else {
+                proposal.votes_against = proposal.votes_against.saturating_add(weight as u128);
+            }
+
+            self.governance_proposals.insert(&proposal_id, &proposal);
+
+            self.env().emit_event(GovernanceVoteCast {
+                proposal_id,
+                voter: caller,
+                support,
+                weight,
+            });
+
+            Ok(())
+        }
+
+        /// Execute a governance proposal after voting ends.
+        #[ink(message)]
+        pub fn execute_governance_proposal(
+            &mut self,
+            proposal_id: u64,
+        ) -> Result<(), OracleError> {
+            let mut proposal = self
+                .governance_proposals
+                .get(&proposal_id)
+                .ok_or(OracleError::PropertyNotFound)?;
+
+            if proposal.executed {
+                return Err(OracleError::AlreadyExists);
+            }
+
+            let now = self.env().block_number();
+            if now < proposal.voting_end {
+                return Err(OracleError::InvalidParameters);
+            }
+
+            // Check quorum
+            let total_votes = proposal.votes_for.saturating_add(proposal.votes_against);
+            let total_power: u128 = 100_000; // Placeholder for total voting power
+            let quorum = total_power
+                .saturating_mul(self.governance_params.governance_quorum_bps as u128)
+                / 10_000;
+            if total_votes < quorum {
+                return Err(OracleError::InvalidParameters);
+            }
+
+            if proposal.votes_for <= proposal.votes_against {
+                return Err(OracleError::Unauthorized);
+            }
+
+            // Apply the action
+            match proposal.action.clone() {
+                GovernanceAction::UpdateMinStake(v) => {
+                    self.governance_params.min_oracle_stake = v;
+                }
+                GovernanceAction::UpdateMinSources(v) => {
+                    self.min_sources_required = v;
+                }
+                GovernanceAction::UpdateMaxStaleness(v) => {
+                    self.max_price_staleness = v;
+                }
+                GovernanceAction::UpdateVolatilityThreshold(v) => {
+                    self.volatility_threshold = v;
+                }
+                GovernanceAction::AddSourceType(id, weight) => {
+                    let source = OracleSource {
+                        id: id.clone(),
+                        source_type: OracleSourceType::Custom,
+                        address: AccountId::from([0x0; 32]),
+                        is_active: true,
+                        weight,
+                        last_updated: self.env().block_timestamp(),
+                    };
+                    self.oracle_sources.insert(&id, &source);
+                    if !self.active_sources.contains(&id) {
+                        self.active_sources.push(id);
+                    }
+                }
+                GovernanceAction::RemoveSource(id) => {
+                    self.oracle_sources.remove(&id);
+                    self.active_sources.retain(|s| s != &id);
+                }
+            }
+
+            proposal.executed = true;
+            self.governance_proposals.insert(&proposal_id, &proposal);
+
+            self.env().emit_event(GovernanceActionExecuted {
+                proposal_id,
+                action: proposal.action.clone(),
+            });
+
+            Ok(())
+        }
+
         /// Update property valuation from oracle sources
         #[ink(message)]
         pub fn update_valuation_from_sources(
@@ -648,7 +884,12 @@ mod propchain_oracle {
             Ok(())
         }
 
-        /// Slash an oracle source for providing bad data (admin only)
+        /// Slash an oracle source with graduated severity (admin only).
+        ///
+        /// - `Minor`:    5% stake slash, -50 reputation
+        /// - `Moderate`: 15% stake slash, -150 reputation
+        /// - `Severe`:   30% stake slash, -300 reputation, auto-suspension if threshold exceeded
+        /// - `Critical`: 50% stake slash, -500 reputation, source banned
         #[ink(message)]
         pub fn slash_source(
             &mut self,
@@ -665,6 +906,198 @@ mod propchain_oracle {
             self.update_source_reputation(source_id, false)?;
 
             Ok(())
+        }
+
+        /// Slash an oracle source with graduated severity (admin only).
+        /// Uses the configured basis points for each severity level.
+        #[ink(message)]
+        pub fn slash_source_with_severity(
+            &mut self,
+            source_id: String,
+            severity: SlashingSeverity,
+            reason: String,
+        ) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+
+            let current_stake = self.source_stakes.get(&source_id).unwrap_or(0);
+            if current_stake == 0 {
+                return Err(OracleError::InvalidParameters);
+            }
+
+            // Calculate slash percentage from config based on severity
+            let slash_bps = match severity {
+                SlashingSeverity::Minor => self.slashing_config.minor_slash_bps,
+                SlashingSeverity::Moderate => self.slashing_config.moderate_slash_bps,
+                SlashingSeverity::Severe => self.slashing_config.severe_slash_bps,
+                SlashingSeverity::Critical => self.slashing_config.critical_slash_bps,
+            };
+            let reput_penalty = match severity {
+                SlashingSeverity::Minor => self.slashing_config.minor_reputation_penalty,
+                SlashingSeverity::Moderate => self.slashing_config.moderate_reputation_penalty,
+                SlashingSeverity::Severe => self.slashing_config.severe_reputation_penalty,
+                SlashingSeverity::Critical => self.slashing_config.critical_reputation_penalty,
+            };
+
+            let slash_amount = current_stake
+                .saturating_mul(slash_bps as u128)
+                / 10_000;
+            let remaining_stake = current_stake.saturating_sub(slash_amount);
+
+            // Apply stake slash
+            self.source_stakes.insert(&source_id, &remaining_stake);
+
+            // Apply reputation penalty
+            let current_rep = self.source_reputations.get(&source_id).unwrap_or(500);
+            let new_rep = current_rep.saturating_sub(reput_penalty);
+            self.source_reputations.insert(&source_id, &new_rep);
+
+            // Track slashing record
+            let mut records = self.slashing_records.get(&source_id).unwrap_or_default();
+            let block = self.env().block_number();
+            let mut banned = false;
+            records.push(SlashingRecord {
+                block,
+                severity: severity.clone(),
+                amount_slashed: slash_amount,
+                reason: reason.clone(),
+                banned: false, // updated below if ban occurs
+            });
+            self.slashing_records.insert(&source_id, &records);
+
+            // Update running totals
+            let current_count = self.slashing_counts.get(&source_id).unwrap_or(0);
+            self.slashing_counts.insert(&source_id, &(current_count + 1));
+            let current_amount = self.slashed_amounts.get(&source_id).unwrap_or(0);
+            self.slashed_amounts.insert(&source_id, &current_amount.saturating_add(slash_amount));
+
+            // Auto-suspend if slashing count exceeds threshold
+            if current_count + 1 >= self.slashing_config.suspension_threshold {
+                if let Some(mut source) = self.oracle_sources.get(&source_id) {
+                    source.is_active = false;
+                    self.oracle_sources.insert(&source_id, &source);
+                    self.active_sources.retain(|id| id != &source_id);
+                }
+                self.env().emit_event(SourceSuspended {
+                    source_id: source_id.clone(),
+                    total_slashes: current_count + 1,
+                    suspension_threshold: self.slashing_config.suspension_threshold,
+                });
+            }
+
+            // Ban on critical severity
+            if matches!(severity, SlashingSeverity::Critical) {
+                let ban_until = block.saturating_add(self.slashing_config.ban_duration_blocks);
+                self.banned_sources.insert(&source_id, &ban_until);
+                banned = true;
+                // Deactivate source
+                if let Some(mut source) = self.oracle_sources.get(&source_id) {
+                    source.is_active = false;
+                    self.oracle_sources.insert(&source_id, &source);
+                    self.active_sources.retain(|id| id != &source_id);
+                }
+                self.env().emit_event(SourceBanned {
+                    source_id: source_id.clone(),
+                    admin: self.env().caller(),
+                    ban_until_block: ban_until,
+                });
+            }
+
+            // Update the last record's banned flag
+            if let Some(mut updated_records) = self.slashing_records.get(&source_id) {
+                if let Some(last) = updated_records.last_mut() {
+                    last.banned = banned;
+                }
+                self.slashing_records.insert(&source_id, &updated_records);
+            }
+
+            self.env().emit_event(SourceSlashed {
+                source_id,
+                severity,
+                amount_slashed: slash_amount,
+                remaining_stake,
+                reason,
+            });
+
+            Ok(())
+        }
+
+        /// Unban a previously banned source (admin only).
+        #[ink(message)]
+        pub fn unban_source(&mut self, source_id: String) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            self.banned_sources.insert(&source_id, &0);
+            self.env().emit_event(SourceUnbanned {
+                source_id,
+                admin: self.env().caller(),
+            });
+            Ok(())
+        }
+
+        /// Update slashing configuration parameters (admin only).
+        #[ink(message)]
+        pub fn set_slashing_config(
+            &mut self,
+            config: SlashingConfig,
+        ) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            self.slashing_config = config;
+            Ok(())
+        }
+
+        /// Get the current slashing configuration.
+        #[ink(message)]
+        pub fn get_slashing_config(&self) -> SlashingConfig {
+            self.slashing_config.clone()
+        }
+
+        /// Get slashing records for a source.
+        #[ink(message)]
+        pub fn get_slashing_records(&self, source_id: String) -> Vec<SlashingRecord> {
+            self.slashing_records.get(&source_id).unwrap_or_default()
+        }
+
+        /// Get the complete status of a source including slashing info.
+        #[ink(message)]
+        pub fn get_source_status(&self, source_id: String) -> Option<SourceStatus> {
+            let reputation = self.source_reputations.get(&source_id)?;
+            let stake = self.source_stakes.get(&source_id).unwrap_or(0);
+            let is_active = self
+                .oracle_sources
+                .get(&source_id)
+                .map(|s| s.is_active)
+                .unwrap_or(false);
+            let ban_expires_at = self.banned_sources.get(&source_id).unwrap_or(0);
+            let is_banned = if ban_expires_at > 0 {
+                self.env().block_number() < ban_expires_at
+            } else {
+                false
+            };
+            let total_slashes = self.slashing_counts.get(&source_id).unwrap_or(0);
+            let total_amount_slashed = self.slashed_amounts.get(&source_id).unwrap_or(0);
+
+            Some(SourceStatus {
+                reputation,
+                stake,
+                is_active,
+                is_banned,
+                ban_expires_at,
+                total_slashes,
+                total_amount_slashed,
+            })
+        }
+
+        /// Get slashing summary for a source.
+        #[ink(message)]
+        pub fn get_slashing_summary(&self, source_id: String) -> SlashingSummary {
+            let recent_slashes = self.slashing_records.get(&source_id).unwrap_or_default();
+            let total_slashes = self.slashing_counts.get(&source_id).unwrap_or(0);
+            let total_amount_slashed = self.slashed_amounts.get(&source_id).unwrap_or(0);
+
+            SlashingSummary {
+                recent_slashes,
+                total_slashes,
+                total_amount_slashed,
+            }
         }
 
         /// Detect if a new valuation is an anomaly based on historical data

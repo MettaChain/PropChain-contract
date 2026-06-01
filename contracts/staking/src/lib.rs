@@ -338,6 +338,55 @@ mod staking {
             self.min_stake
         }
 
+        /// Estimate projected staking rewards for a given amount, lock period, and duration.
+        /// This is a read-only calculator — no state is modified.
+        #[ink(message)]
+        pub fn calculate_projected_rewards(
+            &self,
+            amount: u128,
+            lock_period: LockPeriod,
+            duration_blocks: u64,
+        ) -> u128 {
+            if amount == 0 || duration_blocks == 0 {
+                return 0;
+            }
+
+            let blocks = duration_blocks as u128;
+
+            // base_reward = amount * reward_rate_bps * blocks / REWARD_RATE_PRECISION / blocks_per_year
+            let base_reward = amount
+                .saturating_mul(self.reward_rate_bps)
+                .saturating_mul(blocks)
+                / constants::REWARD_RATE_PRECISION
+                / 5_256_000;
+
+            if base_reward == 0 {
+                return 0;
+            }
+
+            // Apply lock period multiplier
+            let multiplier = lock_period.multiplier();
+            let reward = base_reward.saturating_mul(multiplier) / 100;
+
+            // Apply staking tier bonus
+            let tier = self.get_tier_internal(amount);
+            let tier_multiplier = tier.reward_multiplier();
+            reward.saturating_mul(tier_multiplier) / 100
+        }
+
+        /// Returns the estimated reward plus the staking tier for a projected stake.
+        #[ink(message)]
+        pub fn calculate_projected_rewards_with_tier(
+            &self,
+            amount: u128,
+            lock_period: LockPeriod,
+            duration_blocks: u64,
+        ) -> (u128, StakingTier) {
+            let reward = self.calculate_projected_rewards(amount, lock_period, duration_blocks);
+            let tier = self.get_tier_internal(amount);
+            (reward, tier)
+        }
+
         // ----- Mutations -----
 
         /// Stake tokens with a chosen lock period.

@@ -71,20 +71,20 @@ pub fn calculate_dynamic_premium(
                 base_rate,
                 risk_multiplier,
             ),
-            coverage_adjustment: calculate_adjustment_amount(
+            coverage_adjustment: calculate_coverage_adjustment_amount(
                 coverage_amount,
                 base_rate,
                 risk_multiplier,
                 coverage_multiplier,
             ),
-            pool_adjustment: calculate_adjustment_amount(
+            pool_adjustment: calculate_pool_adjustment_amount(
                 coverage_amount,
                 base_rate,
                 risk_multiplier,
                 coverage_multiplier,
                 pool_utilization_multiplier,
             ),
-            time_adjustment: calculate_adjustment_amount(
+            time_adjustment: calculate_time_adjustment_amount(
                 coverage_amount,
                 base_rate,
                 risk_multiplier,
@@ -274,10 +274,10 @@ fn calculate_deductible(
     modifiers: &PremiumModifiers,
 ) -> u128 {
     // Base deductible: 5% of coverage
-    let base_deductible_rate = 500; // 5% in basis points
+    let base_deductible_rate: u32 = 500; // 5% in basis points
 
     // Adjust based on risk (higher risk = higher deductible)
-    let risk_adjustment = match assessment.overall_risk_score {
+    let risk_adjustment: u32 = match assessment.overall_risk_score {
         0..=20 => 200,     // Very high risk - 20% deductible
         21..=40 => 150,    // High risk - 15%
         41..=60 => 100,    // Medium risk - 10%
@@ -288,8 +288,9 @@ fn calculate_deductible(
     let deductible_rate = base_deductible_rate.saturating_add(risk_adjustment);
 
     // Apply safety feature reduction
+    let reduction: u32 = 50;
     let final_rate = if modifiers.has_safety_features {
-        deductible_rate.saturating_sub(50) // Reduce by 5%
+        deductible_rate.saturating_sub(reduction)
     } else {
         deductible_rate
     };
@@ -308,8 +309,27 @@ fn calculate_risk_adjustment_amount(
     risk_adjusted.saturating_sub(base_premium)
 }
 
-/// Calculate adjustment amount for a specific multiplier
-fn calculate_adjustment_amount(
+/// Calculate coverage adjustment amount (difference that coverage_multiplier adds)
+fn calculate_coverage_adjustment_amount(
+    coverage: u128,
+    base_rate: u32,
+    risk_multiplier: u32,
+    coverage_multiplier: u32,
+) -> u128 {
+    let premium_before = coverage
+        .saturating_mul(base_rate as u128)
+        .saturating_mul(risk_multiplier as u128)
+        / PREMIUM_CALCULATION_DIVISOR;
+
+    let premium_after = premium_before
+        .saturating_mul(coverage_multiplier as u128)
+        / BASIS_POINTS_DENOMINATOR;
+
+    premium_after.saturating_sub(premium_before)
+}
+
+/// Calculate pool adjustment amount (difference that pool_utilization_multiplier adds)
+fn calculate_pool_adjustment_amount(
     coverage: u128,
     base_rate: u32,
     risk_multiplier: u32,
@@ -329,8 +349,8 @@ fn calculate_adjustment_amount(
     premium_after.saturating_sub(premium_before)
 }
 
-/// Overloaded version with 5 multipliers
-fn calculate_adjustment_amount(
+/// Calculate time adjustment amount (difference that time_multiplier adds)
+fn calculate_time_adjustment_amount(
     coverage: u128,
     base_rate: u32,
     risk_multiplier: u32,
@@ -378,7 +398,7 @@ fn calculate_discount_amount(
 }
 
 // Constants
-const BASIS_POINTS_DENOMINATOR: u32 = 10_000;
+const BASIS_POINTS_DENOMINATOR: u128 = 10_000;
 const SECONDS_PER_YEAR: u128 = 31_536_000; // 365 * 24 * 60 * 60
 const PREMIUM_CALCULATION_DIVISOR: u128 = 1_000_000_000_000_000_000; // 10^18 for 5 multipliers
 const PREMIUM_CALCULATION_DIVISOR_LARGE: u128 = 10_000_000_000_000_000_000_000; // 10^22 for 6 multipliers

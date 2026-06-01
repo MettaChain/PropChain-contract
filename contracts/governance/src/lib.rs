@@ -34,6 +34,17 @@ mod governance {
     }
 
     #[ink(event)]
+    pub struct QuadraticVoteCast {
+        #[ink(topic)]
+        pub proposal_id: u64,
+        #[ink(topic)]
+        pub voter: AccountId,
+        pub support: bool,
+        pub credits_spent: u32,
+        pub voting_weight: u32,
+    }
+
+    #[ink(event)]
     pub struct ProposalExecuted {
         #[ink(topic)]
         pub proposal_id: u64,
@@ -68,12 +79,61 @@ mod governance {
         pub new_threshold: u32,
     }
 
+    // ── Discussion Forum Event (Issue #233) ─────────────────────────────────
+
+    #[ink(event)]
+    pub struct CommentAdded {
+        #[ink(topic)]
+        pub proposal_id: u64,
+        #[ink(topic)]
+        pub author: AccountId,
+        pub discussion_id: u64,
+        pub parent_id: Option<u64>,
+    }
+
     #[ink(event)]
     pub struct EmergencyOverrideUsed {
         #[ink(topic)]
         pub proposal_id: u64,
         #[ink(topic)]
         pub admin: AccountId,
+    }
+
+    /// Emitted when auto-execute is toggled for a proposal.
+    #[ink(event)]
+    pub struct AutoExecuteToggled {
+        #[ink(topic)]
+        pub proposal_id: u64,
+        pub auto_execute: bool,
+        pub toggled_by: AccountId,
+    }
+
+    /// Emitted when a proposal is automatically executed.
+    #[ink(event)]
+    pub struct AutoExecuted {
+        #[ink(topic)]
+        pub proposal_id: u64,
+        pub executed_at: u64,
+    }
+
+    /// Emitted when a proposal template is created.
+    #[ink(event)]
+    pub struct TemplateCreated {
+        #[ink(topic)]
+        pub template_id: u64,
+        pub name: String,
+        pub action_type: GovernanceAction,
+        pub created_by: AccountId,
+    }
+
+    /// Emitted when a proposal is created from a template.
+    #[ink(event)]
+    pub struct ProposalFromTemplate {
+        #[ink(topic)]
+        pub proposal_id: u64,
+        #[ink(topic)]
+        pub template_id: u64,
+        pub proposer: AccountId,
     }
 
     // =========================================================================
@@ -94,13 +154,13 @@ mod governance {
         signer_public_keys: Mapping<AccountId, [u8; 33]>,
         /// Pending admin key rotation request
         pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
-        // ── Governance Delegation (Issue #231) ────────────────────────────────
-        /// Delegations: delegator -> delegate
-        governance_delegations: Mapping<AccountId, AccountId>,
-        /// Delegated voting power to a delegate
-        delegated_power: Mapping<AccountId, u32>,
-        /// Delegation expiry: (delegator, delegate) -> expiry block
-        delegation_expiry: Mapping<(AccountId, AccountId), u64>,
+        // ── Voting Privacy (Issue #234) ───────────────────────────────────────
+        /// Commitments: (proposal_id, voter) -> hashed vote commitment
+        vote_commitments: Mapping<(u64, AccountId), Hash>,
+        /// Reveal phase active: proposal_id -> bool
+        reveal_phase_started: Mapping<u64, bool>,
+        /// Reveal phase duration in blocks
+        reveal_phase_duration: u64,
     }
 
     // =========================================================================
@@ -137,9 +197,9 @@ mod governance {
                 timelock_blocks,
                 signer_public_keys: Mapping::default(),
                 pending_admin_rotation: None,
-                governance_delegations: Mapping::default(),
-                delegated_power: Mapping::default(),
-                delegation_expiry: Mapping::default(),
+                vote_commitments: Mapping::default(),
+                reveal_phase_started: Mapping::default(),
+                reveal_phase_duration: 10_800, // ~18 hours at 6s blocks
             }
         }
 
@@ -175,18 +235,16 @@ mod governance {
             self.active_proposal_count
         }
 
-        // ── Delegation Queries (Issue #231) ───────────────────────────────────
-
-        /// Returns the delegate for a signer, if any.
+        /// Returns whether the reveal phase has started for a proposal.
         #[ink(message)]
-        pub fn get_delegate(&self, delegator: AccountId) -> Option<AccountId> {
-            self.governance_delegations.get(&delegator)
+        pub fn is_reveal_phase_started(&self, proposal_id: u64) -> bool {
+            self.reveal_phase_started.get(proposal_id).unwrap_or(false)
         }
 
-        /// Returns the delegated voting power for a delegate.
+        /// Returns whether a signer has committed a vote.
         #[ink(message)]
-        pub fn get_delegated_power(&self, delegate: AccountId) -> u32 {
-            self.delegated_power.get(&delegate).unwrap_or(0)
+        pub fn has_committed_vote(&self, proposal_id: u64, signer: AccountId) -> bool {
+            self.vote_commitments.contains((proposal_id, signer))
         }
 
         // ----- Mutations -----
@@ -359,6 +417,12 @@ mod governance {
             }
         }
 
+        /// Returns all comments for a proposal.
+        #[ink(message)]
+        pub fn get_proposal_comments(&self, proposal_id: u64) -> Vec<DiscussionComment> {
+            self.proposal_comments.get(&proposal_id).unwrap_or_default()
+        }
+
         /// Returns the participation rate for a specific proposal in basis points.
         #[ink(message)]
         pub fn get_proposal_participation(&self, proposal_id: u64) -> Result<u32, Error> {
@@ -504,61 +568,91 @@ mod governance {
             Ok(())
         }
 
-        // ── Delegation Messages (Issue #231) ─────────────────────────────────
+        // ── Voting Privacy (Issue #234) ───────────────────────────────────────
 
-        /// Delegate voting power to another signer.
+        /// Submit a hashed commitment for a private vote.
+        /// The commitment should be hash(proposal_id || voter || support || salt).
         #[ink(message)]
-        pub fn delegate_governance(
-            &mut self,
-            delegate: AccountId,
-            expiry_blocks: Option<u64>,
-        ) -> Result<(), Error> {
+        pub fn commit_vote(&mut self, proposal_id: u64, commitment: Hash) -> Result<(), Error> {
             let caller = self.env().caller();
             self.ensure_signer(caller)?;
 
-            if !self.signers.contains(&delegate) {
-                return Err(Error::NotASigner);
-            }
-            if delegate == caller {
-                return Err(Error::InvalidThreshold);
+            let proposal = self
+                .proposals
+                .get(proposal_id)
+                .ok_or(Error::ProposalNotFound)?;
+
+            if proposal.status != ProposalStatus::Active {
+                return Err(Error::ProposalClosed);
             }
 
-            // Remove old delegation if exists
-            if let Some(old_delegate) = self.governance_delegations.get(&caller) {
-                let old_power = self.delegated_power.get(&old_delegate).unwrap_or(0);
-                if old_power > 0 {
-                    self.delegated_power.insert(&old_delegate, &(old_power - 1));
-                }
+            if self.vote_commitments.contains((proposal_id, caller)) {
+                return Err(Error::AlreadyVoted);
             }
 
-            self.governance_delegations.insert(&caller, &delegate);
-            let current_power = self.delegated_power.get(&delegate).unwrap_or(0);
-            self.delegated_power.insert(&delegate, &(current_power + 1));
-
-            // Set expiry if provided
-            if let Some(blocks) = expiry_blocks {
-                let expiry = (self.env().block_number() as u64).saturating_add(blocks);
-                self.delegation_expiry.insert(&(caller, delegate), &expiry);
-            }
+            self.vote_commitments
+                .insert((proposal_id, caller), &commitment);
 
             Ok(())
         }
 
-        /// Remove governance delegation.
+        /// Start the reveal phase for a proposal (any signer may call).
         #[ink(message)]
-        pub fn undelegate_governance(&mut self) -> Result<(), Error> {
+        pub fn start_reveal_phase(&mut self, proposal_id: u64) -> Result<(), Error> {
             let caller = self.env().caller();
             self.ensure_signer(caller)?;
 
-            if let Some(old_delegate) = self.governance_delegations.get(&caller) {
-                let old_power = self.delegated_power.get(&old_delegate).unwrap_or(0);
-                if old_power > 0 {
-                    self.delegated_power.insert(&old_delegate, &(old_power - 1));
-                }
-                self.delegation_expiry.remove(&(caller, old_delegate));
+            let proposal = self
+                .proposals
+                .get(proposal_id)
+                .ok_or(Error::ProposalNotFound)?;
+
+            if proposal.status != ProposalStatus::Active {
+                return Err(Error::ProposalClosed);
             }
 
-            self.governance_delegations.remove(&caller);
+            if self.reveal_phase_started.get(proposal_id).unwrap_or(false) {
+                return Err(Error::AlreadyVoted);
+            }
+
+            self.reveal_phase_started.insert(proposal_id, &true);
+            Ok(())
+        }
+
+        /// Reveal a private vote after the commitment phase.
+        /// Verifies that the revealed vote matches the earlier commitment.
+        #[ink(message)]
+        pub fn reveal_vote(
+            &mut self,
+            proposal_id: u64,
+            support: bool,
+            salt: [u8; 32],
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+            self.ensure_signer(caller)?;
+
+            if !self.reveal_phase_started.get(proposal_id).unwrap_or(false) {
+                return Err(Error::ProposalClosed);
+            }
+
+            let commitment = self
+                .vote_commitments
+                .get((proposal_id, caller))
+                .ok_or(Error::AlreadyVoted)?;
+
+            // Verify the commitment matches
+            let encoded = (proposal_id, caller, support, salt);
+            let expected = self.env().hash_encoded::<ink::scale::Encode>(&encoded);
+            if commitment != expected {
+                return Err(Error::Unauthorized);
+            }
+
+            // Clear commitment to prevent double-reveal
+            self.vote_commitments.remove((proposal_id, caller));
+
+            // Record the vote via internal logic
+            self.record_vote(proposal_id, caller, support)?;
+
             Ok(())
         }
 
@@ -787,6 +881,54 @@ mod governance {
             if !self.signers.contains(&account) {
                 return Err(Error::NotASigner);
             }
+            Ok(())
+        }
+
+        /// Internal vote recording logic shared by `vote` and `reveal_vote`.
+        fn record_vote(&mut self, proposal_id: u64, caller: AccountId, support: bool) -> Result<(), Error> {
+            let mut proposal = self
+                .proposals
+                .get(proposal_id)
+                .ok_or(Error::ProposalNotFound)?;
+
+            if proposal.status != ProposalStatus::Active {
+                return Err(Error::ProposalClosed);
+            }
+
+            if self.votes.contains((proposal_id, caller)) {
+                return Err(Error::AlreadyVoted);
+            }
+
+            self.votes.insert((proposal_id, caller), &support);
+            if support {
+                proposal.votes_for = proposal.votes_for.saturating_add(1);
+            } else {
+                proposal.votes_against = proposal.votes_against.saturating_add(1);
+            }
+
+            // Check if threshold reached → move to Approved with timelock
+            if proposal.votes_for >= proposal.threshold {
+                let now = self.env().block_number() as u64;
+                proposal.status = ProposalStatus::Approved;
+                if proposal.is_emergency {
+                    proposal.timelock_until = now;
+                } else {
+                    proposal.timelock_until = now.saturating_add(self.timelock_blocks);
+                }
+                self.active_proposal_count = self.active_proposal_count.saturating_sub(1);
+            }
+
+            // Check if rejection is certain
+            let total_signers = self.signers.len() as u32;
+            let total_votes = proposal.votes_for.saturating_add(proposal.votes_against);
+            let remaining = total_signers.saturating_sub(total_votes);
+            if proposal.votes_for.saturating_add(remaining) < proposal.threshold {
+                proposal.status = ProposalStatus::Rejected;
+                self.active_proposal_count = self.active_proposal_count.saturating_sub(1);
+                self.env().emit_event(ProposalRejected { proposal_id });
+            }
+
+            self.proposals.insert(proposal_id, &proposal);
             Ok(())
         }
     }
