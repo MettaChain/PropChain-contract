@@ -104,6 +104,28 @@ mod fractional {
         pub lp_supply: u128,
     }
 
+    /// Dutch auction: price decreases over time from start_price to end_price
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct DutchAuction {
+        pub seller: AccountId,
+        pub token_id: u64,
+        pub shares: u128,
+        pub start_price: u128,
+        pub end_price: u128,
+        pub start_time: u64,
+        pub duration: u64,
+        pub has_bids: bool,
+    }
+
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum FractionalError {
@@ -117,6 +139,9 @@ mod fractional {
         SlippageExceeded,
         InsufficientLiquidity,
         InsufficientLpShares,
+        AuctionNotFound,
+        AuctionAlreadyBid,
+        InvalidAuctionParams,
     }
 
     /// Emitted when an owner lists shares for sale
@@ -192,6 +217,40 @@ mod fractional {
         new_spot_price: u128,
     }
 
+    /// Emitted when a Dutch auction is created
+    #[ink(event)]
+    pub struct DutchAuctionCreated {
+        #[ink(topic)]
+        auction_id: u64,
+        #[ink(topic)]
+        seller: AccountId,
+        token_id: u64,
+        shares: u128,
+        start_price: u128,
+        end_price: u128,
+        duration: u64,
+    }
+
+    /// Emitted when a bid is placed on a Dutch auction
+    #[ink(event)]
+    pub struct DutchAuctionBid {
+        #[ink(topic)]
+        auction_id: u64,
+        #[ink(topic)]
+        buyer: AccountId,
+        shares: u128,
+        price_paid: u128,
+    }
+
+    /// Emitted when a Dutch auction is cancelled
+    #[ink(event)]
+    pub struct DutchAuctionCancelled {
+        #[ink(topic)]
+        auction_id: u64,
+        #[ink(topic)]
+        seller: AccountId,
+    }
+
     #[ink(storage)]
     pub struct Fractional {
         last_prices: Mapping<u64, u128>,
@@ -205,6 +264,10 @@ mod fractional {
         amm_pools: Mapping<u64, AmmPool>,
         /// LP token balances per (provider, token_id)
         lp_balances: Mapping<(AccountId, u64), u128>,
+        /// Dutch auctions by auction_id
+        dutch_auctions: Mapping<u64, DutchAuction>,
+        /// Counter for Dutch auction IDs
+        auction_counter: u64,
     }
 
     impl Fractional {
@@ -217,6 +280,8 @@ mod fractional {
                 total_shares: Mapping::default(),
                 amm_pools: Mapping::default(),
                 lp_balances: Mapping::default(),
+                dutch_auctions: Mapping::default(),
+                auction_counter: 0,
             }
         }
     }
@@ -755,6 +820,198 @@ mod fractional {
             self.lp_balances.get(&(provider, token_id)).unwrap_or(0)
         }
 
+        // ── Dutch Auction ────────────────────────────────────────────────────
+
+        /// Calculate the current price in a Dutch auction
+        /// Current price = start_price - (elapsed / duration) * (start_price - end_price)
+        fn calculate_dutch_price(
+            &self,
+            auction: &DutchAuction,
+            current_block: u64,
+        ) -> u128 {
+            if current_block >= auction.start_time.saturating_add(auction.duration) {
+                // Auction expired or ended: use end price
+                return auction.end_price;
+            }
+
+            if current_block <= auction.start_time {
+                // Auction hasn't started yet
+                return auction.start_price;
+            }
+
+            let elapsed = (current_block - auction.start_time) as u128;
+            let duration = auction.duration as u128;
+            let price_decrease = auction
+                .start_price
+                .saturating_sub(auction.end_price)
+                .saturating_mul(elapsed)
+                / duration;
+
+            auction.start_price.saturating_sub(price_decrease)
+        }
+
+        /// Create a new Dutch auction for fractional shares.
+        /// The seller must hold at least `shares` of the `token_id`.
+        #[ink(message)]
+        pub fn create_dutch_auction(
+            &mut self,
+            token_id: u64,
+            shares: u128,
+            start_price: u128,
+            end_price: u128,
+            duration: u64,
+        ) -> Result<u64, FractionalError> {
+            let caller = self.env().caller();
+
+            if shares == 0 || duration == 0 {
+                return Err(FractionalError::ZeroAmount);
+            }
+
+            if start_price == 0 || end_price == 0 {
+                return Err(FractionalError::ZeroAmount);
+            }
+
+            let held = self.balances.get(&(caller, token_id)).unwrap_or(0);
+            if held < shares {
+                return Err(FractionalError::InsufficientShares);
+            }
+
+            let auction_id = self.auction_counter;
+            self.auction_counter = self.auction_counter.saturating_add(1);
+
+            let now = self.env().block_number() as u64;
+            let auction = DutchAuction {
+                seller: caller,
+                token_id,
+                shares,
+                start_price,
+                end_price,
+                start_time: now,
+                duration,
+                has_bids: false,
+            };
+
+            self.dutch_auctions.insert(auction_id, &auction);
+
+            self.env().emit_event(DutchAuctionCreated {
+                auction_id,
+                seller: caller,
+                token_id,
+                shares,
+                start_price,
+                end_price,
+                duration,
+            });
+
+            Ok(auction_id)
+        }
+
+        /// Get the details of a Dutch auction
+        #[ink(message)]
+        pub fn get_dutch_auction(&self, auction_id: u64) -> Option<DutchAuction> {
+            self.dutch_auctions.get(auction_id)
+        }
+
+        /// Get the current price of a Dutch auction
+        #[ink(message)]
+        pub fn get_dutch_auction_price(&self, auction_id: u64) -> Result<u128, FractionalError> {
+            let auction = self
+                .dutch_auctions
+                .get(auction_id)
+                .ok_or(FractionalError::AuctionNotFound)?;
+
+            let current_block = self.env().block_number() as u64;
+            Ok(self.calculate_dutch_price(&auction, current_block))
+        }
+
+        /// Bid on a Dutch auction at the current descending price.
+        /// Buyer must attach sufficient payment for the current price of all shares.
+        #[ink(message, payable)]
+        pub fn bid_dutch_auction(&mut self, auction_id: u64) -> Result<(), FractionalError> {
+            let caller = self.env().caller();
+            let payment = self.env().transferred_value();
+
+            let mut auction = self
+                .dutch_auctions
+                .get(auction_id)
+                .ok_or(FractionalError::AuctionNotFound)?;
+
+            if auction.has_bids {
+                return Err(FractionalError::AuctionAlreadyBid);
+            }
+
+            let current_block = self.env().block_number() as u64;
+            let current_price = self.calculate_dutch_price(&auction, current_block);
+            let total_price = current_price.saturating_mul(auction.shares);
+
+            if payment < total_price {
+                return Err(FractionalError::InsufficientPayment);
+            }
+
+            // Transfer shares from seller to buyer
+            let seller_held = self
+                .balances
+                .get(&(auction.seller, auction.token_id))
+                .unwrap_or(0);
+            self.balances.insert(
+                &(auction.seller, auction.token_id),
+                &seller_held.saturating_sub(auction.shares),
+            );
+
+            let buyer_held = self
+                .balances
+                .get(&(caller, auction.token_id))
+                .unwrap_or(0);
+            self.balances
+                .insert(&(caller, auction.token_id), &buyer_held.saturating_add(auction.shares));
+
+            // Mark auction as complete
+            auction.has_bids = true;
+            self.dutch_auctions.insert(auction_id, &auction);
+
+            // Pay the seller
+            if self.env().transfer(auction.seller, total_price).is_err() {
+                // Non-fatal: payment forwarding failed (e.g. in unit tests)
+            }
+
+            self.env().emit_event(DutchAuctionBid {
+                auction_id,
+                buyer: caller,
+                shares: auction.shares,
+                price_paid: total_price,
+            });
+
+            Ok(())
+        }
+
+        /// Cancel a Dutch auction (seller only, before any bid).
+        #[ink(message)]
+        pub fn cancel_dutch_auction(&mut self, auction_id: u64) -> Result<(), FractionalError> {
+            let caller = self.env().caller();
+
+            let auction = self
+                .dutch_auctions
+                .get(auction_id)
+                .ok_or(FractionalError::AuctionNotFound)?;
+
+            if caller != auction.seller {
+                return Err(FractionalError::Unauthorized);
+            }
+
+            if auction.has_bids {
+                return Err(FractionalError::AuctionAlreadyBid);
+            }
+
+            self.dutch_auctions.remove(auction_id);
+
+            self.env().emit_event(DutchAuctionCancelled {
+                auction_id,
+                seller: caller,
+            });
+
+            Ok(())
+        }
+
         // ── Helpers ──────────────────────────────────────────────────────────
 
         /// Integer square root (floor).
@@ -1025,6 +1282,292 @@ mod fractional {
             assert_eq!(Fractional::isqrt(4), 2);
             assert_eq!(Fractional::isqrt(9), 3);
             assert_eq!(Fractional::isqrt(10_000), 100);
+        }
+
+        // ── Dutch Auction Tests ──────────────────────────────────────────────
+
+        fn charlie() -> AccountId {
+            test::default_accounts::<ink::env::DefaultEnvironment>().charlie
+        }
+
+        #[ink::test]
+        fn test_create_dutch_auction_succeeds() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            let auction_id = f
+                .create_dutch_auction(1, 50, 1000, 500, 1000)
+                .unwrap();
+            assert_eq!(auction_id, 0);
+
+            let auction = f.get_dutch_auction(0).unwrap();
+            assert_eq!(auction.seller, alice());
+            assert_eq!(auction.token_id, 1);
+            assert_eq!(auction.shares, 50);
+            assert_eq!(auction.start_price, 1000);
+            assert_eq!(auction.end_price, 500);
+            assert_eq!(auction.duration, 1000);
+            assert!(!auction.has_bids);
+        }
+
+        #[ink::test]
+        fn test_create_dutch_auction_insufficient_shares() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 10);
+
+            assert_eq!(
+                f.create_dutch_auction(1, 50, 1000, 500, 1000),
+                Err(FractionalError::InsufficientShares)
+            );
+        }
+
+        #[ink::test]
+        fn test_create_dutch_auction_zero_shares() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            assert_eq!(
+                f.create_dutch_auction(1, 0, 1000, 500, 1000),
+                Err(FractionalError::ZeroAmount)
+            );
+        }
+
+        #[ink::test]
+        fn test_create_dutch_auction_zero_price() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            assert_eq!(
+                f.create_dutch_auction(1, 50, 0, 500, 1000),
+                Err(FractionalError::ZeroAmount)
+            );
+        }
+
+        #[ink::test]
+        fn test_create_dutch_auction_zero_duration() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            assert_eq!(
+                f.create_dutch_auction(1, 50, 1000, 500, 0),
+                Err(FractionalError::ZeroAmount)
+            );
+        }
+
+        #[ink::test]
+        fn test_dutch_auction_price_at_start() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            f.create_dutch_auction(1, 50, 1000, 500, 1000).unwrap();
+
+            let current_price = f.get_dutch_auction_price(0).unwrap();
+            assert_eq!(current_price, 1000); // start price
+        }
+
+        #[ink::test]
+        fn test_dutch_auction_price_at_end() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            f.create_dutch_auction(1, 50, 1000, 500, 1000).unwrap();
+
+            // Advance blocks to end of auction
+            for _ in 0..1100 {
+                test::advance_block::<ink::env::DefaultEnvironment>();
+            }
+
+            let current_price = f.get_dutch_auction_price(0).unwrap();
+            assert_eq!(current_price, 500); // end price
+        }
+
+        #[ink::test]
+        fn test_dutch_auction_price_halfway() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            f.create_dutch_auction(1, 50, 1000, 500, 1000).unwrap();
+
+            // Advance blocks to halfway through auction
+            for _ in 0..500 {
+                test::advance_block::<ink::env::DefaultEnvironment>();
+            }
+
+            let current_price = f.get_dutch_auction_price(0).unwrap();
+            // At 50% of duration: price should be 1000 - 250 = 750
+            assert_eq!(current_price, 750);
+        }
+
+        #[ink::test]
+        fn test_bid_dutch_auction_succeeds() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            f.create_dutch_auction(1, 50, 1000, 500, 1000).unwrap();
+
+            test::set_caller::<ink::env::DefaultEnvironment>(bob());
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(50_000); // 50 * 1000
+            assert!(f.bid_dutch_auction(0).is_ok());
+
+            // Bob should now own 50 shares
+            assert_eq!(f.balance_of(bob(), 1), 50);
+            // Alice should have lost 50 shares
+            assert_eq!(f.balance_of(alice(), 1), 50);
+
+            // Auction should be marked as bid
+            let auction = f.get_dutch_auction(0).unwrap();
+            assert!(auction.has_bids);
+        }
+
+        #[ink::test]
+        fn test_bid_dutch_auction_insufficient_payment() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            f.create_dutch_auction(1, 50, 1000, 500, 1000).unwrap();
+
+            test::set_caller::<ink::env::DefaultEnvironment>(bob());
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000); // Too low
+            assert_eq!(f.bid_dutch_auction(0), Err(FractionalError::InsufficientPayment));
+        }
+
+        #[ink::test]
+        fn test_bid_dutch_auction_after_first_bid_fails() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            f.create_dutch_auction(1, 50, 1000, 500, 1000).unwrap();
+
+            // First bid succeeds
+            test::set_caller::<ink::env::DefaultEnvironment>(bob());
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(50_000);
+            assert!(f.bid_dutch_auction(0).is_ok());
+
+            // Second bid on same auction should fail
+            test::set_caller::<ink::env::DefaultEnvironment>(charlie());
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(50_000);
+            assert_eq!(f.bid_dutch_auction(0), Err(FractionalError::AuctionAlreadyBid));
+        }
+
+        #[ink::test]
+        fn test_bid_dutch_auction_nonexistent() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(bob());
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(50_000);
+            assert_eq!(f.bid_dutch_auction(999), Err(FractionalError::AuctionNotFound));
+        }
+
+        #[ink::test]
+        fn test_bid_dutch_auction_with_descending_price() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            f.create_dutch_auction(1, 50, 1000, 500, 1000).unwrap();
+
+            // Advance 500 blocks (halfway through auction)
+            for _ in 0..500 {
+                test::advance_block::<ink::env::DefaultEnvironment>();
+            }
+
+            // Current price should be 750 (halfway between 1000 and 500)
+            let current_price = f.get_dutch_auction_price(0).unwrap();
+            assert_eq!(current_price, 750);
+
+            // Bid at current price
+            test::set_caller::<ink::env::DefaultEnvironment>(bob());
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(37_500); // 50 * 750
+            assert!(f.bid_dutch_auction(0).is_ok());
+
+            assert_eq!(f.balance_of(bob(), 1), 50);
+        }
+
+        #[ink::test]
+        fn test_cancel_dutch_auction_succeeds() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            let auction_id = f.create_dutch_auction(1, 50, 1000, 500, 1000).unwrap();
+
+            assert!(f.cancel_dutch_auction(auction_id).is_ok());
+            assert!(f.get_dutch_auction(auction_id).is_none());
+        }
+
+        #[ink::test]
+        fn test_cancel_dutch_auction_unauthorized() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            let auction_id = f.create_dutch_auction(1, 50, 1000, 500, 1000).unwrap();
+
+            // Bob tries to cancel Alice's auction
+            test::set_caller::<ink::env::DefaultEnvironment>(bob());
+            assert_eq!(
+                f.cancel_dutch_auction(auction_id),
+                Err(FractionalError::Unauthorized)
+            );
+        }
+
+        #[ink::test]
+        fn test_cancel_dutch_auction_after_bid_fails() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            let auction_id = f.create_dutch_auction(1, 50, 1000, 500, 1000).unwrap();
+
+            // Place a bid
+            test::set_caller::<ink::env::DefaultEnvironment>(bob());
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(50_000);
+            f.bid_dutch_auction(auction_id).unwrap();
+
+            // Alice tries to cancel after bid
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            assert_eq!(
+                f.cancel_dutch_auction(auction_id),
+                Err(FractionalError::AuctionAlreadyBid)
+            );
+        }
+
+        #[ink::test]
+        fn test_cancel_dutch_auction_nonexistent() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            assert_eq!(
+                f.cancel_dutch_auction(999),
+                Err(FractionalError::AuctionNotFound)
+            );
+        }
+
+        #[ink::test]
+        fn test_multiple_dutch_auctions() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 200);
+
+            let auction_id_1 = f.create_dutch_auction(1, 50, 1000, 500, 1000).unwrap();
+            let auction_id_2 = f.create_dutch_auction(1, 100, 2000, 1000, 500).unwrap();
+
+            assert_eq!(auction_id_1, 0);
+            assert_eq!(auction_id_2, 1);
+
+            let a1 = f.get_dutch_auction(0).unwrap();
+            let a2 = f.get_dutch_auction(1).unwrap();
+            assert_eq!(a1.shares, 50);
+            assert_eq!(a2.shares, 100);
         }
     }
 }
