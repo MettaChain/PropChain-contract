@@ -44,6 +44,18 @@ pub enum BridgeOperationStatus {
     Expired,
 }
 
+/// Multi-hop bridge progress status
+#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub enum MultiHopStatus {
+    InProgress,
+    HopCompleted,
+    Failed,
+}
+
 /// Bridge monitoring information
 #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
 #[cfg_attr(
@@ -56,6 +68,10 @@ pub struct BridgeMonitoringInfo {
     pub source_chain: ChainId,
     pub destination_chain: ChainId,
     pub status: BridgeOperationStatus,
+    pub multi_hop_status: MultiHopStatus,
+    pub route: Vec<ChainId>,
+    pub current_hop: u32,
+    pub total_gas_estimate: u64,
     pub created_at: u64,
     pub expires_at: Option<u64>,
     pub signatures_collected: u8,
@@ -114,6 +130,10 @@ pub struct MultisigBridgeRequest {
     pub created_at: u64,
     pub expires_at: Option<u64>,
     pub status: BridgeOperationStatus,
+    pub multi_hop_status: MultiHopStatus,
+    pub route: Vec<ChainId>,
+    pub current_hop: u32,
+    pub total_gas_estimate: u64,
     pub metadata: PropertyMetadata,
 }
 

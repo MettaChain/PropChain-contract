@@ -37,6 +37,121 @@ mod tests {
     }
 
     #[ink::test]
+    fn test_initiate_multi_hop_bridge_two_hops() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        bridge.add_validator(accounts.alice).expect("admin can add alice validator");
+        bridge.add_validator(accounts.bob).expect("admin can add bob validator");
+        bridge.add_bridge_operator(accounts.alice).expect("admin can add alice operator");
+        bridge.add_bridge_operator(accounts.bob).expect("admin can add bob operator");
+
+        let metadata = PropertyMetadata {
+            location: String::from("Test Property"),
+            size: 1000,
+            legal_description: String::from("Test"),
+            valuation: 100000,
+            documents_url: String::from("ipfs://test"),
+        };
+        let route = vec![2, 3];
+
+        let request_id = bridge
+            .initiate_multi_hop_bridge(1, route.clone(), accounts.bob, 2, Some(50), metadata)
+            .expect("multi-hop initiation should succeed");
+
+        let total_gas = bridge
+            .estimate_multi_hop_bridge_gas(route.clone())
+            .expect("multi-hop gas estimate should succeed");
+        assert!(total_gas > 0);
+
+        assert_eq!(
+            bridge.get_multi_hop_status(request_id).expect("status query"),
+            MultiHopStatus::InProgress
+        );
+
+        // First hop approval
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.sign_bridge_request(request_id, true).expect("alice signs");
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge.sign_bridge_request(request_id, true).expect("bob signs");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.execute_bridge(request_id).expect("first hop executes");
+
+        assert_eq!(
+            bridge.get_multi_hop_status(request_id).expect("status query"),
+            MultiHopStatus::InProgress
+        );
+
+        // Second hop approval
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.sign_bridge_request(request_id, true).expect("alice signs second hop");
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge.sign_bridge_request(request_id, true).expect("bob signs second hop");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.execute_bridge(request_id).expect("second hop executes");
+
+        assert_eq!(
+            bridge.get_multi_hop_status(request_id).expect("status query"),
+            MultiHopStatus::HopCompleted
+        );
+    }
+
+    #[ink::test]
+    fn test_multi_hop_recovery_from_failed_intermediate_hop() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        bridge.add_validator(accounts.alice).expect("admin can add alice validator");
+        bridge.add_validator(accounts.bob).expect("admin can add bob validator");
+        bridge.add_bridge_operator(accounts.alice).expect("admin can add alice operator");
+        bridge.add_bridge_operator(accounts.bob).expect("admin can add bob operator");
+
+        let metadata = PropertyMetadata {
+            location: String::from("Test Property"),
+            size: 1000,
+            legal_description: String::from("Test"),
+            valuation: 100000,
+            documents_url: String::from("ipfs://test"),
+        };
+        let route = vec![2, 3];
+
+        let request_id = bridge
+            .initiate_multi_hop_bridge(1, route.clone(), accounts.bob, 2, Some(50), metadata)
+            .expect("multi-hop initiation should succeed");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.sign_bridge_request(request_id, true).expect("alice signs first hop");
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge.sign_bridge_request(request_id, true).expect("bob signs first hop");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.execute_bridge(request_id).expect("first hop executes");
+
+        // Fail the second hop
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.sign_bridge_request(request_id, false).expect("alice rejects second hop");
+
+        assert_eq!(
+            bridge.get_multi_hop_status(request_id).expect("status query"),
+            MultiHopStatus::Failed
+        );
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge
+            .recover_failed_bridge(request_id, RecoveryAction::RetryBridge)
+            .expect("recovery should succeed");
+
+        assert_eq!(
+            bridge.get_multi_hop_status(request_id).expect("status query"),
+            MultiHopStatus::InProgress
+        );
+    }
+
+    #[ink::test]
     fn test_sign_bridge_request() {
         let mut bridge = setup_bridge();
         let accounts = test::default_accounts::<DefaultEnvironment>();

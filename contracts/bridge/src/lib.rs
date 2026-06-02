@@ -401,6 +401,10 @@ mod bridge {
                 created_at: current_block,
                 expires_at,
                 status: BridgeOperationStatus::Pending,
+                multi_hop_status: MultiHopStatus::InProgress,
+                route: Vec::new(),
+                current_hop: 0,
+                total_gas_estimate: 0,
                 metadata,
             };
 
@@ -425,6 +429,117 @@ mod bridge {
             });
 
             Ok(request_id)
+        }
+
+        /// Initiates a multi-hop bridge request that routes through one or more intermediate chains.
+        #[ink(message)]
+        pub fn initiate_multi_hop_bridge(
+            &mut self,
+            token_id: TokenId,
+            route: Vec<ChainId>,
+            recipient: AccountId,
+            required_signatures: u8,
+            timeout_blocks: Option<u64>,
+            metadata: PropertyMetadata,
+        ) -> Result<u64, Error> {
+            let caller = self.env().caller();
+            self.ensure_not_paused(BridgeOperation::NewRequest)?;
+            self.track_request_burst(caller)?;
+
+            if route.len() < 2 {
+                return Err(Error::InvalidChain);
+            }
+
+            let current_chain = self.get_current_chain_id();
+            if route[0] == current_chain {
+                return Err(Error::InvalidChain);
+            }
+            if route.iter().any(|chain| !self.config.supported_chains.contains(chain)) {
+                return Err(Error::InvalidChain);
+            }
+
+            if required_signatures < self.config.min_signatures_required
+                || required_signatures > self.config.max_signatures_required
+            {
+                return Err(Error::InsufficientSignatures);
+            }
+
+            if !self.is_authorized_for_token(caller, token_id) {
+                return Err(Error::Unauthorized);
+            }
+
+            self.check_and_update_rate_limits(caller, *route.last().unwrap(), 0, true)?;
+
+            let total_gas_estimate = self.estimate_multi_hop_bridge_gas(route.clone())?;
+
+            self.request_counter += 1;
+            let request_id = self.request_counter;
+            let current_block = u64::from(self.env().block_number());
+            let expires_at = timeout_blocks.map(|blocks| current_block + blocks);
+
+            let request = MultisigBridgeRequest {
+                request_id,
+                token_id,
+                source_chain: current_chain,
+                destination_chain: route[0],
+                sender: caller,
+                recipient,
+                required_signatures,
+                signatures: Vec::new(),
+                created_at: current_block,
+                expires_at,
+                status: BridgeOperationStatus::Pending,
+                multi_hop_status: MultiHopStatus::InProgress,
+                route: route.clone(),
+                current_hop: 0,
+                total_gas_estimate,
+                metadata,
+            };
+
+            self.bridge_requests.insert(request_id, &request);
+            self.init_cross_chain_status(
+                request_id,
+                token_id,
+                current_chain,
+                route[0],
+            );
+
+            self.env().emit_event(BridgeRequestCreated {
+                request_id,
+                token_id,
+                source_chain: current_chain,
+                destination_chain: route[0],
+                requester: caller,
+            });
+
+            Ok(request_id)
+        }
+
+        /// Estimates the total gas for a multi-hop route.
+        #[ink(message)]
+        pub fn estimate_multi_hop_bridge_gas(
+            &self,
+            route: Vec<ChainId>,
+        ) -> Result<u64, Error> {
+            if route.is_empty() {
+                return Err(Error::InvalidChain);
+            }
+
+            let mut total_gas = 0u64;
+            for chain in route {
+                let gas = self.estimate_bridge_gas(0, chain)?;
+                total_gas = total_gas
+                    .checked_add(gas)
+                    .ok_or(Error::GasLimitExceeded)?;
+            }
+            Ok(total_gas)
+        }
+
+        /// Returns the current multi-hop progress status for a bridge request.
+        #[ink(message)]
+        pub fn get_multi_hop_status(&self, request_id: u64) -> Result<MultiHopStatus, Error> {
+            let request = self.bridge_requests.get(request_id).ok_or(Error::InvalidRequest)?;
+            Ok(request.multi_hop_status.clone())
         }
 
         /// Signs a bridge request
@@ -464,6 +579,7 @@ mod bridge {
             // Update status based on approval and signatures collected
             if !approve {
                 request.status = BridgeOperationStatus::Failed;
+                request.multi_hop_status = MultiHopStatus::Failed;
             } else if request.signatures.len() >= request.required_signatures as usize {
                 request.status = BridgeOperationStatus::Locked;
             }
@@ -561,14 +677,16 @@ mod bridge {
 
                 // Generate transaction hash
                 let transaction_hash = self.generate_transaction_hash(&request);
+                let old_source_chain = request.source_chain;
+                let old_destination_chain = request.destination_chain;
 
                 // Create bridge transaction record
                 self.transaction_counter += 1;
                 let transaction = BridgeTransaction {
                     transaction_id: self.transaction_counter,
                     token_id: request.token_id,
-                    source_chain: request.source_chain,
-                    destination_chain: request.destination_chain,
+                    source_chain: old_source_chain,
+                    destination_chain: old_destination_chain,
                     sender: request.sender,
                     recipient: request.recipient,
                     transaction_hash,
@@ -578,22 +696,46 @@ mod bridge {
                     metadata: request.metadata.clone(),
                 };
 
-                // Update request status
-                request.status = BridgeOperationStatus::Completed;
+                let is_last_hop = request.route.is_empty()
+                    || (request.current_hop as usize + 1) >= request.route.len();
+
+                if is_last_hop {
+                    request.status = BridgeOperationStatus::Completed;
+                    request.multi_hop_status = MultiHopStatus::HopCompleted;
+                } else {
+                    request.current_hop += 1;
+                    request.source_chain = old_destination_chain;
+                    request.destination_chain = request.route[request.current_hop as usize];
+                    request.status = BridgeOperationStatus::Pending;
+                    request.signatures.clear();
+                    request.multi_hop_status = MultiHopStatus::InProgress;
+
+                    self.env().emit_event(BridgeRequestCreated {
+                        request_id,
+                        token_id: request.token_id,
+                        source_chain: request.source_chain,
+                        destination_chain: request.destination_chain,
+                        requester: request.sender,
+                    });
+                }
+
                 self.bridge_requests.insert(request_id, &request);
-
-                // Store transaction verification
                 self.verified_transactions.insert(transaction_hash, &true);
-
-                // Source leg is now confirmed on the local chain; destination
-                // leg moves to `Submitted` (relayer is expected to broadcast
-                // the corresponding tx on the destination chain).
                 self.advance_cross_chain_status_on_execute(
                     request_id,
-                    request.source_chain,
-                    request.destination_chain,
+                    old_source_chain,
+                    old_destination_chain,
                     transaction_hash,
                 );
+
+                if !is_last_hop {
+                    self.init_cross_chain_status(
+                        request_id,
+                        request.token_id,
+                        request.source_chain,
+                        request.destination_chain,
+                    );
+                }
 
                 // Add to bridge history
                 let mut history = self.bridge_history.get(request.sender).unwrap_or_default();
@@ -650,11 +792,13 @@ mod bridge {
                     RecoveryAction::RetryBridge => {
                         // Reset request to pending for retry
                         request.status = BridgeOperationStatus::Pending;
+                        request.multi_hop_status = MultiHopStatus::InProgress;
                         request.signatures.clear();
                     }
                     RecoveryAction::CancelBridge => {
                         // Mark as cancelled
                         request.status = BridgeOperationStatus::Failed;
+                        request.multi_hop_status = MultiHopStatus::Failed;
                     }
                 }
 
