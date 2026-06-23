@@ -17,12 +17,243 @@ mod bridge {
     /// Maximum number of entries kept in [`PropertyBridge::pause_audit_log`].
     /// When the log reaches this size, the oldest entry is dropped on insert.
     const PAUSE_AUDIT_LOG_LIMIT: usize = 256;
+    const SIGNATURE_BITMAP_BYTES: usize = 32;
+    const MAX_VALIDATOR_BITMAP_SLOTS: usize = SIGNATURE_BITMAP_BYTES * 8;
 
     impl From<ReentrancyError> for Error {
         fn from(_: ReentrancyError) -> Self {
             Error::ReentrantCall
         }
     }
+
+    #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    enum SignatureStorage {
+        Bitmap([u8; SIGNATURE_BITMAP_BYTES]),
+        Legacy(Vec<AccountId>),
+    }
+
+    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    struct StoredBridgeRequestV2 {
+        request_id: u64,
+        token_id: TokenId,
+        source_chain: ChainId,
+        destination_chain: ChainId,
+        sender: AccountId,
+        recipient: AccountId,
+        required_signatures: u8,
+        signature_storage: SignatureStorage,
+        created_at: u64,
+        expires_at: Option<u64>,
+        status: BridgeOperationStatus,
+        multi_hop_status: MultiHopStatus,
+        route: Vec<ChainId>,
+        current_hop: u32,
+        total_gas_estimate: u64,
+        metadata: PropertyMetadata,
+    }
+
+    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    struct LegacyStoredBridgeRequest {
+        request_id: u64,
+        token_id: TokenId,
+        source_chain: ChainId,
+        destination_chain: ChainId,
+        sender: AccountId,
+        recipient: AccountId,
+        required_signatures: u8,
+        signatures: Vec<AccountId>,
+        created_at: u64,
+        expires_at: Option<u64>,
+        status: BridgeOperationStatus,
+        multi_hop_status: MultiHopStatus,
+        route: Vec<ChainId>,
+        current_hop: u32,
+        total_gas_estimate: u64,
+        metadata: PropertyMetadata,
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    struct StoredBridgeRequest {
+        request_id: u64,
+        token_id: TokenId,
+        source_chain: ChainId,
+        destination_chain: ChainId,
+        sender: AccountId,
+        recipient: AccountId,
+        required_signatures: u8,
+        signature_storage: SignatureStorage,
+        created_at: u64,
+        expires_at: Option<u64>,
+        status: BridgeOperationStatus,
+        multi_hop_status: MultiHopStatus,
+        route: Vec<ChainId>,
+        current_hop: u32,
+        total_gas_estimate: u64,
+        metadata: PropertyMetadata,
+    }
+
+    impl scale::Encode for StoredBridgeRequest {
+        fn size_hint(&self) -> usize {
+            StoredBridgeRequestV2::from(self.clone()).size_hint()
+        }
+
+        fn encode_to<T: scale::Output + ?Sized>(&self, dest: &mut T) {
+            StoredBridgeRequestV2::from(self.clone()).encode_to(dest);
+        }
+    }
+
+    impl scale::Decode for StoredBridgeRequest {
+        fn decode<I: scale::Input>(input: &mut I) -> Result<Self, scale::Error> {
+            let mut bytes = Vec::new();
+            while let Ok(byte) = input.read_byte() {
+                bytes.push(byte);
+            }
+
+            if let Ok(decoded) = <StoredBridgeRequestV2 as scale::Decode>::decode(&mut &bytes[..]) {
+                return Ok(decoded.into());
+            }
+
+            let legacy = <LegacyStoredBridgeRequest as scale::Decode>::decode(&mut &bytes[..])?;
+            Ok(legacy.into())
+        }
+    }
+
+    impl From<StoredBridgeRequest> for StoredBridgeRequestV2 {
+        fn from(value: StoredBridgeRequest) -> Self {
+            Self {
+                request_id: value.request_id,
+                token_id: value.token_id,
+                source_chain: value.source_chain,
+                destination_chain: value.destination_chain,
+                sender: value.sender,
+                recipient: value.recipient,
+                required_signatures: value.required_signatures,
+                signature_storage: value.signature_storage,
+                created_at: value.created_at,
+                expires_at: value.expires_at,
+                status: value.status,
+                multi_hop_status: value.multi_hop_status,
+                route: value.route,
+                current_hop: value.current_hop,
+                total_gas_estimate: value.total_gas_estimate,
+                metadata: value.metadata,
+            }
+        }
+    }
+
+    impl From<StoredBridgeRequestV2> for StoredBridgeRequest {
+        fn from(value: StoredBridgeRequestV2) -> Self {
+            Self {
+                request_id: value.request_id,
+                token_id: value.token_id,
+                source_chain: value.source_chain,
+                destination_chain: value.destination_chain,
+                sender: value.sender,
+                recipient: value.recipient,
+                required_signatures: value.required_signatures,
+                signature_storage: value.signature_storage,
+                created_at: value.created_at,
+                expires_at: value.expires_at,
+                status: value.status,
+                multi_hop_status: value.multi_hop_status,
+                route: value.route,
+                current_hop: value.current_hop,
+                total_gas_estimate: value.total_gas_estimate,
+                metadata: value.metadata,
+            }
+        }
+    }
+
+    impl From<LegacyStoredBridgeRequest> for StoredBridgeRequest {
+        fn from(value: LegacyStoredBridgeRequest) -> Self {
+            Self {
+                request_id: value.request_id,
+                token_id: value.token_id,
+                source_chain: value.source_chain,
+                destination_chain: value.destination_chain,
+                sender: value.sender,
+                recipient: value.recipient,
+                required_signatures: value.required_signatures,
+                signature_storage: SignatureStorage::Legacy(value.signatures),
+                created_at: value.created_at,
+                expires_at: value.expires_at,
+                status: value.status,
+                multi_hop_status: value.multi_hop_status,
+                route: value.route,
+                current_hop: value.current_hop,
+                total_gas_estimate: value.total_gas_estimate,
+                metadata: value.metadata,
+            }
+        }
+    }
+
+    impl StoredBridgeRequest {
+        fn new(
+            request_id: u64,
+            token_id: TokenId,
+            source_chain: ChainId,
+            destination_chain: ChainId,
+            sender: AccountId,
+            recipient: AccountId,
+            required_signatures: u8,
+            created_at: u64,
+            expires_at: Option<u64>,
+            route: Vec<ChainId>,
+            total_gas_estimate: u64,
+            metadata: PropertyMetadata,
+        ) -> Self {
+            Self {
+                request_id,
+                token_id,
+                source_chain,
+                destination_chain,
+                sender,
+                recipient,
+                required_signatures,
+                signature_storage: SignatureStorage::Bitmap([0; SIGNATURE_BITMAP_BYTES]),
+                created_at,
+                expires_at,
+                status: BridgeOperationStatus::Pending,
+                multi_hop_status: MultiHopStatus::InProgress,
+                route,
+                current_hop: 0,
+                total_gas_estimate,
+                metadata,
+            }
+        }
+
+        fn signature_count(&self) -> u8 {
+            match &self.signature_storage {
+                SignatureStorage::Bitmap(bitmap) => bitmap
+                    .iter()
+                    .map(|byte| byte.count_ones() as u16)
+                    .sum::<u16>() as u8,
+                SignatureStorage::Legacy(signers) => signers.len() as u8,
+            }
+        }
+
+        fn clear_signatures(&mut self) {
+            self.signature_storage = SignatureStorage::Bitmap([0; SIGNATURE_BITMAP_BYTES]);
+        }
+    }
+
+    impl scale::EncodeLike for StoredBridgeRequest {}
 
     /// Bridge contract for cross-chain property token transfers
     #[ink(storage)]
@@ -31,7 +262,7 @@ mod bridge {
         config: BridgeConfig,
 
         /// Multi-signature bridge requests
-        bridge_requests: Mapping<u64, MultisigBridgeRequest>,
+        bridge_requests: Mapping<u64, StoredBridgeRequest>,
 
         /// Bridge transaction history
         bridge_history: Mapping<AccountId, Vec<BridgeTransaction>>,
@@ -60,6 +291,10 @@ mod bridge {
         /// Registered validators for multi-signature cross-chain transactions.
         /// Only accounts in this set may sign bridge requests (issue #203).
         validators: Vec<AccountId>,
+        /// Stable per-validator bit positions used for signature bitmaps.
+        validator_bit_positions: Mapping<AccountId, u8>,
+        /// Historical bitmap slots. Slots are not recycled so old bitmaps stay readable.
+        validator_slots: Vec<Option<AccountId>>,
 
         /// Request counter
         request_counter: u64,
@@ -299,6 +534,8 @@ mod bridge {
                 tx_hash_index: Mapping::default(),
                 bridge_operators: vec![caller],
                 validators: Vec::new(),
+                validator_bit_positions: Mapping::default(),
+                validator_slots: Vec::new(),
                 request_counter: 0,
                 transaction_counter: 0,
                 cross_chain_trade_counter: 0,
@@ -389,24 +626,20 @@ mod bridge {
             let current_block = u64::from(self.env().block_number());
             let expires_at = timeout_blocks.map(|blocks| current_block + blocks);
 
-            let request = MultisigBridgeRequest {
+            let request = StoredBridgeRequest::new(
                 request_id,
                 token_id,
-                source_chain: self.get_current_chain_id(),
+                self.get_current_chain_id(),
                 destination_chain,
-                sender: caller,
+                caller,
                 recipient,
                 required_signatures,
-                signatures: Vec::new(),
-                created_at: current_block,
+                current_block,
                 expires_at,
-                status: BridgeOperationStatus::Pending,
-                multi_hop_status: MultiHopStatus::InProgress,
-                route: Vec::new(),
-                current_hop: 0,
-                total_gas_estimate: 0,
+                Vec::new(),
+                0,
                 metadata,
-            };
+            );
 
             self.bridge_requests.insert(request_id, &request);
 
@@ -454,7 +687,10 @@ mod bridge {
             if route[0] == current_chain {
                 return Err(Error::InvalidChain);
             }
-            if route.iter().any(|chain| !self.config.supported_chains.contains(chain)) {
+            if route
+                .iter()
+                .any(|chain| !self.config.supported_chains.contains(chain))
+            {
                 return Err(Error::InvalidChain);
             }
 
@@ -477,32 +713,23 @@ mod bridge {
             let current_block = u64::from(self.env().block_number());
             let expires_at = timeout_blocks.map(|blocks| current_block + blocks);
 
-            let request = MultisigBridgeRequest {
-                request_id,
-                token_id,
-                source_chain: current_chain,
-                destination_chain: route[0],
-                sender: caller,
-                recipient,
-                required_signatures,
-                signatures: Vec::new(),
-                created_at: current_block,
-                expires_at,
-                status: BridgeOperationStatus::Pending,
-                multi_hop_status: MultiHopStatus::InProgress,
-                route: route.clone(),
-                current_hop: 0,
-                total_gas_estimate,
-                metadata,
-            };
-
-            self.bridge_requests.insert(request_id, &request);
-            self.init_cross_chain_status(
+            let request = StoredBridgeRequest::new(
                 request_id,
                 token_id,
                 current_chain,
                 route[0],
+                caller,
+                recipient,
+                required_signatures,
+                current_block,
+                expires_at,
+                route.clone(),
+                total_gas_estimate,
+                metadata,
             );
+
+            self.bridge_requests.insert(request_id, &request);
+            self.init_cross_chain_status(request_id, token_id, current_chain, route[0]);
 
             self.env().emit_event(BridgeRequestCreated {
                 request_id,
@@ -517,10 +744,7 @@ mod bridge {
 
         /// Estimates the total gas for a multi-hop route.
         #[ink(message)]
-        pub fn estimate_multi_hop_bridge_gas(
-            &self,
-            route: Vec<ChainId>,
-        ) -> Result<u64, Error> {
+        pub fn estimate_multi_hop_bridge_gas(&self, route: Vec<ChainId>) -> Result<u64, Error> {
             if route.is_empty() {
                 return Err(Error::InvalidChain);
             }
@@ -528,9 +752,7 @@ mod bridge {
             let mut total_gas = 0u64;
             for chain in route {
                 let gas = self.estimate_bridge_gas(0, chain)?;
-                total_gas = total_gas
-                    .checked_add(gas)
-                    .ok_or(Error::GasLimitExceeded)?;
+                total_gas = total_gas.checked_add(gas).ok_or(Error::GasLimitExceeded)?;
             }
             Ok(total_gas)
         }
@@ -538,7 +760,10 @@ mod bridge {
         /// Returns the current multi-hop progress status for a bridge request.
         #[ink(message)]
         pub fn get_multi_hop_status(&self, request_id: u64) -> Result<MultiHopStatus, Error> {
-            let request = self.bridge_requests.get(request_id).ok_or(Error::InvalidRequest)?;
+            let request = self
+                .bridge_requests
+                .get(request_id)
+                .ok_or(Error::InvalidRequest)?;
             Ok(request.multi_hop_status.clone())
         }
 
@@ -560,6 +785,7 @@ mod bridge {
                 .bridge_requests
                 .get(request_id)
                 .ok_or(Error::InvalidRequest)?;
+            self.normalize_signature_storage(&mut request)?;
 
             // Check if request has expired
             if let Some(expires_at) = request.expires_at {
@@ -569,18 +795,18 @@ mod bridge {
             }
 
             // Check if already signed
-            if request.signatures.contains(&caller) {
+            let bit_position = self.get_validator_bit_position(caller)?;
+            if self.request_has_signature(&request, caller, bit_position) {
                 return Err(Error::AlreadySigned);
             }
 
-            // Add signature
-            request.signatures.push(caller);
+            self.add_request_signature(&mut request, caller, bit_position)?;
 
             // Update status based on approval and signatures collected
             if !approve {
                 request.status = BridgeOperationStatus::Failed;
                 request.multi_hop_status = MultiHopStatus::Failed;
-            } else if request.signatures.len() >= request.required_signatures as usize {
+            } else if request.signature_count() >= request.required_signatures {
                 request.status = BridgeOperationStatus::Locked;
             }
 
@@ -595,7 +821,7 @@ mod bridge {
             self.env().emit_event(BridgeRequestSigned {
                 request_id,
                 signer: caller,
-                signatures_collected: request.signatures.len() as u8,
+                signatures_collected: request.signature_count(),
                 signatures_required: request.required_signatures,
             });
 
@@ -664,6 +890,7 @@ mod bridge {
                     .bridge_requests
                     .get(request_id)
                     .ok_or(Error::InvalidRequest)?;
+                self.normalize_signature_storage(&mut request)?;
 
                 // Check if request is ready for execution
                 if request.status != BridgeOperationStatus::Locked {
@@ -671,7 +898,7 @@ mod bridge {
                 }
 
                 // Check if enough signatures are collected
-                if request.signatures.len() < request.required_signatures as usize {
+                if request.signature_count() < request.required_signatures {
                     return Err(Error::InsufficientSignatures);
                 }
 
@@ -707,7 +934,7 @@ mod bridge {
                     request.source_chain = old_destination_chain;
                     request.destination_chain = request.route[request.current_hop as usize];
                     request.status = BridgeOperationStatus::Pending;
-                    request.signatures.clear();
+                    request.clear_signatures();
                     request.multi_hop_status = MultiHopStatus::InProgress;
 
                     self.env().emit_event(BridgeRequestCreated {
@@ -771,6 +998,7 @@ mod bridge {
                     .bridge_requests
                     .get(request_id)
                     .ok_or(Error::InvalidRequest)?;
+                self.normalize_signature_storage(&mut request)?;
 
                 // Check if request is in a failed state
                 if !matches!(
@@ -793,7 +1021,7 @@ mod bridge {
                         // Reset request to pending for retry
                         request.status = BridgeOperationStatus::Pending;
                         request.multi_hop_status = MultiHopStatus::InProgress;
-                        request.signatures.clear();
+                        request.clear_signatures();
                     }
                     RecoveryAction::CancelBridge => {
                         // Mark as cancelled
@@ -863,7 +1091,8 @@ mod bridge {
                 self.bridge_requests.insert(request_id, &request);
 
                 // Step 2: clear signatures so the request cannot be re-executed
-                request.signatures.clear();
+                self.normalize_signature_storage(&mut request)?;
+                request.clear_signatures();
 
                 // Step 3: mark as Failed (terminal rollback state)
                 request.status = BridgeOperationStatus::Failed;
@@ -926,13 +1155,36 @@ mod bridge {
                 token_id: request.token_id,
                 source_chain: request.source_chain,
                 destination_chain: request.destination_chain,
-                status: request.status,
+                status: request.status.clone(),
                 created_at: request.created_at,
                 expires_at: request.expires_at,
-                signatures_collected: request.signatures.len() as u8,
+                signatures_collected: request.signature_count(),
                 signatures_required: request.required_signatures,
                 error_message: None,
             })
+        }
+
+        /// Returns the raw 256-bit signature bitmap for a bridge request.
+        #[ink(message)]
+        pub fn get_signature_bitmap(
+            &self,
+            request_id: u64,
+        ) -> Result<[u8; SIGNATURE_BITMAP_BYTES], Error> {
+            let request = self
+                .bridge_requests
+                .get(request_id)
+                .ok_or(Error::InvalidRequest)?;
+            Ok(self.bitmap_for_request(&request))
+        }
+
+        /// Returns the signers for a bridge request in account form.
+        #[ink(message)]
+        pub fn get_signer_list(&self, request_id: u64) -> Result<Vec<AccountId>, Error> {
+            let request = self
+                .bridge_requests
+                .get(request_id)
+                .ok_or(Error::InvalidRequest)?;
+            Ok(self.signer_list_for_request(&request))
         }
 
         /// Verifies a bridge transaction
@@ -1010,12 +1262,7 @@ mod bridge {
 
             // Enforce rate limiting
             // For cross-chain trades, we track the volume (amount_in) but don't count it as an NFT request.
-            self.check_and_update_rate_limits(
-                caller,
-                destination_chain,
-                amount_in,
-                false,
-            )?;
+            self.check_and_update_rate_limits(caller, destination_chain, amount_in, false)?;
 
             self.cross_chain_trade_counter += 1;
             let trade_id = self.cross_chain_trade_counter;
@@ -1141,9 +1388,11 @@ mod bridge {
             if self.env().caller() != self.admin {
                 return Err(Error::Unauthorized);
             }
-            if !self.validators.contains(&validator) {
-                self.validators.push(validator);
+            if self.validators.contains(&validator) {
+                return Ok(());
             }
+            self.assign_validator_bit_position(validator)?;
+            self.validators.push(validator);
             Ok(())
         }
 
@@ -1456,9 +1705,8 @@ mod bridge {
             if !is_admin && !is_guardian {
                 return Err(Error::NotGuardian);
             }
-            let auto_pause = self.suspicious_config.auto_pause_enabled
-                && measured >= threshold
-                && threshold > 0;
+            let auto_pause =
+                self.suspicious_config.auto_pause_enabled && measured >= threshold && threshold > 0;
 
             self.env().emit_event(SuspiciousActivityDetected {
                 reason: reason.clone(),
@@ -1562,7 +1810,7 @@ mod bridge {
                 request_id,
                 chain_id,
                 status,
-                overall_status: tracker.overall_status.clone(),
+                overall_status: to_public_bridge_status(tracker.overall_status.clone()),
                 tx_hash,
                 confirmations,
                 timestamp,
@@ -1601,10 +1849,7 @@ mod bridge {
         /// Returns the full cross-chain transaction status, including the
         /// latest snapshot on each chain plus the chronological update log.
         #[ink(message)]
-        pub fn get_cross_chain_tx_status(
-            &self,
-            request_id: u64,
-        ) -> Option<CrossChainTxStatus> {
+        pub fn get_cross_chain_tx_status(&self, request_id: u64) -> Option<CrossChainTxStatus> {
             self.cross_chain_tx_status.get(request_id)
         }
 
@@ -1671,10 +1916,7 @@ mod bridge {
 
         /// Returns per-chain volume statistics.
         #[ink(message)]
-        pub fn get_chain_volume_stats(
-            &self,
-            chain_id: ChainId,
-        ) -> Option<ChainVolumeStats> {
+        pub fn get_chain_volume_stats(&self, chain_id: ChainId) -> Option<ChainVolumeStats> {
             self.chain_info.get(chain_id).map(|info| {
                 let daily_volume = self.chain_daily_volume.get(chain_id).unwrap_or(0);
                 let hourly_volume = self.chain_hourly_volume.get(chain_id).unwrap_or(0);
@@ -1704,8 +1946,6 @@ mod bridge {
             }
         }
 
-    }
-
         // Helper functions
 
         fn is_authorized_for_token(&self, _account: AccountId, _token_id: TokenId) -> bool {
@@ -1720,7 +1960,147 @@ mod bridge {
             1
         }
 
-        fn generate_transaction_hash(&self, request: &MultisigBridgeRequest) -> Hash {
+        fn bitmap_has_signature(&self, bitmap: &[u8; SIGNATURE_BITMAP_BYTES], bit: u8) -> bool {
+            let byte_index = (bit / 8) as usize;
+            let bit_mask = 1u8 << (bit % 8);
+            bitmap[byte_index] & bit_mask != 0
+        }
+
+        fn set_bitmap_signature(&self, bitmap: &mut [u8; SIGNATURE_BITMAP_BYTES], bit: u8) {
+            let byte_index = (bit / 8) as usize;
+            let bit_mask = 1u8 << (bit % 8);
+            bitmap[byte_index] |= bit_mask;
+        }
+
+        fn assign_validator_bit_position(&mut self, validator: AccountId) -> Result<u8, Error> {
+            if let Some(position) = self.validator_bit_positions.get(validator) {
+                return Ok(position);
+            }
+
+            if self.validator_slots.len() >= MAX_VALIDATOR_BITMAP_SLOTS {
+                return Err(Error::InsufficientSignatures);
+            }
+
+            let position = self.validator_slots.len() as u8;
+            self.validator_slots.push(Some(validator));
+            self.validator_bit_positions.insert(validator, &position);
+            Ok(position)
+        }
+
+        fn get_validator_bit_position(&mut self, validator: AccountId) -> Result<u8, Error> {
+            if let Some(position) = self.validator_bit_positions.get(validator) {
+                return Ok(position);
+            }
+
+            if !self.validators.contains(&validator) {
+                return Err(Error::Unauthorized);
+            }
+
+            self.assign_validator_bit_position(validator)
+        }
+
+        fn readonly_validator_bit_position(&self, validator: &AccountId) -> Option<u8> {
+            if let Some(position) = self.validator_bit_positions.get(*validator) {
+                return Some(position);
+            }
+
+            self.validators
+                .iter()
+                .position(|candidate| candidate == validator)
+                .and_then(|position| {
+                    (position < MAX_VALIDATOR_BITMAP_SLOTS).then_some(position as u8)
+                })
+        }
+
+        fn bitmap_for_request(
+            &self,
+            request: &StoredBridgeRequest,
+        ) -> [u8; SIGNATURE_BITMAP_BYTES] {
+            match &request.signature_storage {
+                SignatureStorage::Bitmap(bitmap) => *bitmap,
+                SignatureStorage::Legacy(signers) => {
+                    let mut bitmap = [0; SIGNATURE_BITMAP_BYTES];
+                    for signer in signers {
+                        if let Some(position) = self.readonly_validator_bit_position(signer) {
+                            self.set_bitmap_signature(&mut bitmap, position);
+                        }
+                    }
+                    bitmap
+                }
+            }
+        }
+
+        fn signer_list_for_request(&self, request: &StoredBridgeRequest) -> Vec<AccountId> {
+            match &request.signature_storage {
+                SignatureStorage::Legacy(signers) => signers.clone(),
+                SignatureStorage::Bitmap(bitmap) => self
+                    .validator_slots
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, account)| {
+                        account
+                            .as_ref()
+                            .filter(|_| self.bitmap_has_signature(bitmap, index as u8))
+                            .copied()
+                    })
+                    .collect(),
+            }
+        }
+
+        fn normalize_signature_storage(
+            &mut self,
+            request: &mut StoredBridgeRequest,
+        ) -> Result<(), Error> {
+            let SignatureStorage::Legacy(signers) = &request.signature_storage else {
+                return Ok(());
+            };
+
+            let mut bitmap = [0; SIGNATURE_BITMAP_BYTES];
+            for signer in signers {
+                let position = self.get_validator_bit_position(*signer)?;
+                self.set_bitmap_signature(&mut bitmap, position);
+            }
+            request.signature_storage = SignatureStorage::Bitmap(bitmap);
+            Ok(())
+        }
+
+        fn request_has_signature(
+            &self,
+            request: &StoredBridgeRequest,
+            signer: AccountId,
+            bit_position: u8,
+        ) -> bool {
+            match &request.signature_storage {
+                SignatureStorage::Bitmap(bitmap) => self.bitmap_has_signature(bitmap, bit_position),
+                SignatureStorage::Legacy(signers) => signers.contains(&signer),
+            }
+        }
+
+        fn add_request_signature(
+            &self,
+            request: &mut StoredBridgeRequest,
+            signer: AccountId,
+            bit_position: u8,
+        ) -> Result<(), Error> {
+            match &mut request.signature_storage {
+                SignatureStorage::Bitmap(bitmap) => {
+                    if self.bitmap_has_signature(bitmap, bit_position) {
+                        return Err(Error::AlreadySigned);
+                    }
+                    self.set_bitmap_signature(bitmap, bit_position);
+                    Ok(())
+                }
+                SignatureStorage::Legacy(signers) => {
+                    if signers.contains(&signer) {
+                        return Err(Error::AlreadySigned);
+                    }
+                    signers.push(signer);
+                    Ok(())
+                }
+            }
+        }
+
+        fn generate_transaction_hash(&self, request: &StoredBridgeRequest) -> Hash {
             let data = (
                 request.request_id,
                 request.token_id,
@@ -1733,7 +2113,7 @@ mod bridge {
             propchain_traits::crypto::hash_encoded(&data)
         }
 
-        fn estimate_gas_usage(&self, request: &MultisigBridgeRequest) -> u64 {
+        fn estimate_gas_usage(&self, request: &StoredBridgeRequest) -> u64 {
             // Estimate gas usage based on request complexity
             let base_gas = 100000; // Base gas for bridge operation
             let metadata_gas = request.metadata.legal_description.len() as u64 * 100; // Gas for metadata
@@ -1843,7 +2223,7 @@ mod bridge {
                 destination_chain,
                 source_status: source.clone(),
                 destination_status: destination,
-                overall_status: BridgeOperationStatus::Pending,
+                overall_status: propchain_traits::bridge::BridgeOperationStatus::Pending,
                 history,
                 last_updated: timestamp,
             };
@@ -1904,7 +2284,7 @@ mod bridge {
             tracker.history.push(source_update);
             tracker.history.push(destination_update);
             tracker.last_updated = timestamp;
-            tracker.overall_status = BridgeOperationStatus::InTransit;
+            tracker.overall_status = propchain_traits::bridge::BridgeOperationStatus::InTransit;
 
             // Record the source-chain tx hash in the reverse index.
             self.tx_hash_index.insert(tx_hash, &request_id);
@@ -1967,7 +2347,7 @@ mod bridge {
                 tracker.history.push(upd);
             }
             tracker.last_updated = timestamp;
-            tracker.overall_status = BridgeOperationStatus::Failed;
+            tracker.overall_status = propchain_traits::bridge::BridgeOperationStatus::Failed;
             self.cross_chain_tx_status.insert(request_id, &tracker);
 
             self.env().emit_event(CrossChainTxStatusUpdated {
@@ -2117,10 +2497,7 @@ mod bridge {
                 return Ok(());
             }
             let current_block = u64::from(self.env().block_number());
-            let last_block = self
-                .account_block_request_block
-                .get(account)
-                .unwrap_or(0);
+            let last_block = self.account_block_request_block.get(account).unwrap_or(0);
             let mut count = if last_block == current_block {
                 self.account_block_request_count.get(account).unwrap_or(0)
             } else {
@@ -2129,8 +2506,7 @@ mod bridge {
             count = count.saturating_add(1);
             self.account_block_request_block
                 .insert(account, &current_block);
-            self.account_block_request_count
-                .insert(account, &count);
+            self.account_block_request_count.insert(account, &count);
 
             let threshold = self.suspicious_config.max_requests_per_block_per_account;
             if threshold > 0 && count >= threshold {
@@ -2169,10 +2545,7 @@ mod bridge {
             let now = self.env().block_timestamp();
             // 1-hour window in milliseconds (block_timestamp is ms in ink!).
             const HOUR_MS: u64 = 3_600_000;
-            let window_start = self
-                .chain_hourly_window_start
-                .get(chain_id)
-                .unwrap_or(0);
+            let window_start = self.chain_hourly_window_start.get(chain_id).unwrap_or(0);
             let mut volume = if now.saturating_sub(window_start) < HOUR_MS {
                 self.chain_hourly_volume.get(chain_id).unwrap_or(0)
             } else {
@@ -2243,6 +2616,35 @@ mod bridge {
         }
     }
 
+    fn to_public_bridge_status(
+        status: propchain_traits::bridge::BridgeOperationStatus,
+    ) -> BridgeOperationStatus {
+        match status {
+            propchain_traits::bridge::BridgeOperationStatus::None => BridgeOperationStatus::None,
+            propchain_traits::bridge::BridgeOperationStatus::Pending => {
+                BridgeOperationStatus::Pending
+            }
+            propchain_traits::bridge::BridgeOperationStatus::Locked => {
+                BridgeOperationStatus::Locked
+            }
+            propchain_traits::bridge::BridgeOperationStatus::InTransit => {
+                BridgeOperationStatus::InTransit
+            }
+            propchain_traits::bridge::BridgeOperationStatus::Completed => {
+                BridgeOperationStatus::Completed
+            }
+            propchain_traits::bridge::BridgeOperationStatus::Failed => {
+                BridgeOperationStatus::Failed
+            }
+            propchain_traits::bridge::BridgeOperationStatus::Recovering => {
+                BridgeOperationStatus::Recovering
+            }
+            propchain_traits::bridge::BridgeOperationStatus::Expired => {
+                BridgeOperationStatus::Expired
+            }
+        }
+    }
+
     /// Free helper: validate per-chain status transitions.
     ///
     /// Allowed transitions (forward progress only):
@@ -2274,14 +2676,16 @@ mod bridge {
     fn compute_overall_status(
         source: ChainTxStatus,
         destination: ChainTxStatus,
-    ) -> BridgeOperationStatus {
+    ) -> propchain_traits::bridge::BridgeOperationStatus {
         use ChainTxStatus::*;
         match (source, destination) {
-            (Failed, _) | (_, Failed) => BridgeOperationStatus::Failed,
-            (Confirmed, Confirmed) => BridgeOperationStatus::Completed,
-            (Confirmed, _) => BridgeOperationStatus::InTransit,
-            (Submitted, NotStarted) | (Confirming, NotStarted) => BridgeOperationStatus::Pending,
-            _ => BridgeOperationStatus::InTransit,
+            (Failed, _) | (_, Failed) => propchain_traits::bridge::BridgeOperationStatus::Failed,
+            (Confirmed, Confirmed) => propchain_traits::bridge::BridgeOperationStatus::Completed,
+            (Confirmed, _) => propchain_traits::bridge::BridgeOperationStatus::InTransit,
+            (Submitted, NotStarted) | (Confirming, NotStarted) => {
+                propchain_traits::bridge::BridgeOperationStatus::Pending
+            }
+            _ => propchain_traits::bridge::BridgeOperationStatus::InTransit,
         }
     }
 
@@ -2294,10 +2698,13 @@ mod bridge {
             PauseReason::SuspiciousFrequency => flags.new_requests = true,
             PauseReason::SuspiciousVolume => flags.cross_chain_trades = true,
             PauseReason::FailedSignatureSurge => flags.signing = true,
-            PauseReason::ManualAdmin
-            | PauseReason::GuardianTrigger
-            | PauseReason::Custom => flags.all_operations = true,
+            PauseReason::ManualAdmin | PauseReason::GuardianTrigger | PauseReason::Custom => {
+                flags.all_operations = true
+            }
         }
         flags
     }
+
+    #[cfg(test)]
+    include!("tests.rs");
 }

@@ -4,6 +4,7 @@
 mod tests {
     use super::*;
     use ink::env::{test, DefaultEnvironment};
+    use scale::{Decode, Encode};
 
     fn setup_bridge() -> PropertyBridge {
         let supported_chains = vec![1, 2, 3];
@@ -42,10 +43,18 @@ mod tests {
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
 
-        bridge.add_validator(accounts.alice).expect("admin can add alice validator");
-        bridge.add_validator(accounts.bob).expect("admin can add bob validator");
-        bridge.add_bridge_operator(accounts.alice).expect("admin can add alice operator");
-        bridge.add_bridge_operator(accounts.bob).expect("admin can add bob operator");
+        bridge
+            .add_validator(accounts.alice)
+            .expect("admin can add alice validator");
+        bridge
+            .add_validator(accounts.bob)
+            .expect("admin can add bob validator");
+        bridge
+            .add_bridge_operator(accounts.alice)
+            .expect("admin can add alice operator");
+        bridge
+            .add_bridge_operator(accounts.bob)
+            .expect("admin can add bob operator");
 
         let metadata = PropertyMetadata {
             location: String::from("Test Property"),
@@ -66,35 +75,53 @@ mod tests {
         assert!(total_gas > 0);
 
         assert_eq!(
-            bridge.get_multi_hop_status(request_id).expect("status query"),
+            bridge
+                .get_multi_hop_status(request_id)
+                .expect("status query"),
             MultiHopStatus::InProgress
         );
 
         // First hop approval
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        bridge.sign_bridge_request(request_id, true).expect("alice signs");
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("alice signs");
         test::set_caller::<DefaultEnvironment>(accounts.bob);
-        bridge.sign_bridge_request(request_id, true).expect("bob signs");
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("bob signs");
 
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        bridge.execute_bridge(request_id).expect("first hop executes");
+        bridge
+            .execute_bridge(request_id)
+            .expect("first hop executes");
 
         assert_eq!(
-            bridge.get_multi_hop_status(request_id).expect("status query"),
+            bridge
+                .get_multi_hop_status(request_id)
+                .expect("status query"),
             MultiHopStatus::InProgress
         );
 
         // Second hop approval
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        bridge.sign_bridge_request(request_id, true).expect("alice signs second hop");
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("alice signs second hop");
         test::set_caller::<DefaultEnvironment>(accounts.bob);
-        bridge.sign_bridge_request(request_id, true).expect("bob signs second hop");
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("bob signs second hop");
 
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        bridge.execute_bridge(request_id).expect("second hop executes");
+        bridge
+            .execute_bridge(request_id)
+            .expect("second hop executes");
 
         assert_eq!(
-            bridge.get_multi_hop_status(request_id).expect("status query"),
+            bridge
+                .get_multi_hop_status(request_id)
+                .expect("status query"),
             MultiHopStatus::HopCompleted
         );
     }
@@ -105,10 +132,18 @@ mod tests {
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
 
-        bridge.add_validator(accounts.alice).expect("admin can add alice validator");
-        bridge.add_validator(accounts.bob).expect("admin can add bob validator");
-        bridge.add_bridge_operator(accounts.alice).expect("admin can add alice operator");
-        bridge.add_bridge_operator(accounts.bob).expect("admin can add bob operator");
+        bridge
+            .add_validator(accounts.alice)
+            .expect("admin can add alice validator");
+        bridge
+            .add_validator(accounts.bob)
+            .expect("admin can add bob validator");
+        bridge
+            .add_bridge_operator(accounts.alice)
+            .expect("admin can add alice operator");
+        bridge
+            .add_bridge_operator(accounts.bob)
+            .expect("admin can add bob operator");
 
         let metadata = PropertyMetadata {
             location: String::from("Test Property"),
@@ -124,19 +159,29 @@ mod tests {
             .expect("multi-hop initiation should succeed");
 
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        bridge.sign_bridge_request(request_id, true).expect("alice signs first hop");
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("alice signs first hop");
         test::set_caller::<DefaultEnvironment>(accounts.bob);
-        bridge.sign_bridge_request(request_id, true).expect("bob signs first hop");
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("bob signs first hop");
 
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        bridge.execute_bridge(request_id).expect("first hop executes");
+        bridge
+            .execute_bridge(request_id)
+            .expect("first hop executes");
 
         // Fail the second hop
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        bridge.sign_bridge_request(request_id, false).expect("alice rejects second hop");
+        bridge
+            .sign_bridge_request(request_id, false)
+            .expect("alice rejects second hop");
 
         assert_eq!(
-            bridge.get_multi_hop_status(request_id).expect("status query"),
+            bridge
+                .get_multi_hop_status(request_id)
+                .expect("status query"),
             MultiHopStatus::Failed
         );
 
@@ -146,7 +191,9 @@ mod tests {
             .expect("recovery should succeed");
 
         assert_eq!(
-            bridge.get_multi_hop_status(request_id).expect("status query"),
+            bridge
+                .get_multi_hop_status(request_id)
+                .expect("status query"),
             MultiHopStatus::InProgress
         );
     }
@@ -158,7 +205,9 @@ mod tests {
 
         // Register alice as a validator before signing (issue #203)
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        bridge.add_validator(accounts.alice).expect("admin can add validator");
+        bridge
+            .add_validator(accounts.alice)
+            .expect("admin can add validator");
 
         let metadata = PropertyMetadata {
             location: String::from("Test Property"),
@@ -195,7 +244,9 @@ mod tests {
             .expect("initiation should succeed");
 
         // bob is a bridge operator but NOT a validator — must be rejected
-        bridge.add_bridge_operator(accounts.bob).expect("admin can add operator");
+        bridge
+            .add_bridge_operator(accounts.bob)
+            .expect("admin can add operator");
         test::set_caller::<DefaultEnvironment>(accounts.bob);
         let result = bridge.sign_bridge_request(request_id, true);
         assert_eq!(result, Err(Error::Unauthorized));
@@ -208,9 +259,15 @@ mod tests {
 
         // Register two validators
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        bridge.add_validator(accounts.alice).expect("add validator alice");
-        bridge.add_validator(accounts.bob).expect("add validator bob");
-        bridge.add_bridge_operator(accounts.bob).expect("add operator bob");
+        bridge
+            .add_validator(accounts.alice)
+            .expect("add validator alice");
+        bridge
+            .add_validator(accounts.bob)
+            .expect("add validator bob");
+        bridge
+            .add_bridge_operator(accounts.bob)
+            .expect("add operator bob");
 
         let metadata = PropertyMetadata {
             location: String::from("Test Property"),
@@ -225,7 +282,9 @@ mod tests {
 
         // Only one signature — execution must fail
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        bridge.sign_bridge_request(request_id, true).expect("alice signs");
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("alice signs");
 
         test::set_caller::<DefaultEnvironment>(accounts.alice);
         let result = bridge.execute_bridge(request_id);
@@ -233,7 +292,9 @@ mod tests {
 
         // Second signature — now threshold met, execution succeeds
         test::set_caller::<DefaultEnvironment>(accounts.bob);
-        bridge.sign_bridge_request(request_id, true).expect("bob signs");
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("bob signs");
 
         test::set_caller::<DefaultEnvironment>(accounts.alice);
         let result = bridge.execute_bridge(request_id);
@@ -289,6 +350,7 @@ mod tests {
             gas_multiplier: 180,
             confirmation_blocks: 24,
             supported_tokens: Vec::new(),
+            chain_daily_limit: 10_000_000_000_000_000_000,
         };
         bridge
             .update_chain_info(2, tuned_chain)
@@ -317,7 +379,6 @@ mod tests {
         assert!(large.total_fee > small.total_fee);
         assert!(large.protocol_fee > small.protocol_fee);
     }
-}
 
     // ── #181: Formal verification property tests for bridge multi-sig logic ───
 
@@ -331,6 +392,7 @@ mod tests {
         let mut bridge = setup_bridge(); // min_signatures = 2
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.add_validator(accounts.alice).expect("add validator alice");
 
         let metadata = PropertyMetadata {
             location: String::from("Formal Test"),
@@ -372,6 +434,7 @@ mod tests {
         let mut bridge = setup_bridge();
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.add_validator(accounts.alice).expect("add validator alice");
 
         let metadata = PropertyMetadata {
             location: String::from("Dup Test"),
@@ -409,6 +472,7 @@ mod tests {
         let mut bridge = setup_bridge();
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.add_validator(accounts.alice).expect("add validator alice");
 
         let metadata = PropertyMetadata {
             location: String::from("Expiry Test"),
@@ -505,7 +569,10 @@ mod tests {
         assert_eq!(tracker.destination_chain, 2);
         assert_eq!(tracker.source_status.status, ChainTxStatus::Submitted);
         assert_eq!(tracker.destination_status.status, ChainTxStatus::NotStarted);
-        assert_eq!(tracker.overall_status, BridgeOperationStatus::Pending);
+        assert_eq!(
+            tracker.overall_status,
+            propchain_traits::bridge::BridgeOperationStatus::Pending
+        );
         assert_eq!(tracker.history.len(), 1);
     }
 
@@ -532,15 +599,7 @@ mod tests {
             )
             .expect("first update should succeed");
         bridge
-            .update_chain_tx_status(
-                request_id,
-                2,
-                ChainTxStatus::Confirming,
-                None,
-                101,
-                3,
-                None,
-            )
+            .update_chain_tx_status(request_id, 2, ChainTxStatus::Confirming, None, 101, 3, None)
             .expect("confirming update should succeed");
 
         let dest = bridge
@@ -584,7 +643,10 @@ mod tests {
             .expect("tracker");
         assert_eq!(mid.source_status.status, ChainTxStatus::Confirmed);
         assert_eq!(mid.destination_status.status, ChainTxStatus::Submitted);
-        assert_eq!(mid.overall_status, BridgeOperationStatus::InTransit);
+        assert_eq!(
+            mid.overall_status,
+            propchain_traits::bridge::BridgeOperationStatus::InTransit
+        );
 
         // Relayer confirms destination delivery.
         let dest_hash = ink::primitives::Hash::from([7u8; 32]);
@@ -601,7 +663,7 @@ mod tests {
         );
         assert_eq!(
             final_status.overall_status,
-            BridgeOperationStatus::Completed
+            propchain_traits::bridge::BridgeOperationStatus::Completed
         );
         // Tx hash reverse lookup should now resolve.
         let by_hash = bridge
@@ -646,39 +708,15 @@ mod tests {
 
         // Move destination Submitted → Confirmed.
         bridge
-            .update_chain_tx_status(
-                request_id,
-                2,
-                ChainTxStatus::Submitted,
-                None,
-                100,
-                0,
-                None,
-            )
+            .update_chain_tx_status(request_id, 2, ChainTxStatus::Submitted, None, 100, 0, None)
             .expect("submitted");
         bridge
-            .update_chain_tx_status(
-                request_id,
-                2,
-                ChainTxStatus::Confirmed,
-                None,
-                101,
-                12,
-                None,
-            )
+            .update_chain_tx_status(request_id, 2, ChainTxStatus::Confirmed, None, 101, 12, None)
             .expect("confirmed");
 
         // Confirmed → Submitted must be rejected.
         let err = bridge
-            .update_chain_tx_status(
-                request_id,
-                2,
-                ChainTxStatus::Submitted,
-                None,
-                102,
-                0,
-                None,
-            )
+            .update_chain_tx_status(request_id, 2, ChainTxStatus::Submitted, None, 102, 0, None)
             .unwrap_err();
         assert_eq!(err, Error::InvalidStatusTransition);
     }
@@ -696,15 +734,7 @@ mod tests {
         // Bob is neither admin nor operator.
         test::set_caller::<DefaultEnvironment>(accounts.bob);
         let err = bridge
-            .update_chain_tx_status(
-                request_id,
-                2,
-                ChainTxStatus::Submitted,
-                None,
-                0,
-                0,
-                None,
-            )
+            .update_chain_tx_status(request_id, 2, ChainTxStatus::Submitted, None, 0, 0, None)
             .unwrap_err();
         assert_eq!(err, Error::Unauthorized);
     }
@@ -728,7 +758,10 @@ mod tests {
             .expect("tracker");
         assert_eq!(tracker.source_status.status, ChainTxStatus::Failed);
         assert_eq!(tracker.destination_status.status, ChainTxStatus::Failed);
-        assert_eq!(tracker.overall_status, BridgeOperationStatus::Failed);
+        assert_eq!(
+            tracker.overall_status,
+            propchain_traits::bridge::BridgeOperationStatus::Failed
+        );
     }
 
     #[ink::test]
@@ -738,16 +771,174 @@ mod tests {
         test::set_caller::<DefaultEnvironment>(accounts.alice);
 
         let err = bridge
-            .update_chain_tx_status(
-                999_999,
-                2,
-                ChainTxStatus::Submitted,
-                None,
-                0,
-                0,
-                None,
-            )
+            .update_chain_tx_status(999_999, 2, ChainTxStatus::Submitted, None, 0, 0, None)
             .unwrap_err();
         assert_eq!(err, Error::TransactionNotFound);
+    }
+
+    fn count_bitmap_bits(bitmap: &[u8; SIGNATURE_BITMAP_BYTES]) -> u8 {
+        bitmap
+            .iter()
+            .map(|byte| byte.count_ones() as u16)
+            .sum::<u16>() as u8
+    }
+
+    #[ink::test]
+    fn bitmap_signature_tracking_and_signer_queries_work() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        bridge.add_validator(accounts.alice).expect("add alice");
+        bridge.add_validator(accounts.bob).expect("add bob");
+        bridge.add_validator(accounts.charlie).expect("add charlie");
+
+        let request_id = bridge
+            .initiate_bridge_multisig(1, 2, accounts.django, 2, Some(50), make_metadata())
+            .expect("initiate request");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("alice signs");
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("bob signs");
+
+        let bitmap = bridge
+            .get_signature_bitmap(request_id)
+            .expect("bitmap query");
+        let signers = bridge.get_signer_list(request_id).expect("signer list");
+
+        assert_eq!(count_bitmap_bits(&bitmap), 2);
+        assert_eq!(signers, vec![accounts.alice, accounts.bob]);
+    }
+
+    #[ink::test]
+    fn bitmap_signature_count_matches_monitoring_count() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        bridge.add_validator(accounts.alice).expect("add alice");
+        bridge.add_validator(accounts.bob).expect("add bob");
+        bridge.add_validator(accounts.charlie).expect("add charlie");
+
+        let request_id = bridge
+            .initiate_bridge_multisig(7, 2, accounts.eve, 3, Some(50), make_metadata())
+            .expect("initiate request");
+
+        for signer in [accounts.alice, accounts.bob, accounts.charlie] {
+            test::set_caller::<DefaultEnvironment>(signer);
+            bridge
+                .sign_bridge_request(request_id, true)
+                .expect("validator signs");
+        }
+
+        let bitmap = bridge
+            .get_signature_bitmap(request_id)
+            .expect("bitmap query");
+        let monitoring = bridge
+            .monitor_bridge_status(request_id)
+            .expect("monitoring query");
+
+        assert_eq!(count_bitmap_bits(&bitmap), 3);
+        assert_eq!(monitoring.signatures_collected, 3);
+    }
+
+    #[ink::test]
+    fn legacy_signature_format_decodes_and_remains_readable() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let legacy = LegacyStoredBridgeRequest {
+            request_id: 9,
+            token_id: 11,
+            source_chain: 1,
+            destination_chain: 2,
+            sender: accounts.alice,
+            recipient: accounts.bob,
+            required_signatures: 2,
+            signatures: vec![accounts.alice, accounts.charlie],
+            created_at: 1,
+            expires_at: Some(99),
+            status: BridgeOperationStatus::Pending,
+            multi_hop_status: MultiHopStatus::InProgress,
+            route: vec![2, 3],
+            current_hop: 0,
+            total_gas_estimate: 123,
+            metadata: make_metadata(),
+        };
+
+        let mut encoded = &legacy.encode()[..];
+        let decoded = StoredBridgeRequest::decode(&mut encoded).expect("legacy decode");
+
+        match decoded.signature_storage {
+            SignatureStorage::Legacy(signers) => {
+                assert_eq!(signers, vec![accounts.alice, accounts.charlie]);
+            }
+            SignatureStorage::Bitmap(_) => panic!("legacy decode should preserve signer list"),
+        }
+    }
+
+    #[ink::test]
+    fn bitmap_encoding_is_smaller_for_twenty_four_signatures() {
+        let signers: Vec<AccountId> = (0u8..24)
+            .map(|value| AccountId::from([value; 32]))
+            .collect();
+
+        let legacy = LegacyStoredBridgeRequest {
+            request_id: 42,
+            token_id: 77,
+            source_chain: 1,
+            destination_chain: 2,
+            sender: signers[0],
+            recipient: signers[1],
+            required_signatures: 20,
+            signatures: signers.clone(),
+            created_at: 1,
+            expires_at: Some(50),
+            status: BridgeOperationStatus::Locked,
+            multi_hop_status: MultiHopStatus::InProgress,
+            route: Vec::new(),
+            current_hop: 0,
+            total_gas_estimate: 0,
+            metadata: make_metadata(),
+        };
+
+        let mut bitmap = [0u8; SIGNATURE_BITMAP_BYTES];
+        for bit in 0u8..24 {
+            let byte_index = (bit / 8) as usize;
+            bitmap[byte_index] |= 1u8 << (bit % 8);
+        }
+        let optimized = StoredBridgeRequest {
+            request_id: 42,
+            token_id: 77,
+            source_chain: 1,
+            destination_chain: 2,
+            sender: signers[0],
+            recipient: signers[1],
+            required_signatures: 20,
+            signature_storage: SignatureStorage::Bitmap(bitmap),
+            created_at: 1,
+            expires_at: Some(50),
+            status: BridgeOperationStatus::Locked,
+            multi_hop_status: MultiHopStatus::InProgress,
+            route: Vec::new(),
+            current_hop: 0,
+            total_gas_estimate: 0,
+            metadata: make_metadata(),
+        };
+
+        let legacy_bytes = legacy.encode().len();
+        let optimized_bytes = optimized.encode().len();
+
+        assert!(
+            optimized_bytes < legacy_bytes,
+            "bitmap encoding should be smaller than legacy vec encoding"
+        );
+
+        println!(
+            "legacy_bytes={legacy_bytes}, bitmap_bytes={optimized_bytes}, saved={}",
+            legacy_bytes.saturating_sub(optimized_bytes)
+        );
     }
 }
