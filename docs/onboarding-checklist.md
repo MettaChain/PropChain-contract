@@ -23,6 +23,7 @@ Welcome to the PropChain development team! Use this checklist to set up your env
 
 - [ ] **Deploy to Local Node**: Follow the deployment guide in [DEVELOPMENT.md](../DEVELOPMENT.md) to deploy the `PropertyToken` contract to a local dev node.
 - [ ] **Interact with Contracts**: Use the `polkadot-js/api` or `subxt` to call a simple method like `register_property`.
+- [ ] **Try the Contract Playground**: Run `./scripts/playground.sh` for an interactive menu that walks you through the five most common calls (register a property, create an escrow, stake tokens, vote on a proposal, create an insurance policy) without having to hand-write `cargo-contract` commands. It reads addresses from your local deployment, so deploy first. See `./scripts/playground.sh --help` for details.
 - [ ] **Debug a Transaction**: Use the local node logs to trace a contract call.
 
 ## Contributing
