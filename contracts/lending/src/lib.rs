@@ -202,23 +202,6 @@ mod propchain_lending {
         pub borrower_approved: bool,
         pub lender_approved: bool,
     }
-
-    #[derive(
-        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
-    )]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub struct LoanPortfolio {
-        pub owner: AccountId,
-        pub loan_ids: Vec<u64>,
-        pub total_loans: u32,
-        pub approved_loans: u32,
-        pub pending_loans: u32,
-        pub total_requested: u128,
-        pub total_approved: u128,
-        pub total_collateral: u128,
-        pub average_credit_score: u32,
-    }
-
     #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
     )]
@@ -260,12 +243,17 @@ mod propchain_lending {
         pub total_borrowed: u128,
     }
 
-    #[ink(storage)]
     // ── #304: Loan Marketplace types ─────────────────────────────────────────
 
     /// Status of a loan marketplace listing.
     #[derive(
-        Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode,
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
         ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -282,8 +270,7 @@ mod propchain_lending {
 
     /// A borrower's public loan request listed on the marketplace (#304).
     #[derive(
-        Debug, Clone, PartialEq, scale::Encode, scale::Decode,
-        ink::storage::traits::StorageLayout,
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct LoanListing {
@@ -303,8 +290,7 @@ mod propchain_lending {
 
     /// A lender's counter-offer in response to a marketplace listing (#304).
     #[derive(
-        Debug, Clone, PartialEq, scale::Encode, scale::Decode,
-        ink::storage::traits::StorageLayout,
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct LoanOffer {
@@ -319,6 +305,7 @@ mod propchain_lending {
         pub created_at: u64,
     }
 
+    #[ink(storage)]
     pub struct PropertyLending {
         admin: AccountId,
         collateral_records: Mapping<u64, CollateralRecord>,
@@ -1334,10 +1321,7 @@ mod propchain_lending {
         /// Accepting an offer transitions the listing to `OfferAccepted`, creates
         /// the underlying `LoanApplication`, and marks the listing as `Originated`.
         #[ink(message)]
-        pub fn accept_loan_offer(
-            &mut self,
-            offer_id: u64,
-        ) -> Result<u64, LendingError> {
+        pub fn accept_loan_offer(&mut self, offer_id: u64) -> Result<u64, LendingError> {
             let mut offer = self
                 .marketplace_offers
                 .get(offer_id)
@@ -1389,7 +1373,8 @@ mod propchain_lending {
             listing.accepted_offer_id = Some(offer_id);
 
             self.marketplace_offers.insert(offer_id, &offer);
-            self.marketplace_listings.insert(listing.listing_id, &listing);
+            self.marketplace_listings
+                .insert(listing.listing_id, &listing);
 
             self.env().emit_event(LoanOfferAccepted {
                 listing_id: offer.listing_id,
@@ -1461,10 +1446,7 @@ mod propchain_lending {
         /// Only the current admin may call this. The nominated `new_admin` must
         /// confirm after `KEY_ROTATION_COOLDOWN_BLOCKS` blocks have elapsed.
         #[ink(message)]
-        pub fn request_admin_rotation(
-            &mut self,
-            new_admin: AccountId,
-        ) -> Result<(), LendingError> {
+        pub fn request_admin_rotation(&mut self, new_admin: AccountId) -> Result<(), LendingError> {
             let caller = self.env().caller();
             if caller != self.admin {
                 return Err(LendingError::Unauthorized);
@@ -1474,8 +1456,8 @@ mod propchain_lending {
             }
 
             let block = self.env().block_number();
-            let effective_at = block
-                .saturating_add(propchain_traits::constants::KEY_ROTATION_COOLDOWN_BLOCKS);
+            let effective_at =
+                block.saturating_add(propchain_traits::constants::KEY_ROTATION_COOLDOWN_BLOCKS);
 
             self.pending_admin_rotation = Some(propchain_traits::KeyRotationRequest {
                 old_account: caller,
@@ -1558,9 +1540,7 @@ mod propchain_lending {
 
         /// Get the pending admin rotation request, if any.
         #[ink(message)]
-        pub fn get_pending_admin_rotation(
-            &self,
-        ) -> Option<propchain_traits::KeyRotationRequest> {
+        pub fn get_pending_admin_rotation(&self) -> Option<propchain_traits::KeyRotationRequest> {
             self.pending_admin_rotation.clone()
         }
 

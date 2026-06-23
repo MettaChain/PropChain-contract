@@ -373,7 +373,6 @@ pub struct OracleHistoryStatistics {
 /// ========================================================================
 // Trait Definitions
 // =========================================================================
-
 /// Oracle trait for real-time property valuation
 #[ink::trait_definition]
 pub trait Oracle {
