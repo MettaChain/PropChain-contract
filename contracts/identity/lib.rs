@@ -224,11 +224,11 @@ pub mod propchain_identity {
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum KycTier {
-        Tier0Unverified, // No KYC, basic access only
-        Tier1Basic,      // Basic identity verification
-        Tier2Standard,   // Standard KYC with document verification
-        Tier3Enhanced,   // Enhanced due diligence
-        Tier4Premium,    // Premium verification with full background check
+        Tier0Unverified,  // No KYC, basic access only
+        Tier1Basic,       // Basic identity verification
+        Tier2Standard,    // Standard KYC with document verification
+        Tier3Enhanced,    // Enhanced due diligence
+        Tier4Premium,     // Premium verification with full background check
         Tier0_Unverified, // No KYC, basic access only
         Tier1_Basic,      // Basic identity verification
         Tier2_Standard,   // Standard KYC with document verification
@@ -1702,11 +1702,19 @@ pub mod propchain_identity {
 
                     // Map KYC tier to verification level
                     identity.verification_level = match request.requested_tier {
-                        KycTier::Tier0Unverified => VerificationLevel::None,
-                        KycTier::Tier1Basic => VerificationLevel::Basic,
-                        KycTier::Tier2Standard => VerificationLevel::Standard,
-                        KycTier::Tier3Enhanced => VerificationLevel::Enhanced,
-                        KycTier::Tier4Premium => VerificationLevel::Premium,
+                        KycTier::Tier0_Unverified | KycTier::Tier0Unverified => {
+                            VerificationLevel::None
+                        }
+                        KycTier::Tier1_Basic | KycTier::Tier1Basic => VerificationLevel::Basic,
+                        KycTier::Tier2_Standard | KycTier::Tier2Standard => {
+                            VerificationLevel::Standard
+                        }
+                        KycTier::Tier3_Enhanced | KycTier::Tier3Enhanced => {
+                            VerificationLevel::Enhanced
+                        }
+                        KycTier::Tier4_Premium | KycTier::Tier4Premium => {
+                            VerificationLevel::Premium
+                        }
                     };
 
                     identity.is_verified = true;
