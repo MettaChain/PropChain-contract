@@ -5,6 +5,7 @@ mod fractional {
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
     use propchain_traits;
+    use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
     #[derive(
         Debug,
@@ -132,8 +133,11 @@ mod fractional {
     pub enum FractionalError {
         InsufficientShares,
         ListingNotFound,
+        AuctionNotFound,
+        AuctionAlreadyBid,
         InsufficientPayment,
         Unauthorized,
+        ReentrantCall,
         ZeroAmount,
         PoolNotFound,
         PoolAlreadyExists,
@@ -254,6 +258,7 @@ mod fractional {
         auction_id: u64,
         #[ink(topic)]
         seller: AccountId,
+    }
 
     // ── Admin Key Rotation Events (Issue #496) ────────────────────────────────
 
@@ -279,7 +284,6 @@ mod fractional {
         #[ink(topic)]
         old_admin: AccountId,
         cancelled_by: AccountId,
-
     }
 
     #[ink(storage)]
@@ -295,10 +299,22 @@ mod fractional {
         amm_pools: Mapping<u64, AmmPool>,
         /// LP token balances per (provider, token_id)
         lp_balances: Mapping<(AccountId, u64), u128>,
+        /// Active Dutch auctions indexed by auction id
+        dutch_auctions: Mapping<u64, DutchAuction>,
+        /// Monotonic counter for Dutch auction ids
+        auction_counter: u64,
+        /// Reentrancy protection for state-changing entry points
+        reentrancy_guard: ReentrancyGuard,
         /// Contract administrator (Issue #496)
         admin: AccountId,
         /// Pending admin key rotation request (Issue #496)
         pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
+    }
+
+    impl From<ReentrancyError> for FractionalError {
+        fn from(_: ReentrancyError) -> Self {
+            FractionalError::ReentrantCall
+        }
     }
 
     impl Fractional {
@@ -313,6 +329,7 @@ mod fractional {
                 lp_balances: Mapping::default(),
                 dutch_auctions: Mapping::default(),
                 auction_counter: 0,
+                reentrancy_guard: ReentrancyGuard::new(),
                 admin: Self::env().caller(),
                 pending_admin_rotation: None,
             }
@@ -329,7 +346,6 @@ mod fractional {
         #[ink(message)]
         pub fn set_last_price(&mut self, token_id: u64, price_per_share: u128) {
             self.last_prices.insert(token_id, &price_per_share);
-        }            self.last_prices.insert(token_id, &price_per_share);
         }
 
         #[ink(message)]
@@ -1729,6 +1745,7 @@ mod fractional {
             let a2 = f.get_dutch_auction(1).unwrap();
             assert_eq!(a1.shares, 50);
             assert_eq!(a2.shares, 100);
+        }
 
         // ── Issue #493: Reentrancy guard tests ───────────────────────────────
 
@@ -1863,7 +1880,6 @@ mod fractional {
 
         }
     }
-}
 
     // =========================================================================
     // ADMIN KEY ROTATION TESTS (Issue #496) — Fractional
@@ -1964,3 +1980,5 @@ mod fractional {
             );
         }
     }
+
+}
