@@ -33,6 +33,28 @@ mod propchain_analytics {
         pub recent_transactions: u64,
     }
 
+    /// A single position within an owner's real estate portfolio.
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct PortfolioPosition {
+        pub property_type: propchain_traits::PropertyType,
+        pub value: u128,
+    }
+
+    /// Suggestion for portfolio rebalancing at the property type level.
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct RebalancingSuggestion {
+        pub property_type: propchain_traits::PropertyType,
+        pub current_allocation_bips: u32,
+        pub target_allocation_bips: u32,
+        pub recommendation: String,
+    }
+
     /// Trend analysis with historical data.
     #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
@@ -96,6 +118,10 @@ mod propchain_analytics {
         property_sentiments: ink::storage::Mapping<u64, MarketSentiment>,
         /// Overall aggregated sentiment
         overall_sentiment: MarketSentiment,
+        /// Owner portfolio holdings by property type
+        portfolio_positions: ink::storage::Mapping<AccountId, Vec<PortfolioPosition>>,
+        /// Property-type specific market trends for rebalancing
+        property_type_trends: ink::storage::Mapping<propchain_traits::PropertyType, MarketTrend>,
         /// Pending admin key rotation request (Issue #496)
         pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
     }
@@ -158,6 +184,8 @@ mod propchain_analytics {
                     bear_volume: 0,
                     bull_bear_ratio_bips: 5000,
                 },
+                portfolio_positions: ink::storage::Mapping::default(),
+                property_type_trends: ink::storage::Mapping::default(),
                 pending_admin_rotation: None,
             }
         }
@@ -273,6 +301,136 @@ mod propchain_analytics {
                 self.overall_sentiment.bull_bear_ratio_bips =
                     ((self.overall_sentiment.bull_volume * 10000) / total_overall) as u32;
             }
+        }
+
+        /// Update portfolio positions for an owner.
+        #[ink(message)]
+        pub fn set_portfolio_positions(&mut self, owner: AccountId, positions: Vec<PortfolioPosition>) {
+            self.ensure_admin();
+            self.portfolio_positions.insert(owner, &positions);
+        }
+
+        /// Retrieve portfolio positions for an owner.
+        #[ink(message)]
+        pub fn get_portfolio_positions(&self, owner: AccountId) -> Vec<PortfolioPosition> {
+            self.portfolio_positions.get(owner).unwrap_or_default()
+        }
+
+        /// Update property-type market trends used for portfolio rebalancing recommendations.
+        #[ink(message)]
+        pub fn update_property_type_trend(
+            &mut self,
+            property_type: propchain_traits::PropertyType,
+            trend: MarketTrend,
+        ) {
+            self.ensure_admin();
+            self.property_type_trends.insert(property_type, &trend);
+        }
+
+        /// Get the stored market trend for a specific property type.
+        #[ink(message)]
+        pub fn get_property_type_trend(
+            &self,
+            property_type: propchain_traits::PropertyType,
+        ) -> MarketTrend {
+            self.property_type_trends
+                .get(property_type)
+                .unwrap_or(MarketTrend {
+                    period_start: 0,
+                    period_end: 0,
+                    price_change_percentage: 0,
+                    volume_change_percentage: 0,
+                })
+        }
+
+        /// Get portfolio rebalancing suggestions for an owner.
+        #[ink(message)]
+        pub fn get_rebalancing_suggestions(
+            &self,
+            owner: AccountId,
+        ) -> Vec<RebalancingSuggestion> {
+            let positions = self.get_portfolio_positions(owner);
+            let total_value: u128 = positions.iter().map(|p| p.value).sum();
+            if total_value == 0 {
+                return Vec::new();
+            }
+
+            let mut target_scores = Vec::new();
+            let mut total_score: u128 = 0;
+            for position in positions.iter() {
+                let trend = self.get_property_type_trend(position.property_type.clone());
+                let normalized_trend = 100i128
+                    + (trend.price_change_percentage as i128 * 2)
+                    + (trend.volume_change_percentage as i128 / 5);
+                let score = normalized_trend.clamp(50, 150) as u128;
+                target_scores.push((position.property_type.clone(), score));
+                total_score = total_score.saturating_add(score);
+            }
+
+            target_scores
+                .into_iter()
+                .map(|(property_type, score)| {
+                    let target_bips = if total_score > 0 {
+                        ((score * 10000) / total_score) as u32
+                    } else {
+                        0
+                    };
+                    let current_value = positions
+                        .iter()
+                        .find(|p| p.property_type == property_type)
+                        .map(|p| p.value)
+                        .unwrap_or(0);
+                    let current_bips = ((current_value * 10000) / total_value) as u32;
+                    let diff = current_bips as i32 - target_bips as i32;
+                    let recommendation = if diff > 200 {
+                        String::from("Overweight: consider reducing exposure for this property type.")
+                    } else if diff < -200 {
+                        String::from("Underweight: consider increasing exposure for this property type.")
+                    } else {
+                        String::from("Aligned with target allocation.")
+                    };
+                    RebalancingSuggestion {
+                        property_type,
+                        current_allocation_bips: current_bips,
+                        target_allocation_bips: target_bips,
+                        recommendation,
+                    }
+                })
+                .collect()
+        }
+
+        /// Get a health score for an owner's portfolio from 0 to 100.
+        #[ink(message)]
+        pub fn get_portfolio_health_score(&self, owner: AccountId) -> u8 {
+            let positions = self.get_portfolio_positions(owner);
+            let total_value: u128 = positions.iter().map(|p| p.value).sum();
+            if total_value == 0 {
+                return 0;
+            }
+
+            let mut distinct_types: Vec<propchain_traits::PropertyType> = Vec::new();
+            let mut max_share_bips: u32 = 0;
+            let mut trend_total: i32 = 0;
+            for position in positions.iter() {
+                if !distinct_types.contains(&position.property_type) {
+                    distinct_types.push(position.property_type.clone());
+                }
+                let share_bips = ((position.value * 10000) / total_value) as u32;
+                max_share_bips = max_share_bips.max(share_bips);
+                let trend = self.get_property_type_trend(position.property_type.clone());
+                trend_total += trend.price_change_percentage as i32;
+            }
+
+            let distinct_bonus = (distinct_types.len() as u8).saturating_mul(10).min(40);
+            let concentration_penalty = if max_share_bips > 4000 {
+                ((max_share_bips - 4000) / 100) as u8
+            } else {
+                0
+            };
+            let trend_bonus = ((trend_total as i32) / (distinct_types.len().max(1) as i32)).clamp(-10, 10) as i8;
+            let mut score = 50i32 + distinct_bonus as i32 - concentration_penalty as i32 + trend_bonus as i32;
+            score = score.clamp(0, 100);
+            score as u8
         }
 
         /// Add gas usage optimization recommendations
@@ -452,6 +610,148 @@ mod propchain_analytics {
             assert_eq!(report.metrics.average_price, 0);
             assert_eq!(report.sentiment.bull_bear_ratio_bips, 5000);
             assert!(report.insights.contains("Gas optimization"));
+        }
+
+        #[ink::test]
+        fn portfolio_health_score_is_low_for_concentrated_portfolio() {
+            let mut contract = AnalyticsDashboard::new();
+            let owner = contract.env().caller();
+            let positions = vec![PortfolioPosition {
+                property_type: propchain_traits::PropertyType::Residential,
+                value: 900,
+            }];
+            contract.set_portfolio_positions(owner, positions);
+            contract.update_property_type_trend(
+                propchain_traits::PropertyType::Residential,
+                MarketTrend {
+                    period_start: 0,
+                    period_end: 0,
+                    price_change_percentage: -5,
+                    volume_change_percentage: 0,
+                },
+            );
+            let score = contract.get_portfolio_health_score(owner);
+            assert!(score < 50, "Expected low score for concentrated, weak trend");
+        }
+
+        #[ink::test]
+        fn portfolio_health_score_is_high_for_diversified_portfolio() {
+            let mut contract = AnalyticsDashboard::new();
+            let owner = contract.env().caller();
+            let positions = vec![
+                PortfolioPosition {
+                    property_type: propchain_traits::PropertyType::Residential,
+                    value: 400,
+                },
+                PortfolioPosition {
+                    property_type: propchain_traits::PropertyType::Commercial,
+                    value: 300,
+                },
+                PortfolioPosition {
+                    property_type: propchain_traits::PropertyType::Industrial,
+                    value: 300,
+                },
+            ];
+            contract.set_portfolio_positions(owner, positions);
+            contract.update_property_type_trend(
+                propchain_traits::PropertyType::Residential,
+                MarketTrend {
+                    period_start: 0,
+                    period_end: 0,
+                    price_change_percentage: 8,
+                    volume_change_percentage: 2,
+                },
+            );
+            contract.update_property_type_trend(
+                propchain_traits::PropertyType::Commercial,
+                MarketTrend {
+                    period_start: 0,
+                    period_end: 0,
+                    price_change_percentage: 6,
+                    volume_change_percentage: 3,
+                },
+            );
+            contract.update_property_type_trend(
+                propchain_traits::PropertyType::Industrial,
+                MarketTrend {
+                    period_start: 0,
+                    period_end: 0,
+                    price_change_percentage: 7,
+                    volume_change_percentage: 1,
+                },
+            );
+            let score = contract.get_portfolio_health_score(owner);
+            assert!(score >= 60, "Expected higher score for diversified portfolio");
+        }
+
+        #[ink::test]
+        fn rebalancing_suggestions_change_when_market_trends_shift() {
+            let mut contract = AnalyticsDashboard::new();
+            let owner = contract.env().caller();
+            let positions = vec![
+                PortfolioPosition {
+                    property_type: propchain_traits::PropertyType::Residential,
+                    value: 500,
+                },
+                PortfolioPosition {
+                    property_type: propchain_traits::PropertyType::Commercial,
+                    value: 500,
+                },
+            ];
+
+            contract.set_portfolio_positions(owner, positions.clone());
+            contract.update_property_type_trend(
+                propchain_traits::PropertyType::Residential,
+                MarketTrend {
+                    period_start: 0,
+                    period_end: 0,
+                    price_change_percentage: 20,
+                    volume_change_percentage: 10,
+                },
+            );
+            contract.update_property_type_trend(
+                propchain_traits::PropertyType::Commercial,
+                MarketTrend {
+                    period_start: 0,
+                    period_end: 0,
+                    price_change_percentage: -10,
+                    volume_change_percentage: -5,
+                },
+            );
+
+            let first_suggestions = contract.get_rebalancing_suggestions(owner);
+            let residential_first = first_suggestions
+                .iter()
+                .find(|s| s.property_type == propchain_traits::PropertyType::Residential)
+                .expect("Residential suggestion exists");
+            assert!(residential_first.target_allocation_bips > residential_first.current_allocation_bips);
+            assert!(residential_first.recommendation.contains("Underweight"));
+
+            contract.update_property_type_trend(
+                propchain_traits::PropertyType::Residential,
+                MarketTrend {
+                    period_start: 0,
+                    period_end: 0,
+                    price_change_percentage: -15,
+                    volume_change_percentage: -10,
+                },
+            );
+            contract.update_property_type_trend(
+                propchain_traits::PropertyType::Commercial,
+                MarketTrend {
+                    period_start: 0,
+                    period_end: 0,
+                    price_change_percentage: 30,
+                    volume_change_percentage: 15,
+                },
+            );
+
+            let second_suggestions = contract.get_rebalancing_suggestions(owner);
+            let residential_second = second_suggestions
+                .iter()
+                .find(|s| s.property_type == propchain_traits::PropertyType::Residential)
+                .expect("Residential suggestion exists after trend shift");
+            assert!(residential_second.target_allocation_bips < residential_first.target_allocation_bips);
         }
     }
 }
