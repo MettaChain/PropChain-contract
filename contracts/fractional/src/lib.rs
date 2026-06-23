@@ -1745,149 +1745,150 @@ mod fractional {
             assert_eq!(a2.shares, 100);
         }
 
-        // ── Issue #493: Reentrancy guard tests ───────────────────────────────
+            // ── Issue #493: Reentrancy guard tests ───────────────────────────────
 
-        /// Test that calling buy_shares while the guard is locked returns ReentrantCall.
-        /// We simulate this by manually locking the guard before the call.
-        #[ink::test]
-        fn test_reentrant_buy_shares_returns_error() {
-            let mut f = Fractional::new();
-            test::set_caller::<ink::env::DefaultEnvironment>(alice());
-            f.mint_shares(alice(), 1, 100);
-            f.list_shares_for_sale(1, 50, 10).unwrap();
+            /// Test that calling buy_shares while the guard is locked returns ReentrantCall.
+            /// We simulate this by manually locking the guard before the call.
+            #[ink::test]
+            fn test_reentrant_buy_shares_returns_error() {
+                let mut f = Fractional::new();
+                test::set_caller::<ink::env::DefaultEnvironment>(alice());
+                f.mint_shares(alice(), 1, 100);
+                f.list_shares_for_sale(1, 50, 10).unwrap();
 
-            // Manually lock the guard to simulate a reentrant call
-            f.reentrancy_guard
-                .enter()
-                .expect("first lock should succeed");
+                // Manually lock the guard to simulate a reentrant call
+                f.reentrancy_guard
+                    .enter()
+                    .expect("first lock should succeed");
 
-            test::set_caller::<ink::env::DefaultEnvironment>(bob());
-            // While guard is locked, buy_shares should return ReentrantCall
-            let result = f.buy_shares(alice(), 1, 10);
-            assert_eq!(
-                result,
-                Err(FractionalError::ReentrantCall),
-                "buy_shares must return ReentrantCall when guard is locked (issue #493)"
-            );
+                test::set_caller::<ink::env::DefaultEnvironment>(bob());
+                // While guard is locked, buy_shares should return ReentrantCall
+                let result = f.buy_shares(alice(), 1, 10);
+                assert_eq!(
+                    result,
+                    Err(FractionalError::ReentrantCall),
+                    "buy_shares must return ReentrantCall when guard is locked (issue #493)"
+                );
 
-            // Unlock so the guard does not stay poisoned
-            f.reentrancy_guard.exit();
-        }
+                // Unlock so the guard does not stay poisoned
+                f.reentrancy_guard.exit();
+            }
 
-        /// Test that calling swap_shares_for_value while the guard is locked returns ReentrantCall.
-        #[ink::test]
-        fn test_reentrant_swap_shares_for_value_returns_error() {
-            let mut f = Fractional::new();
-            test::set_caller::<ink::env::DefaultEnvironment>(alice());
-            f.mint_shares(alice(), 1, 1000);
+            /// Test that calling swap_shares_for_value while the guard is locked returns ReentrantCall.
+            #[ink::test]
+            fn test_reentrant_swap_shares_for_value_returns_error() {
+                let mut f = Fractional::new();
+                test::set_caller::<ink::env::DefaultEnvironment>(alice());
+                f.mint_shares(alice(), 1, 1000);
 
-            test::set_value_transferred::<ink::env::DefaultEnvironment>(10_000);
-            f.add_liquidity(1, 100, 0).unwrap();
+                test::set_value_transferred::<ink::env::DefaultEnvironment>(10_000);
+                f.add_liquidity(1, 100, 0).unwrap();
 
-            // Manually lock the guard to simulate a reentrant call
-            f.reentrancy_guard
-                .enter()
-                .expect("first lock should succeed");
+                // Manually lock the guard to simulate a reentrant call
+                f.reentrancy_guard
+                    .enter()
+                    .expect("first lock should succeed");
 
-            let result = f.swap_shares_for_value(1, 10, 0);
-            assert_eq!(
-                result,
-                Err(FractionalError::ReentrantCall),
-                "swap_shares_for_value must return ReentrantCall when guard is locked (issue #493)"
-            );
+                let result = f.swap_shares_for_value(1, 10, 0);
+                assert_eq!(
+                    result,
+                    Err(FractionalError::ReentrantCall),
+                    "swap_shares_for_value must return ReentrantCall when guard is locked (issue #493)"
+                );
 
-            f.reentrancy_guard.exit();
-        }
+                f.reentrancy_guard.exit();
+            }
 
-        /// Test that redeem_shares is guarded and returns ReentrantCall when locked.
-        #[ink::test]
-        fn test_reentrant_redeem_shares_returns_error() {
-            let mut f = Fractional::new();
-            test::set_caller::<ink::env::DefaultEnvironment>(alice());
-            f.mint_shares(alice(), 1, 100);
-            f.set_last_price(1, 5);
+            /// Test that redeem_shares is guarded and returns ReentrantCall when locked.
+            #[ink::test]
+            fn test_reentrant_redeem_shares_returns_error() {
+                let mut f = Fractional::new();
+                test::set_caller::<ink::env::DefaultEnvironment>(alice());
+                f.mint_shares(alice(), 1, 100);
+                f.set_last_price(1, 5);
 
-            f.reentrancy_guard
-                .enter()
-                .expect("first lock should succeed");
+                f.reentrancy_guard
+                    .enter()
+                    .expect("first lock should succeed");
 
-            let result = f.redeem_shares(1, 10);
-            assert_eq!(
-                result,
-                Err(FractionalError::ReentrantCall),
-                "redeem_shares must return ReentrantCall when guard is locked (issue #493)"
-            );
+                let result = f.redeem_shares(1, 10);
+                assert_eq!(
+                    result,
+                    Err(FractionalError::ReentrantCall),
+                    "redeem_shares must return ReentrantCall when guard is locked (issue #493)"
+                );
 
-            f.reentrancy_guard.exit();
-        }
+                f.reentrancy_guard.exit();
+            }
 
-        /// Test that add_liquidity is guarded and returns ReentrantCall when locked.
-        #[ink::test]
-        fn test_reentrant_add_liquidity_returns_error() {
-            let mut f = Fractional::new();
-            test::set_caller::<ink::env::DefaultEnvironment>(alice());
-            f.mint_shares(alice(), 1, 1000);
+            /// Test that add_liquidity is guarded and returns ReentrantCall when locked.
+            #[ink::test]
+            fn test_reentrant_add_liquidity_returns_error() {
+                let mut f = Fractional::new();
+                test::set_caller::<ink::env::DefaultEnvironment>(alice());
+                f.mint_shares(alice(), 1, 1000);
 
-            f.reentrancy_guard
-                .enter()
-                .expect("first lock should succeed");
+                f.reentrancy_guard
+                    .enter()
+                    .expect("first lock should succeed");
 
-            test::set_value_transferred::<ink::env::DefaultEnvironment>(500);
-            let result = f.add_liquidity(1, 100, 0);
-            assert_eq!(
-                result,
-                Err(FractionalError::ReentrantCall),
-                "add_liquidity must return ReentrantCall when guard is locked (issue #493)"
-            );
+                test::set_value_transferred::<ink::env::DefaultEnvironment>(500);
+                let result = f.add_liquidity(1, 100, 0);
+                assert_eq!(
+                    result,
+                    Err(FractionalError::ReentrantCall),
+                    "add_liquidity must return ReentrantCall when guard is locked (issue #493)"
+                );
 
-            f.reentrancy_guard.exit();
-        }
+                f.reentrancy_guard.exit();
+            }
 
-        /// Test that remove_liquidity is guarded and returns ReentrantCall when locked.
-        #[ink::test]
-        fn test_reentrant_remove_liquidity_returns_error() {
-            let mut f = Fractional::new();
-            test::set_caller::<ink::env::DefaultEnvironment>(alice());
-            f.mint_shares(alice(), 1, 1000);
+            /// Test that remove_liquidity is guarded and returns ReentrantCall when locked.
+            #[ink::test]
+            fn test_reentrant_remove_liquidity_returns_error() {
+                let mut f = Fractional::new();
+                test::set_caller::<ink::env::DefaultEnvironment>(alice());
+                f.mint_shares(alice(), 1, 1000);
 
-            test::set_value_transferred::<ink::env::DefaultEnvironment>(1000);
-            let lp = f.add_liquidity(1, 200, 0).unwrap();
+                test::set_value_transferred::<ink::env::DefaultEnvironment>(1000);
+                let lp = f.add_liquidity(1, 200, 0).unwrap();
 
-            f.reentrancy_guard
-                .enter()
-                .expect("first lock should succeed");
+                f.reentrancy_guard
+                    .enter()
+                    .expect("first lock should succeed");
 
-            let result = f.remove_liquidity(1, lp, 0, 0);
-            assert_eq!(
-                result,
-                Err(FractionalError::ReentrantCall),
-                "remove_liquidity must return ReentrantCall when guard is locked (issue #493)"
-            );
+                let result = f.remove_liquidity(1, lp, 0, 0);
+                assert_eq!(
+                    result,
+                    Err(FractionalError::ReentrantCall),
+                    "remove_liquidity must return ReentrantCall when guard is locked (issue #493)"
+                );
 
-            f.reentrancy_guard.exit();
-        }
+                f.reentrancy_guard.exit();
+            }
 
-        /// Test that after a non-reentrant call completes, the guard is unlocked
-        /// and a subsequent call succeeds normally.
-        #[ink::test]
-        fn test_guard_releases_after_successful_call() {
-            let mut f = Fractional::new();
-            test::set_caller::<ink::env::DefaultEnvironment>(alice());
-            f.mint_shares(alice(), 1, 200);
-            f.set_last_price(1, 5);
+            /// Test that after a non-reentrant call completes, the guard is unlocked
+            /// and a subsequent call succeeds normally.
+            #[ink::test]
+            fn test_guard_releases_after_successful_call() {
+                let mut f = Fractional::new();
+                test::set_caller::<ink::env::DefaultEnvironment>(alice());
+                f.mint_shares(alice(), 1, 200);
+                f.set_last_price(1, 5);
 
-            // First call: guard enters and exits normally
-            let payout1 = f.redeem_shares(1, 50).unwrap();
-            assert_eq!(payout1, 250);
+                // First call: guard enters and exits normally
+                let payout1 = f.redeem_shares(1, 50).unwrap();
+                assert_eq!(payout1, 250);
 
-            // Guard should be unlocked — second call must succeed
-            let payout2 = f.redeem_shares(1, 50).unwrap();
-            assert_eq!(payout2, 250);
+                // Guard should be unlocked — second call must succeed
+                let payout2 = f.redeem_shares(1, 50).unwrap();
+                assert_eq!(payout2, 250);
 
-            assert!(
-                !f.reentrancy_guard.is_locked(),
-                "guard must be unlocked after call"
-            );
+                assert!(
+                    !f.reentrancy_guard.is_locked(),
+                    "guard must be unlocked after call"
+                );
+            }
         }
     }
 

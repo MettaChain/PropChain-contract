@@ -863,16 +863,16 @@ mod insurance_tests {
     fn test_assess_property_risk_comprehensive_works() {
         let mut contract = setup();
         let result = contract.assess_property_risk_comprehensive(
-            1,        // property_id
-            10,       // property_age_years
-            5_000_000_000_000u128, // property_value
+            1,                          // property_id
+            10,                         // property_age_years
+            5_000_000_000_000u128,      // property_value
             "premium_safe_zone".into(), // location_code
-            "steel_frame".into(), // construction_type
-            true,     // has_security_system
-            true,     // has_fire_extinguisher
-            true,     // has_alarm_system
-            45,       // owner_age_years
-            15,       // years_as_owner
+            "steel_frame".into(),       // construction_type
+            true,                       // has_security_system
+            true,                       // has_fire_extinguisher
+            true,                       // has_alarm_system
+            45,                         // owner_age_years
+            15,                         // years_as_owner
         );
         assert!(result.is_ok());
         let (risk_id, premium_multiplier) = result.unwrap();
@@ -888,7 +888,7 @@ mod insurance_tests {
         let (risk_id, multiplier) = contract
             .assess_property_risk_comprehensive(
                 1,
-                5,                  // New property
+                5, // New property
                 5_000_000_000_000u128,
                 "premium_safe_zone".into(),
                 "steel_frame".into(),
@@ -902,7 +902,10 @@ mod insurance_tests {
 
         let model = contract.get_property_risk_model(risk_id).unwrap();
         assert!(model.overall_risk_score < 400); // Should be low risk
-        assert_eq!(model.final_risk_level, crate::propchain_insurance::RiskLevel::VeryLow);
+        assert_eq!(
+            model.final_risk_level,
+            crate::propchain_insurance::RiskLevel::VeryLow
+        );
     }
 
     #[ink::test]
@@ -912,7 +915,7 @@ mod insurance_tests {
         let (risk_id, multiplier) = contract
             .assess_property_risk_comprehensive(
                 2,
-                80,                 // Very old
+                80,                  // Very old
                 500_000_000_000u128, // Low value
                 "high_risk_zone".into(),
                 "wood_frame".into(),
@@ -926,7 +929,10 @@ mod insurance_tests {
 
         let model = contract.get_property_risk_model(risk_id).unwrap();
         assert!(model.overall_risk_score > 600); // Should be high risk
-        assert_eq!(model.final_risk_level, crate::propchain_insurance::RiskLevel::High);
+        assert_eq!(
+            model.final_risk_level,
+            crate::propchain_insurance::RiskLevel::High
+        );
     }
 
     #[ink::test]
@@ -953,11 +959,9 @@ mod insurance_tests {
         // Now update with safety features added
         let (new_score, new_multiplier) = contract
             .update_property_risk_assessment(
-                risk_id,
-                20,
-                true,  // Added security system
-                true,  // Added fire extinguisher
-                true,  // Added alarm system
+                risk_id, 20, true, // Added security system
+                true, // Added fire extinguisher
+                true, // Added alarm system
             )
             .unwrap();
 
@@ -971,8 +975,16 @@ mod insurance_tests {
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.bob);
         let result = contract.assess_property_risk_comprehensive(
-            1, 10, 1_000_000_000_000u128, "suburban".into(), "concrete".into(),
-            true, true, true, 40, 5,
+            1,
+            10,
+            1_000_000_000_000u128,
+            "suburban".into(),
+            "concrete".into(),
+            true,
+            true,
+            true,
+            40,
+            5,
         );
         assert_eq!(result, Err(InsuranceError::Unauthorized));
     }
@@ -1025,7 +1037,7 @@ mod insurance_tests {
         let result = contract.assess_claim_fraud_risk(claim_id, policy_id);
         assert!(result.is_ok());
         let (assessment_id, fraud_score, requires_review) = result.unwrap();
-        
+
         // Low risk claim should have low fraud score
         assert!(fraud_score < 450); // Below medium threshold
     }
@@ -1118,7 +1130,9 @@ mod insurance_tests {
             .unwrap();
 
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        let (assessment_id, _, _) = contract.assess_claim_fraud_risk(claim_id, policy_id).unwrap();
+        let (assessment_id, _, _) = contract
+            .assess_claim_fraud_risk(claim_id, policy_id)
+            .unwrap();
 
         // Retrieve the assessment
         let assessment = contract.get_fraud_assessment(assessment_id).unwrap();
@@ -1177,6 +1191,8 @@ mod insurance_tests {
         // Bob (not admin or assessor) tries to assess fraud
         let result = contract.assess_claim_fraud_risk(claim_id, policy_id);
         assert_eq!(result, Err(InsuranceError::Unauthorized));
+    }
+
     // PARAMETRIC INSURANCE TESTS (Issue #249)
     // =========================================================================
 
@@ -1605,10 +1621,8 @@ mod insurance_tests {
 
 #[cfg(test)]
 mod circuit_breaker_tests {
+    use crate::propchain_insurance::{CoverageType, InsuranceError, PropertyInsurance};
     use ink::env::{test, DefaultEnvironment};
-    use crate::propchain_insurance::{
-        CoverageType, InsuranceError, PropertyInsurance,
-    };
 
     fn setup_with_pool() -> (PropertyInsurance, u64) {
         let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -1666,9 +1680,7 @@ mod circuit_breaker_tests {
     fn test_circuit_breaker_admin_reset() {
         let (mut contract, _) = setup_with_pool();
         // Manually trip by setting active
-        contract
-            .set_circuit_breaker_params(1, 1, 86_400)
-            .unwrap();
+        contract.set_circuit_breaker_params(1, 1, 86_400).unwrap();
         // Reset should work for admin
         assert!(contract.reset_circuit_breaker().is_ok());
         assert!(!contract.is_circuit_breaker_active());
@@ -1705,8 +1717,8 @@ mod circuit_breaker_tests {
 
 #[cfg(test)]
 mod insurance_admin_rotation_tests {
-    use ink::env::{test, DefaultEnvironment};
     use crate::propchain_insurance::{InsuranceError, PropertyInsurance};
+    use ink::env::{test, DefaultEnvironment};
 
     fn setup() -> PropertyInsurance {
         let accounts = test::default_accounts::<DefaultEnvironment>();

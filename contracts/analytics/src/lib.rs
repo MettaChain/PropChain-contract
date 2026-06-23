@@ -238,7 +238,7 @@ mod propchain_analytics {
             updates: Vec<MetricUpdate>,
         ) -> Result<(), AnalyticsError> {
             self.ensure_admin();
-            if updates.len() > Self::MAX_BATCH_SIZE {
+            if updates.len() > MAX_BATCH_SIZE {
                 return Err(AnalyticsError::BatchSizeExceeded);
             }
             for upd in updates.iter() {
@@ -258,7 +258,7 @@ mod propchain_analytics {
         #[ink(message)]
         pub fn batch_add_trends(&mut self, trends: Vec<MarketTrend>) -> Result<(), AnalyticsError> {
             self.ensure_admin();
-            if trends.len() > Self::MAX_BATCH_SIZE {
+            if trends.len() > MAX_BATCH_SIZE {
                 return Err(AnalyticsError::BatchSizeExceeded);
             }
             for trend in trends.iter() {
