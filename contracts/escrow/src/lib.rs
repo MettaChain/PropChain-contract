@@ -1620,7 +1620,11 @@ mod propchain_escrow {
                 return Err(Error::InvalidStatus);
             }
 
-            if caller != self.admin && caller != escrow.buyer && caller != escrow.seller {
+            if caller != self.admin
+                && caller != escrow.buyer
+                && caller != escrow.seller
+                && !escrow.participants.contains(&caller)
+            {
                 return Err(Error::Unauthorized);
             }
 

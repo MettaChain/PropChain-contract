@@ -717,6 +717,53 @@ pub mod escrow_tests {
     }
 
     #[ink::test]
+    fn test_cleanup_allows_non_buyer_seller_participant() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        set_balance(accounts.alice, 2_000_000);
+
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
+        let participants = vec![accounts.alice, accounts.bob, accounts.charlie];
+
+        let escrow_id = contract
+            .create_escrow_advanced(
+                13,
+                1_000_000,
+                accounts.alice,
+                accounts.bob,
+                participants,
+                2,
+                None,
+            )
+            .expect("Escrow creation should succeed in test");
+
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+        contract
+            .deposit_funds(escrow_id)
+            .expect("Deposit should succeed in test");
+
+        contract
+            .sign_approval(escrow_id, ApprovalType::Release)
+            .expect("First approval should succeed in test");
+        set_caller(accounts.bob);
+        contract
+            .sign_approval(escrow_id, ApprovalType::Release)
+            .expect("Second approval should succeed in test");
+        set_caller(accounts.alice);
+        contract
+            .release_funds(escrow_id)
+            .expect("Release should succeed in test");
+
+        set_caller(accounts.charlie);
+        assert!(contract.cleanup_escrow(escrow_id).is_ok());
+
+        let summary = contract
+            .get_escrow_summary(escrow_id)
+            .expect("Summary should remain after cleanup");
+        assert_eq!(summary.status, EscrowStatus::Released);
+    }
+
+    #[ink::test]
     fn test_storage_savings_are_positive_for_typical_lifecycle() {
         let accounts = default_accounts();
         set_caller(accounts.alice);
