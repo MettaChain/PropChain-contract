@@ -1,0 +1,8 @@
+# cargo-mutants configuration file
+# Ref: https://mutants.rs/
+
+# Additional cargo args to pass to every cargo invocation
+additional_cargo_args = ["--features", "std"]
+
+# Only mutate the property-token contract file
+examine_globs = ["contracts/property-token/src/lib.rs"]

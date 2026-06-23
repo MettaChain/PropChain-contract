@@ -110,12 +110,8 @@ pub mod propchain_contracts {
         SelfTransferNotAllowed,
         /// Range is invalid (min > max)
         InvalidRange,
-        /// External dependency circuit breaker is open
-        ExternalDependencyUnavailable,
         /// Reentrancy guard detected a reentrant call
         ReentrantCall,
-        /// External dependency is temporarily unavailable because its circuit breaker is open
-        ExternalDependencyUnavailable,
     }
 
     impl From<crate::ReentrancyError> for Error {
@@ -124,91 +120,9 @@ pub mod propchain_contracts {
         }
     }
 
-    /// Dependency type for circuit breaker
-    #[derive(
-        Debug,
-        Clone,
-        Copy,
-        PartialEq,
-        Eq,
-        scale::Encode,
-        scale::Decode,
-        ink::storage::traits::StorageLayout,
-    )]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub enum ExternalDependency {
-        ComplianceRegistry,
-        IdentityRegistry,
-        FeeManager,
-        Oracle,
-    }
 
-    /// Circuit breaker state for external dependencies
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
-    pub enum ExternalDependency {
-        Oracle,
-        ComplianceRegistry,
-        FeeManager,
-        IdentityRegistry,
-        PropertyManagement,
-        Bridge,
-        Insurance,
-        Governance,
-    }
 
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Default,
-        scale::Encode,
-        scale::Decode,
-        scale::Encode,
-        scale::Decode,
-        Default,
-        ink::storage::traits::StorageLayout,
-    )]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub struct CircuitBreakerState {
-        pub failure_count: u8,
-        pub total_failures: u32,
-        pub failure_count: u64,
-        pub total_failures: u64,
-        pub last_failure_at: Option<u64>,
-        pub open_until: Option<u64>,
-    }
 
-    /// Configuration for circuit breakers
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        scale::Encode,
-        scale::Decode,
-        Default,
-        ink::storage::traits::StorageLayout,
-    )]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub struct CircuitBreakerConfig {
-        pub failure_threshold: u8,
-        pub cooldown_period_secs: u64,
-    }
-
-    impl Default for CircuitBreakerConfig {
-        fn default() -> Self {
-            Self {
-                failure_threshold: 3,
-                cooldown_period_secs: 300, // 5 minutes default
-            }
-        }
-    }
-
-        pub failure_threshold: u64,
-        pub cooldown_period_secs: u64,
-    }
 
     /// Property Registry contract
     #[ink(storage)]
@@ -284,88 +198,11 @@ pub mod propchain_contracts {
         /// Shared external call circuit breaker configuration.
         external_call_config: CircuitBreakerConfig,
 
-        /// Circuit breakers for external calls
-        external_call_breakers: Mapping<ExternalDependency, CircuitBreakerState>,
-        /// Circuit breaker configuration
-        external_call_config: CircuitBreakerConfig,
-
         /// Reentrancy protection guard
         reentrancy_guard: ReentrancyGuard,
-        /// Circuit breaker configuration for external calls
-        external_call_config: CircuitBreakerConfig,
-        /// Circuit breaker states per external dependency
-        external_call_breakers: Mapping<ExternalDependency, CircuitBreakerState>,
     }
 
-    #[derive(
-        Debug,
-        Clone,
-        Copy,
-        PartialEq,
-        Eq,
-        scale::Encode,
-        scale::Decode,
-        ink::storage::traits::StorageLayout,
-    )]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub enum ExternalDependency {
-        FeeManager,
-        Oracle,
-        ComplianceRegistry,
-        IdentityRegistry,
-    }
 
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        scale::Encode,
-        scale::Decode,
-        ink::storage::traits::StorageLayout,
-    )]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub struct CircuitBreakerState {
-        pub failure_count: u8,
-        pub total_failures: u64,
-        pub last_failure_at: Option<u64>,
-        pub open_until: Option<u64>,
-    }
-
-    impl Default for CircuitBreakerState {
-        fn default() -> Self {
-            Self {
-                failure_count: 0,
-                total_failures: 0,
-                last_failure_at: None,
-                open_until: None,
-            }
-        }
-    }
-
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        scale::Encode,
-        scale::Decode,
-        ink::storage::traits::StorageLayout,
-    )]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub struct CircuitBreakerConfig {
-        pub failure_threshold: u8,
-        pub cooldown_period_secs: u64,
-    }
-
-    impl Default for CircuitBreakerConfig {
-        fn default() -> Self {
-            Self {
-                failure_threshold: 3,
-                cooldown_period_secs: 300,
-            }
-        }
-    }
 
     /// Escrow information
     #[derive(
@@ -1515,8 +1352,6 @@ pub mod propchain_contracts {
                 cached_analytics: CachedAnalytics::default(),
                 load_metrics: LoadMetrics::default(),
                 reentrancy_guard: ReentrancyGuard::new(),
-                external_call_config: CircuitBreakerConfig::default(),
-                external_call_breakers: Mapping::default(),
             };
 
             // Emit contract initialization event
@@ -1816,11 +1651,11 @@ pub mod propchain_contracts {
             if !self.ensure_admin_rbac() {
                 return Err(Error::Unauthorized);
             }
-            if failure_threshold == 0 || cooldown_period_secs == 0 {
+            if failure_threshold == 0 || failure_threshold > 255 || cooldown_period_secs == 0 {
                 return Err(Error::ValueOutOfBounds);
             }
             self.external_call_config = CircuitBreakerConfig {
-                failure_threshold,
+                failure_threshold: failure_threshold as u8,
                 cooldown_period_secs,
             };
             Ok(())
@@ -1902,7 +1737,6 @@ pub mod propchain_contracts {
                         self.record_dependency_success(ExternalDependency::Oracle);
                         val
                     }
-                    Ok(valuation) => valuation,
                     Err(_) => {
                         self.record_dependency_failure(ExternalDependency::Oracle);
                         return Err(Error::OracleError);
@@ -1915,7 +1749,6 @@ pub mod propchain_contracts {
                     self.properties.insert(&property_id, &property);
                 } else {
                     return Err(Error::PropertyNotFound);
-                    Ok(())
                 }
 
                 self.record_dependency_success(ExternalDependency::Oracle);

@@ -698,4 +698,312 @@ mod tests {
         );
         assert_eq!(result, Err(Error::Unauthorized));
     }
+
+    #[ink::test]
+    fn test_batch_transfer_size_exceeded() {
+        let mut contract = setup_contract();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        // max_batch_size is 50. Let's create 51 items.
+        let ids: Vec<TokenId> = (1..=51).collect();
+        let amounts: Vec<u128> = vec![1; 51];
+
+        let result = contract.safe_batch_transfer_from(
+            accounts.alice,
+            accounts.bob,
+            ids,
+            amounts,
+            vec![],
+        );
+        assert_eq!(result, Err(Error::BatchSizeExceeded));
+    }
+
+    #[ink::test]
+    fn test_batch_transfer_size_exact_max() {
+        let mut contract = setup_contract();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        // max_batch_size is 50. Let's create exactly 50 items.
+        let ids: Vec<TokenId> = (1..=50).collect();
+        let amounts: Vec<u128> = vec![1; 50];
+
+        // Seed balances
+        for &id in &ids {
+            contract.balances.insert((&accounts.alice, &id), &10u128);
+        }
+
+        let result = contract.safe_batch_transfer_from(
+            accounts.alice,
+            accounts.bob,
+            ids,
+            amounts,
+            vec![],
+        );
+        // It might return other compliance or kyc errors, but not BatchSizeExceeded.
+        assert_ne!(result, Err(Error::BatchSizeExceeded));
+    }
+
+    #[ink::test]
+    fn test_batch_transfer_exact_balance() {
+        let mut contract = setup_contract();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let token_id: TokenId = 1;
+        contract.balances.insert((&accounts.alice, &token_id), &100u128);
+
+        let result = contract.safe_batch_transfer_from(
+            accounts.alice,
+            accounts.bob,
+            vec![token_id],
+            vec![100u128],
+            vec![],
+        );
+        assert!(result.is_ok());
+        assert_eq!(contract.balances.get((&accounts.alice, &token_id)).unwrap_or(0), 0);
+        assert_eq!(contract.balances.get((&accounts.bob, &token_id)).unwrap_or(0), 100);
+    }
+
+    #[ink::test]
+    fn test_issue_shares_by_owner_not_admin() {
+        let mut contract = setup_contract();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        
+        let metadata = PropertyMetadata {
+            location: String::from("123 Main St"),
+            size: 1000,
+            legal_description: String::from("Sample property"),
+            valuation: 500000,
+            documents_url: String::from("ipfs://sample-docs"),
+        };
+
+        // Deployer (admin) registers property, making alice the owner of token 1
+        test::set_caller::<DefaultEnvironment>(contract.admin());
+        let token_id = contract.register_property_with_token(metadata).unwrap();
+        contract.token_owner.insert(token_id, &accounts.alice);
+
+        // Alice (owner, not admin) issues shares
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = contract.issue_shares(token_id, accounts.bob, 500);
+        assert!(result.is_ok());
+        assert_eq!(contract.share_balance_of(accounts.bob, token_id), 500);
+    }
+
+    #[ink::test]
+    fn test_issue_shares_unauthorized() {
+        let mut contract = setup_contract();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        
+        let metadata = PropertyMetadata {
+            location: String::from("123 Main St"),
+            size: 1000,
+            legal_description: String::from("Sample property"),
+            valuation: 500000,
+            documents_url: String::from("ipfs://sample-docs"),
+        };
+
+        test::set_caller::<DefaultEnvironment>(contract.admin());
+        let token_id = contract.register_property_with_token(metadata).unwrap();
+
+        // Bob (not admin, not owner) tries to issue shares
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let result = contract.issue_shares(token_id, accounts.charlie, 500);
+        assert_eq!(result, Err(Error::Unauthorized));
+    }
+
+    #[ink::test]
+    fn test_redeem_shares_success() {
+        let (mut contract, token_id) = setup_token_with_shares(1000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = contract.redeem_shares(token_id, accounts.alice, 400);
+        assert!(result.is_ok());
+        assert_eq!(contract.share_balance_of(accounts.alice, token_id), 601);
+    }
+
+    #[ink::test]
+    fn test_redeem_shares_approved_operator() {
+        let (mut contract, token_id) = setup_token_with_shares(1000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        contract.set_approval_for_all(accounts.bob, true).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let result = contract.redeem_shares(token_id, accounts.alice, 400);
+        assert!(result.is_ok());
+        assert_eq!(contract.share_balance_of(accounts.alice, token_id), 601);
+    }
+
+    #[ink::test]
+    fn test_redeem_shares_unauthorized() {
+        let (mut contract, token_id) = setup_token_with_shares(1000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let result = contract.redeem_shares(token_id, accounts.alice, 400);
+        assert_eq!(result, Err(Error::Unauthorized));
+    }
+
+    #[ink::test]
+    fn test_redeem_shares_zero_amount() {
+        let (mut contract, token_id) = setup_token_with_shares(1000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = contract.redeem_shares(token_id, accounts.alice, 0);
+        assert_eq!(result, Err(Error::InvalidAmount));
+    }
+
+    #[ink::test]
+    fn test_redeem_shares_insufficient_balance() {
+        let (mut contract, token_id) = setup_token_with_shares(100);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = contract.redeem_shares(token_id, accounts.alice, 102); // 100 + 1 = 101, so 102 is insufficient
+        assert_eq!(result, Err(Error::InsufficientBalance));
+    }
+
+    #[ink::test]
+    fn test_redeem_shares_exact_balance() {
+        let (mut contract, token_id) = setup_token_with_shares(100);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = contract.redeem_shares(token_id, accounts.alice, 101); // 100 + 1 = 101
+        assert!(result.is_ok());
+        assert_eq!(contract.share_balance_of(accounts.alice, token_id), 0);
+    }
+
+    #[ink::test]
+    fn test_deposit_dividends_success() {
+        let (mut contract, token_id) = setup_token_with_shares(1000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        test::set_value_transferred::<DefaultEnvironment>(10_000);
+        let result = contract.deposit_dividends(token_id);
+        assert!(result.is_ok());
+        
+        let dividends = contract.dividends_per_share.get(token_id).unwrap_or(0);
+        assert!(dividends > 0);
+    }
+
+    #[ink::test]
+    fn test_deposit_dividends_zero_amount() {
+        let (mut contract, token_id) = setup_token_with_shares(1000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        test::set_value_transferred::<DefaultEnvironment>(0);
+        let result = contract.deposit_dividends(token_id);
+        assert_eq!(result, Err(Error::InvalidAmount));
+    }
+
+    #[ink::test]
+    fn test_deposit_dividends_no_shares() {
+        let mut contract = setup_contract();
+        let metadata = PropertyMetadata {
+            location: String::from("123 Main St"),
+            size: 1000,
+            legal_description: String::from("Sample property"),
+            valuation: 500000,
+            documents_url: String::from("ipfs://sample-docs"),
+        };
+        let token_id = contract.register_property_with_token(metadata).unwrap();
+        
+        test::set_caller::<DefaultEnvironment>(contract.admin());
+        test::set_value_transferred::<DefaultEnvironment>(10_000);
+        let result = contract.deposit_dividends(token_id);
+        assert_eq!(result, Err(Error::InvalidRequest));
+    }
+
+    #[ink::test]
+    fn test_distribute_rental_income_unauthorized() {
+        let (mut contract, token_id) = setup_token_with_shares(1000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        test::set_value_transferred::<DefaultEnvironment>(10_000);
+        let result = contract.distribute_rental_income(token_id);
+        assert_eq!(result, Err(Error::Unauthorized));
+    }
+
+    #[ink::test]
+    fn test_withdraw_dividends_exact_amount() {
+        let (mut contract, token_id) = setup_token_with_shares(1000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(contract.admin());
+        test::set_value_transferred::<DefaultEnvironment>(10_000);
+        contract.distribute_rental_income(token_id).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let withdrawn = contract.withdraw_dividends(token_id).unwrap();
+        assert_eq!(withdrawn, 10_010);
+    }
+
+    #[ink::test]
+    fn test_place_ask_success() {
+        let (mut contract, token_id) = setup_token_with_shares(1000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = contract.place_ask(token_id, 10, 400);
+        assert!(result.is_ok());
+
+        assert_eq!(contract.share_balance_of(accounts.alice, token_id), 601);
+        assert_eq!(contract.escrowed_shares.get((token_id, accounts.alice)).unwrap_or(0), 400);
+        
+        let ask = contract.asks.get((token_id, accounts.alice)).unwrap();
+        assert_eq!(ask.amount, 400);
+        assert_eq!(ask.price_per_share, 10);
+    }
+
+    #[ink::test]
+    fn test_place_ask_invalid_price() {
+        let (mut contract, token_id) = setup_token_with_shares(1000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = contract.place_ask(token_id, 0, 400);
+        assert_eq!(result, Err(Error::InvalidAmount));
+    }
+
+    #[ink::test]
+    fn test_place_ask_invalid_amount() {
+        let (mut contract, token_id) = setup_token_with_shares(1000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = contract.place_ask(token_id, 10, 0);
+        assert_eq!(result, Err(Error::InvalidAmount));
+    }
+
+    #[ink::test]
+    fn test_place_ask_insufficient_balance() {
+        let (mut contract, token_id) = setup_token_with_shares(100);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = contract.place_ask(token_id, 10, 102); // 100 + 1 = 101
+        assert_eq!(result, Err(Error::InsufficientBalance));
+    }
+
+    #[ink::test]
+    fn test_place_ask_exact_balance() {
+        let (mut contract, token_id) = setup_token_with_shares(100);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = contract.place_ask(token_id, 10, 101); // 100 + 1 = 101
+        assert!(result.is_ok());
+        assert_eq!(contract.share_balance_of(accounts.alice, token_id), 0);
+        assert_eq!(contract.escrowed_shares.get((token_id, accounts.alice)).unwrap_or(0), 101);
+    }
 }
+
