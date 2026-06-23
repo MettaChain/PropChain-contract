@@ -28,6 +28,8 @@ mod propchain_escrow {
     pub struct AdvancedEscrow {
         /// Escrow data mapping
         escrows: Mapping<u64, EscrowData>,
+        /// Compact escrow summaries retained after cleanup
+        escrow_summaries: Mapping<u64, EscrowSummary>,
         /// Escrow counter
         escrow_count: u64,
         /// Multi-signature configurations
@@ -46,6 +48,8 @@ mod propchain_escrow {
         disputes: Mapping<u64, DisputeInfo>,
         /// Audit logs
         audit_logs: Mapping<u64, Vec<AuditEntry>>,
+        /// Compressed audit logs retained after cleanup
+        compressed_audit_logs: Mapping<u64, Vec<CompressedAuditEntry>>,
         /// Admin account
         admin: AccountId,
         /// High-value threshold for mandatory multi-sig
@@ -79,6 +83,7 @@ mod propchain_escrow {
     pub struct EscrowCreated {
         #[ink(topic)]
         escrow_id: u64,
+        #[ink(topic)]
         property_id: u64,
         buyer: AccountId,
         seller: AccountId,
@@ -116,6 +121,25 @@ mod propchain_escrow {
         escrow_id: u64,
         amount: u128,
         recipient: AccountId,
+    }
+
+    /// Emitted when escrow storage has been cleaned up after completion.
+    #[ink(event)]
+    pub struct EscrowCleanedUp {
+        #[ink(topic)]
+        escrow_id: u64,
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        status: EscrowStatus,
+        #[ink(topic)]
+        cleaned_by: AccountId,
+        event_version: u8,
+        completed_at: u64,
+        storage_saved_bytes: u64,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
     }
 
     #[ink(event)]
@@ -277,6 +301,7 @@ mod propchain_escrow {
         pub fn new(min_high_value_threshold: u128, tax_compliance_contract: Option<AccountId>) -> Self {
             Self {
                 escrows: Mapping::default(),
+                escrow_summaries: Mapping::default(),
                 escrow_count: 0,
                 multi_sig_configs: Mapping::default(),
                 signatures: Mapping::default(),
@@ -286,6 +311,7 @@ mod propchain_escrow {
                 condition_counters: Mapping::default(),
                 disputes: Mapping::default(),
                 audit_logs: Mapping::default(),
+                compressed_audit_logs: Mapping::default(),
                 admin: Self::env().caller(),
                 min_high_value_threshold,
                 signer_public_keys: Mapping::default(),
@@ -340,6 +366,7 @@ mod propchain_escrow {
                 deposited_amount: 0,
                 status: EscrowStatus::Created,
                 created_at: self.env().block_timestamp(),
+                completed_at: None,
                 release_time_lock,
                 participants: participants.clone(),
                 jurisdiction,
@@ -563,6 +590,7 @@ mod propchain_escrow {
                 // Update status AFTER transfer
                 let mut updated_escrow = escrow.clone();
                 updated_escrow.status = EscrowStatus::Released;
+                updated_escrow.completed_at = Some(self.env().block_timestamp());
                 self.escrows.insert(&escrow_id, &updated_escrow);
 
                 // Track analytics
@@ -637,6 +665,7 @@ mod propchain_escrow {
                 // If fully released, mark as Released
                 if escrow.total_released >= escrow.deposited_amount {
                     escrow.status = EscrowStatus::Released;
+                    escrow.completed_at = Some(self.env().block_timestamp());
                 }
 
                 self.escrows.insert(&escrow_id, &escrow);
@@ -716,6 +745,7 @@ mod propchain_escrow {
                 // Update status AFTER transfer
                 let mut updated_escrow = escrow.clone();
                 updated_escrow.status = EscrowStatus::Refunded;
+                updated_escrow.completed_at = Some(self.env().block_timestamp());
                 self.escrows.insert(&escrow_id, &updated_escrow);
 
                 // Track analytics
@@ -1125,6 +1155,7 @@ mod propchain_escrow {
             // Update escrow status back to Active
             let mut escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
             escrow.status = EscrowStatus::Active;
+                escrow.completed_at = None;
             self.escrows.insert(&escrow_id, &escrow);
 
             // Add audit entry
@@ -1207,6 +1238,7 @@ mod propchain_escrow {
                 } else {
                     EscrowStatus::Refunded
                 };
+                updated_escrow.completed_at = Some(self.env().block_timestamp());
                 self.escrows.insert(&escrow_id, &updated_escrow);
 
                 // Add audit entry
@@ -1399,6 +1431,7 @@ mod propchain_escrow {
                 };
                 let mut updated_escrow = escrow.clone();
                 updated_escrow.status = new_escrow_status;
+                updated_escrow.completed_at = Some(self.env().block_timestamp());
                 self.escrows.insert(&request.escrow_id, &updated_escrow);
 
                 // Mark request as executed
@@ -1538,6 +1571,12 @@ mod propchain_escrow {
             self.escrows.get(&escrow_id)
         }
 
+        /// Get the compact escrow summary for a cleaned-up escrow.
+        #[ink(message)]
+        pub fn get_escrow_summary(&self, escrow_id: u64) -> Option<EscrowSummary> {
+            self.escrow_summaries.get(&escrow_id)
+        }
+
         /// Get documents for escrow
         #[ink(message)]
         pub fn get_documents(&self, escrow_id: u64) -> Vec<DocumentHash> {
@@ -1559,7 +1598,104 @@ mod propchain_escrow {
         /// Get audit trail
         #[ink(message)]
         pub fn get_audit_trail(&self, escrow_id: u64) -> Vec<AuditEntry> {
-            self.audit_logs.get(&escrow_id).unwrap_or_default()
+            if let Some(logs) = self.audit_logs.get(&escrow_id) {
+                logs
+            } else if let Some(compressed_logs) = self.compressed_audit_logs.get(&escrow_id) {
+                compressed_logs
+                    .into_iter()
+                    .map(Self::decompress_audit_entry)
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        }
+
+        /// Cleanup completed escrow storage and retain a compact summary.
+        #[ink(message)]
+        pub fn cleanup_escrow(&mut self, escrow_id: u64) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
+
+            if !matches!(escrow.status, EscrowStatus::Released | EscrowStatus::Refunded) {
+                return Err(Error::InvalidStatus);
+            }
+
+            if caller != self.admin && caller != escrow.buyer && caller != escrow.seller {
+                return Err(Error::Unauthorized);
+            }
+
+            let completed_at = escrow.completed_at.ok_or(Error::InvalidStatus)?;
+            let documents = self.documents.get(&escrow_id).unwrap_or_default();
+            let conditions = self.conditions.get(&escrow_id).unwrap_or_default();
+            let audit_logs = self.audit_logs.get(&escrow_id).unwrap_or_default();
+            let multi_sig_config = self.multi_sig_configs.get(&escrow_id);
+
+            let summary = EscrowSummary {
+                id: escrow.id,
+                property_id: escrow.property_id,
+                buyer: escrow.buyer,
+                seller: escrow.seller,
+                amount: escrow.amount,
+                status: escrow.status.clone(),
+                completed_at,
+            };
+
+            let compressed_audit_logs = self.compress_audit_logs(&audit_logs);
+            let detailed_storage_bytes = self.estimate_detailed_storage_bytes(
+                &escrow,
+                &documents,
+                &conditions,
+                multi_sig_config.as_ref(),
+                escrow_id,
+            );
+            let compressed_storage_bytes = self.estimate_compressed_storage_bytes(
+                &summary,
+                &compressed_audit_logs,
+            );
+            let storage_saved_bytes = detailed_storage_bytes.saturating_sub(compressed_storage_bytes);
+
+            self.escrow_summaries.insert(&escrow_id, &summary);
+            self.compressed_audit_logs
+                .insert(&escrow_id, &compressed_audit_logs);
+
+            self.escrows.remove(&escrow_id);
+            self.documents.remove(&escrow_id);
+            self.conditions.remove(&escrow_id);
+            self.audit_logs.remove(&escrow_id);
+            self.disputes.remove(&escrow_id);
+            self.multi_sig_configs.remove(&escrow_id);
+            self.escrow_active_large_transfer.remove(&escrow_id);
+            self.condition_counters.remove(&escrow_id);
+
+            for participant in escrow.participants.iter().copied() {
+                self.signatures
+                    .remove(&(escrow_id, ApprovalType::Release, participant));
+                self.signatures
+                    .remove(&(escrow_id, ApprovalType::Refund, participant));
+                self.signatures
+                    .remove(&(escrow_id, ApprovalType::EmergencyOverride, participant));
+            }
+            self.signature_counts
+                .remove(&(escrow_id, ApprovalType::Release));
+            self.signature_counts
+                .remove(&(escrow_id, ApprovalType::Refund));
+            self.signature_counts
+                .remove(&(escrow_id, ApprovalType::EmergencyOverride));
+
+            self.env().emit_event(EscrowCleanedUp {
+                escrow_id,
+                property_id: summary.property_id,
+                status: summary.status.clone(),
+                cleaned_by: caller,
+                event_version: 1,
+                completed_at: summary.completed_at,
+                storage_saved_bytes,
+                timestamp: self.env().block_timestamp(),
+                block_number: self.env().block_number(),
+                transaction_hash: [0u8; 32].into(),
+            });
+
+            Ok(())
         }
 
         /// Get multi-sig configuration
@@ -1914,6 +2050,149 @@ mod propchain_escrow {
                 .get(&(escrow_id, approval_type))
                 .unwrap_or(0);
             Ok(count >= config.required_signatures)
+        }
+
+        fn compress_audit_logs(&self, audit_logs: &[AuditEntry]) -> Vec<CompressedAuditEntry> {
+            audit_logs
+                .iter()
+                .map(|entry| CompressedAuditEntry {
+                    timestamp: entry.timestamp,
+                    actor: entry.actor,
+                    action_code: Self::action_code(&entry.action),
+                    details_hash: Self::hash_string(&entry.details),
+                    details_len: entry.details.len() as u32,
+                })
+                .collect()
+        }
+
+        fn decompress_audit_entry(entry: CompressedAuditEntry) -> AuditEntry {
+            AuditEntry {
+                timestamp: entry.timestamp,
+                actor: entry.actor,
+                action: Self::action_label(entry.action_code).to_string(),
+                details: format!("compressed:{}:{:?}", entry.details_len, entry.details_hash),
+            }
+        }
+
+        fn action_code(action: &str) -> u8 {
+            match action {
+                "EscrowCreated" => 1,
+                "FundsDeposited" => 2,
+                "FundsReleased" => 3,
+                "FundsPartiallyReleased" => 4,
+                "FundsRefunded" => 5,
+                "DocumentUploaded" => 6,
+                "DocumentVerified" => 7,
+                "ConditionAdded" => 8,
+                "ConditionMet" => 9,
+                "SignatureAdded" => 10,
+                "DisputeRaised" => 11,
+                "DisputeResolved" => 12,
+                "EmergencyOverride" => 13,
+                "LargeTransferApproved" => 14,
+                "LargeTransferExecuted" => 15,
+                "LargeTransferCancelled" => 16,
+                "AdminRotationRequested" => 17,
+                "AdminRotationCompleted" => 18,
+                _ => 255,
+            }
+        }
+
+        fn action_label(action_code: u8) -> &'static str {
+            match action_code {
+                1 => "EscrowCreated",
+                2 => "FundsDeposited",
+                3 => "FundsReleased",
+                4 => "FundsPartiallyReleased",
+                5 => "FundsRefunded",
+                6 => "DocumentUploaded",
+                7 => "DocumentVerified",
+                8 => "ConditionAdded",
+                9 => "ConditionMet",
+                10 => "SignatureAdded",
+                11 => "DisputeRaised",
+                12 => "DisputeResolved",
+                13 => "EmergencyOverride",
+                14 => "LargeTransferApproved",
+                15 => "LargeTransferExecuted",
+                16 => "LargeTransferCancelled",
+                17 => "AdminRotationRequested",
+                18 => "AdminRotationCompleted",
+                _ => "CompressedAuditEntry",
+            }
+        }
+
+        fn hash_string(value: &str) -> Hash {
+            let mut output = [0u8; 32];
+            let encoded = scale::Encode::encode(&value);
+            ink::env::hash_bytes::<ink::env::hash::Blake2x256>(&encoded, &mut output);
+            output.into()
+        }
+
+        fn estimate_detailed_storage_bytes(
+            &self,
+            escrow: &EscrowData,
+            documents: &[DocumentHash],
+            conditions: &[Condition],
+            multi_sig_config: Option<&MultiSigConfig>,
+            escrow_id: u64,
+        ) -> u64 {
+            let mut total = scale::Encode::encode(escrow).len() as u64;
+            total = total.saturating_add(scale::Encode::encode(documents).len() as u64);
+            total = total.saturating_add(scale::Encode::encode(conditions).len() as u64);
+
+            if let Some(config) = multi_sig_config {
+                total = total.saturating_add(scale::Encode::encode(config).len() as u64);
+
+                let approval_types = [
+                    ApprovalType::Release,
+                    ApprovalType::Refund,
+                    ApprovalType::EmergencyOverride,
+                ];
+                for approval_type in approval_types {
+                    let count = self
+                        .signature_counts
+                        .get(&(escrow_id, approval_type.clone()))
+                        .unwrap_or(0);
+                    total = total.saturating_add(
+                        scale::Encode::encode(&(escrow_id, approval_type.clone(), count)).len()
+                            as u64,
+                    );
+
+                    for signer in &config.signers {
+                        if self
+                            .signatures
+                            .get(&(escrow_id, approval_type.clone(), *signer))
+                            .unwrap_or(false)
+                        {
+                            total = total.saturating_add(
+                                scale::Encode::encode(&(
+                                    escrow_id,
+                                    approval_type.clone(),
+                                    *signer,
+                                    true,
+                                ))
+                                .len() as u64,
+                            );
+                        }
+                    }
+                }
+            }
+
+            total = total.saturating_add(
+                scale::Encode::encode(&self.audit_logs.get(&escrow_id).unwrap_or_default())
+                    .len() as u64,
+            );
+            total
+        }
+
+        fn estimate_compressed_storage_bytes(
+            &self,
+            summary: &EscrowSummary,
+            compressed_audit_logs: &[CompressedAuditEntry],
+        ) -> u64 {
+            scale::Encode::encode(summary).len() as u64
+                + scale::Encode::encode(compressed_audit_logs).len() as u64
         }
 
         /// Add audit entry

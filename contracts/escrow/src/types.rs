@@ -35,11 +35,38 @@ pub struct EscrowData {
     pub deposited_amount: u128,
     pub status: EscrowStatus,
     pub created_at: u64,
+    pub completed_at: Option<u64>,
     pub release_time_lock: Option<u64>,
     pub participants: Vec<AccountId>,
     pub jurisdiction: Jurisdiction,
     /// Total amount already released in partial releases
     pub total_released: u128,
+}
+
+/// Compact escrow summary retained after cleanup.
+#[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+#[derive(ink::storage::traits::StorageLayout)]
+pub struct EscrowSummary {
+    pub id: u64,
+    pub property_id: u64,
+    pub buyer: AccountId,
+    pub seller: AccountId,
+    pub amount: u128,
+    pub status: EscrowStatus,
+    pub completed_at: u64,
+}
+
+/// Compressed audit entry retained after cleanup.
+#[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+#[derive(ink::storage::traits::StorageLayout)]
+pub struct CompressedAuditEntry {
+    pub timestamp: u64,
+    pub actor: AccountId,
+    pub action_code: u8,
+    pub details_hash: Hash,
+    pub details_len: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]

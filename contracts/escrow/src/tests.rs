@@ -3,6 +3,7 @@ pub mod escrow_tests {
     use crate::propchain_escrow::*;
     use ink::env::test::DefaultAccounts;
     use ink::primitives::{AccountId, Hash};
+    use scale::Encode;
 
     fn default_accounts() -> DefaultAccounts<ink::env::DefaultEnvironment> {
         ink::env::test::default_accounts::<ink::env::DefaultEnvironment>()
@@ -14,6 +15,10 @@ pub mod escrow_tests {
 
     fn set_balance(account: AccountId, balance: u128) {
         ink::env::test::set_account_balance::<ink::env::DefaultEnvironment>(account, balance);
+    }
+
+    fn encoded_len<T: Encode>(value: &T) -> usize {
+        value.encode().len()
     }
 
     #[ink::test]
@@ -573,5 +578,235 @@ pub mod escrow_tests {
             .expect("Multi-sig config should exist in test");
         assert_eq!(config.required_signatures, 2);
         assert_eq!(config.signers, participants);
+    }
+
+    #[ink::test]
+    fn test_cleanup_rejects_active_escrow() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
+        let participants = vec![accounts.alice, accounts.bob];
+
+        let escrow_id = contract
+            .create_escrow_advanced(
+                1,
+                1_000_000,
+                accounts.alice,
+                accounts.bob,
+                participants,
+                2,
+                None,
+            )
+            .expect("Escrow creation should succeed in test");
+
+        assert_eq!(contract.cleanup_escrow(escrow_id), Err(Error::InvalidStatus));
+    }
+
+    #[ink::test]
+    fn test_cleanup_preserves_summary_and_removes_detail() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        set_balance(accounts.alice, 2_000_000);
+
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
+        let participants = vec![accounts.alice, accounts.bob];
+
+        let escrow_id = contract
+            .create_escrow_advanced(
+                7,
+                1_000_000,
+                accounts.alice,
+                accounts.bob,
+                participants.clone(),
+                2,
+                None,
+            )
+            .expect("Escrow creation should succeed in test");
+
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+        contract
+            .deposit_funds(escrow_id)
+            .expect("Deposit should succeed in test");
+
+        let doc_hash = Hash::from([9u8; 32]);
+        contract
+            .upload_document(escrow_id, doc_hash, "Deed".to_string())
+            .expect("Document upload should succeed in test");
+        contract
+            .add_condition(escrow_id, "Inspection complete".to_string())
+            .expect("Condition addition should succeed in test");
+        contract
+            .sign_approval(escrow_id, ApprovalType::Release)
+            .expect("First approval should succeed in test");
+
+        set_caller(accounts.bob);
+        contract
+            .sign_approval(escrow_id, ApprovalType::Release)
+            .expect("Second approval should succeed in test");
+
+        set_caller(accounts.alice);
+        contract
+            .release_funds(escrow_id)
+            .expect("Release should succeed in test");
+
+        let before_bytes = {
+            let escrow = contract
+                .get_escrow(escrow_id)
+                .expect("Escrow should still be detailed before cleanup");
+            let documents = contract.get_documents(escrow_id);
+            let conditions = contract.get_conditions(escrow_id);
+            let audit_trail = contract.get_audit_trail(escrow_id);
+            let config = contract
+                .get_multi_sig_config(escrow_id)
+                .expect("Config should exist before cleanup");
+            let signature_types = [
+                ApprovalType::Release,
+                ApprovalType::Refund,
+                ApprovalType::EmergencyOverride,
+            ];
+            let mut signature_entries = Vec::new();
+            let mut signature_counts = Vec::new();
+
+            for approval_type in signature_types {
+                let count = contract.get_signature_count(escrow_id, approval_type.clone());
+                signature_counts.push((escrow_id, approval_type.clone(), count));
+                for signer in config.signers.iter().copied() {
+                    if contract.has_signed(escrow_id, approval_type.clone(), signer) {
+                        signature_entries.push((escrow_id, approval_type.clone(), signer, true));
+                    }
+                }
+            }
+
+            encoded_len(&escrow) as u64
+                + encoded_len(&documents) as u64
+                + encoded_len(&conditions) as u64
+                + encoded_len(&audit_trail) as u64
+                + encoded_len(&config) as u64
+                + encoded_len(&signature_entries) as u64
+                + encoded_len(&signature_counts) as u64
+        };
+
+        set_caller(accounts.bob);
+        contract
+            .cleanup_escrow(escrow_id)
+            .expect("Cleanup should succeed after completion");
+
+        let summary = contract
+            .get_escrow_summary(escrow_id)
+            .expect("Summary should remain after cleanup");
+        assert_eq!(summary.id, escrow_id);
+        assert_eq!(summary.property_id, 7);
+        assert_eq!(summary.buyer, accounts.alice);
+        assert_eq!(summary.seller, accounts.bob);
+        assert_eq!(summary.amount, 1_000_000);
+        assert_eq!(summary.status, EscrowStatus::Released);
+        assert!(summary.completed_at > 0);
+
+        assert!(contract.get_escrow(escrow_id).is_none());
+        assert!(contract.get_multi_sig_config(escrow_id).is_none());
+        assert!(contract.get_dispute(escrow_id).is_none());
+        assert!(contract.get_documents(escrow_id).is_empty());
+        assert!(contract.get_conditions(escrow_id).is_empty());
+        assert_eq!(contract.get_signature_count(escrow_id, ApprovalType::Release), 0);
+        assert_eq!(contract.get_signature_count(escrow_id, ApprovalType::Refund), 0);
+
+        let after_bytes = encoded_len(&summary) as u64
+            + encoded_len(&contract.get_audit_trail(escrow_id)) as u64;
+        assert!(before_bytes > after_bytes);
+    }
+
+    #[ink::test]
+    fn test_storage_savings_are_positive_for_typical_lifecycle() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        set_balance(accounts.alice, 2_000_000);
+
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
+        let participants = vec![accounts.alice, accounts.bob];
+
+        let escrow_id = contract
+            .create_escrow_advanced(
+                11,
+                1_000_000,
+                accounts.alice,
+                accounts.bob,
+                participants,
+                2,
+                None,
+            )
+            .expect("Escrow creation should succeed in test");
+
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+        contract
+            .deposit_funds(escrow_id)
+            .expect("Deposit should succeed in test");
+
+        contract
+            .upload_document(escrow_id, Hash::from([3u8; 32]), "Title".to_string())
+            .expect("Document upload should succeed in test");
+        contract
+            .add_condition(escrow_id, "Condition".to_string())
+            .expect("Condition should succeed in test");
+        contract
+            .sign_approval(escrow_id, ApprovalType::Release)
+            .expect("First approval should succeed in test");
+        set_caller(accounts.bob);
+        contract
+            .sign_approval(escrow_id, ApprovalType::Release)
+            .expect("Second approval should succeed in test");
+        set_caller(accounts.alice);
+        contract
+            .release_funds(escrow_id)
+            .expect("Release should succeed in test");
+
+        let before_bytes = {
+            let escrow = contract
+                .get_escrow(escrow_id)
+                .expect("Detailed escrow should exist before cleanup");
+            let documents = contract.get_documents(escrow_id);
+            let conditions = contract.get_conditions(escrow_id);
+            let audit_trail = contract.get_audit_trail(escrow_id);
+            let config = contract
+                .get_multi_sig_config(escrow_id)
+                .expect("Config should exist before cleanup");
+            let signature_types = [
+                ApprovalType::Release,
+                ApprovalType::Refund,
+                ApprovalType::EmergencyOverride,
+            ];
+            let mut signature_entries = Vec::new();
+            let mut signature_counts = Vec::new();
+
+            for approval_type in signature_types {
+                let count = contract.get_signature_count(escrow_id, approval_type.clone());
+                signature_counts.push((escrow_id, approval_type.clone(), count));
+                for signer in config.signers.iter().copied() {
+                    if contract.has_signed(escrow_id, approval_type.clone(), signer) {
+                        signature_entries.push((escrow_id, approval_type.clone(), signer, true));
+                    }
+                }
+            }
+
+            encoded_len(&escrow) as u64
+                + encoded_len(&documents) as u64
+                + encoded_len(&conditions) as u64
+                + encoded_len(&audit_trail) as u64
+                + encoded_len(&config) as u64
+                + encoded_len(&signature_entries) as u64
+                + encoded_len(&signature_counts) as u64
+        };
+
+        contract
+            .cleanup_escrow(escrow_id)
+            .expect("Cleanup should succeed after completion");
+
+        let after_bytes = encoded_len(
+            &contract
+                .get_escrow_summary(escrow_id)
+                .expect("Summary should be retained after cleanup"),
+        ) as u64 + encoded_len(&contract.get_audit_trail(escrow_id)) as u64;
+
+        assert!(before_bytes > after_bytes);
     }
 }
