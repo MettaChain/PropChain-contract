@@ -224,13 +224,6 @@ pub mod propchain_identity {
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum KycTier {
-<<<<<<< feat/mutation-testing-issue-483
-        Tier0Unverified, // No KYC, basic access only
-        Tier1Basic,      // Basic identity verification
-        Tier2Standard,   // Standard KYC with document verification
-        Tier3Enhanced,   // Enhanced due diligence
-        Tier4Premium,    // Premium verification with full background check
-=======
         Tier0Unverified,  // No KYC, basic access only
         Tier1Basic,       // Basic identity verification
         Tier2Standard,    // Standard KYC with document verification
@@ -241,7 +234,6 @@ pub mod propchain_identity {
         Tier2_Standard,   // Standard KYC with document verification
         Tier3_Enhanced,   // Enhanced due diligence
         Tier4_Premium,    // Premium verification with full background check
->>>>>>> main
     }
 
     /// KYC Tier privileges

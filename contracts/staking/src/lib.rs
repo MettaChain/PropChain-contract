@@ -596,92 +596,89 @@ mod staking {
             Ok(())
         }
 
-       /// Unstake tokens. If called before the lock period expires, a penalty
-/// of `early_withdrawal_penalty_bps` is deducted from the returned amount.
-/// The penalty amount is retained in the reward pool. 
-/// If vesting schedule exists, unvested rewards are returned to the reward pool.
+        /// Unstake tokens. If called before the lock period expires, a penalty
+        /// of `early_withdrawal_penalty_bps` is deducted from the returned amount.
+        /// The penalty amount is retained in the reward pool.
+        /// If vesting schedule exists, unvested rewards are returned to the reward pool.
         #[ink(message)]
         pub fn unstake(&mut self) -> Result<(), Error> {
-             propchain_traits::non_reentrant!(self, {
-        let caller = self.env().caller();
-        let stake = self.stakes.get(caller).ok_or(Error::StakeNotFound)?;
+            propchain_traits::non_reentrant!(self, {
+                let caller = self.env().caller();
+                let stake = self.stakes.get(caller).ok_or(Error::StakeNotFound)?;
 
-        let now = self.env().block_number() as u64;
-        let amount = stake.amount;
-        let is_early = now < stake.lock_until;
+                let now = self.env().block_number() as u64;
+                let amount = stake.amount;
+                let is_early = now < stake.lock_until;
 
-        // Calculate penalty for early withdrawal (zero for on-time or flexible)
-        let penalty = if is_early && stake.lock_period != LockPeriod::Flexible {
-            amount
-                .saturating_mul(self.early_withdrawal_penalty_bps)
-                .saturating_div(constants::BASIS_POINTS_DENOMINATOR as u128)
-        } else {
-            0
-        };
+                // Calculate penalty for early withdrawal (zero for on-time or flexible)
+                let penalty = if is_early && stake.lock_period != LockPeriod::Flexible {
+                    amount
+                        .saturating_mul(self.early_withdrawal_penalty_bps)
+                        .saturating_div(constants::BASIS_POINTS_DENOMINATOR as u128)
+                } else {
+                    0
+                };
 
-        let amount_returned = amount.saturating_sub(penalty);
+                let amount_returned = amount.saturating_sub(penalty);
 
-        // Return unvested rewards to the pool if vesting schedule exists
-        if let Some(vesting) = stake.vesting_schedule {
-            let unvested = vesting.total_amount.saturating_sub(vesting.vested_amount);
-            self.reward_pool = self.reward_pool.saturating_add(unvested);
-        }
+                // Return unvested rewards to the pool if vesting schedule exists
+                if let Some(vesting) = stake.vesting_schedule {
+                    let unvested = vesting.total_amount.saturating_sub(vesting.vested_amount);
+                    self.reward_pool = self.reward_pool.saturating_add(unvested);
+                }
 
-        // Remove governance power
-        self.remove_governance_power(&stake);
+                // Remove governance power
+                self.remove_governance_power(&stake);
 
-        self.stakes.remove(caller);
-        self.total_staked = self.total_staked.saturating_sub(amount);
+                self.stakes.remove(caller);
+                self.total_staked = self.total_staked.saturating_sub(amount);
 
-        // Penalty stays in the reward pool to benefit remaining stakers
-        if penalty > 0 {
-            self.reward_pool = self.reward_pool.saturating_add(penalty);
-        }
+                // Penalty stays in the reward pool to benefit remaining stakers
+                if penalty > 0 {
+                    self.reward_pool = self.reward_pool.saturating_add(penalty);
+                }
 
-        // Remove from staker list
-        if let Some(pos) = self.staker_list.iter().position(|s| *s == caller) {
-            self.staker_list.swap_remove(pos);
-        }
+                // Remove from staker list
+                if let Some(pos) = self.staker_list.iter().position(|s| *s == caller) {
+                    self.staker_list.swap_remove(pos);
+                }
 
-        if is_early && stake.lock_period != LockPeriod::Flexible {
-            self.env().emit_event(EarlyWithdrawal {
-                staker: caller,
-                amount_returned,
-                penalty,
-            });
-        } else {
-            self.env().emit_event(Unstaked {
-                staker: caller,
-                amount,
-            });
-        }
+                if is_early && stake.lock_period != LockPeriod::Flexible {
+                    self.env().emit_event(EarlyWithdrawal {
+                        staker: caller,
+                        amount_returned,
+                        penalty,
+                    });
+                } else {
+                    self.env().emit_event(Unstaked {
+                        staker: caller,
+                        amount,
+                    });
+                }
 
-        Ok(())
-    })
+                Ok(())
+            })
         }
         /// Update the early withdrawal penalty rate. Admin only.
-/// `penalty_bps` must not exceed `MAX_EARLY_WITHDRAWAL_PENALTY_BPS`.
-///
-#[ink(message)]
-pub fn set_early_withdrawal_penalty(
-    &mut self,
-    penalty_bps: u128,
-) -> Result<(), Error> {
-    if self.env().caller() != self.admin {
-        return Err(Error::Unauthorized);
-    }
-    if penalty_bps > constants::MAX_EARLY_WITHDRAWAL_PENALTY_BPS {
-        return Err(Error::InvalidConfig);
-    }
-    self.early_withdrawal_penalty_bps = penalty_bps;
-    Ok(())
-}
+        /// `penalty_bps` must not exceed `MAX_EARLY_WITHDRAWAL_PENALTY_BPS`.
+        ///
+        #[ink(message)]
+        pub fn set_early_withdrawal_penalty(&mut self, penalty_bps: u128) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            if penalty_bps > constants::MAX_EARLY_WITHDRAWAL_PENALTY_BPS {
+                return Err(Error::InvalidConfig);
+            }
+            self.early_withdrawal_penalty_bps = penalty_bps;
+            Ok(())
+        }
 
-/// Get the current early withdrawal penalty rate in basis points.
-#[ink(message)]
-pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
-    self.early_withdrawal_penalty_bps
-}
+        /// Get the current early withdrawal penalty rate in basis points.
+        #[ink(message)]
+        pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
+            self.early_withdrawal_penalty_bps
+        }
 
         /// Claim accumulated rewards.
         #[ink(message)]
@@ -736,7 +733,10 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
                     // Update governance power
                     let power_holder = stake.governance_delegate.unwrap_or(stake.staker);
                     let current_power = self.governance_power.get(power_holder).unwrap_or(0);
-                    self.governance_power.insert(power_holder, &current_power.saturating_add(claimable_amount));
+                    self.governance_power.insert(
+                        power_holder,
+                        &current_power.saturating_add(claimable_amount),
+                    );
 
                     stake.staked_at = now;
                     stake.reward_debt = self.acc_reward_per_share;
@@ -929,11 +929,7 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
         /// Cast a vote on an active parameter proposal, weighted by the
         /// caller's current governance power.
         #[ink(message)]
-        pub fn vote_on_proposal(
-            &mut self,
-            proposal_id: u64,
-            support: bool,
-        ) -> Result<(), Error> {
+        pub fn vote_on_proposal(&mut self, proposal_id: u64, support: bool) -> Result<(), Error> {
             let caller = self.env().caller();
             let weight = self.governance_power.get(caller).unwrap_or(0);
             if weight == 0 {
@@ -1006,16 +1002,14 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
             if total_votes < quorum_required {
                 proposal.status = ProposalStatus::Rejected;
                 self.param_proposals.insert(proposal_id, &proposal);
-                self.env()
-                    .emit_event(ParamProposalRejected { proposal_id });
+                self.env().emit_event(ParamProposalRejected { proposal_id });
                 return Err(Error::QuorumNotReached);
             }
 
             if proposal.votes_for <= proposal.votes_against {
                 proposal.status = ProposalStatus::Rejected;
                 self.param_proposals.insert(proposal_id, &proposal);
-                self.env()
-                    .emit_event(ParamProposalRejected { proposal_id });
+                self.env().emit_event(ParamProposalRejected { proposal_id });
                 return Ok(());
             }
 
@@ -1191,17 +1185,14 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
                 / constants::REWARD_RATE_PRECISION
                 / 5_256_000; // blocks per year
 
-            let commission = gross_reward
-                .saturating_mul(info.commission_rate as u128)
-                / BPS_DENOMINATOR as u128;
+            let commission =
+                gross_reward.saturating_mul(info.commission_rate as u128) / BPS_DENOMINATOR as u128;
             let net_reward = gross_reward.saturating_sub(commission);
 
             info.accumulated_commission = info.accumulated_commission.saturating_add(commission);
-            info.acc_reward_per_share = info.acc_reward_per_share.saturating_add(
-                net_reward
-                    .saturating_mul(REWARD_PRECISION)
-                    / info.total_delegated,
-            );
+            info.acc_reward_per_share = info
+                .acc_reward_per_share
+                .saturating_add(net_reward.saturating_mul(REWARD_PRECISION) / info.total_delegated);
             info.last_reward_block = now;
             self.validators.insert(validator, &info);
         }
@@ -1222,21 +1213,16 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
                     .saturating_mul(blocks)
                     / constants::REWARD_RATE_PRECISION
                     / 5_256_000;
-                let commission = gross
-                    .saturating_mul(info.commission_rate as u128)
-                    / BPS_DENOMINATOR as u128;
+                let commission =
+                    gross.saturating_mul(info.commission_rate as u128) / BPS_DENOMINATOR as u128;
                 let net = gross.saturating_sub(commission);
-                info.acc_reward_per_share.saturating_add(
-                    net.saturating_mul(REWARD_PRECISION) / info.total_delegated,
-                )
+                info.acc_reward_per_share
+                    .saturating_add(net.saturating_mul(REWARD_PRECISION) / info.total_delegated)
             } else {
                 info.acc_reward_per_share
             };
 
-            (record
-                .amount
-                .saturating_mul(projected_acc)
-                / REWARD_PRECISION)
+            (record.amount.saturating_mul(projected_acc) / REWARD_PRECISION)
                 .saturating_sub(record.reward_debt)
         }
 
@@ -1328,7 +1314,8 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
             }
             info.is_active = true;
             self.validators.insert(caller, &info);
-            self.env().emit_event(ValidatorReactivated { validator: caller });
+            self.env()
+                .emit_event(ValidatorReactivated { validator: caller });
             Ok(())
         }
 
@@ -1349,10 +1336,7 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
                 info.self_stake = info.self_stake.saturating_sub(self_slash);
 
                 // Slash each delegator
-                let delegators = self
-                    .validator_delegators
-                    .get(validator)
-                    .unwrap_or_default();
+                let delegators = self.validator_delegators.get(validator).unwrap_or_default();
                 let mut total_delegated_reduction: u128 = 0;
                 for delegator in &delegators {
                     let key = (*delegator, validator);
@@ -1401,11 +1385,7 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
 
         /// Delegate `amount` tokens to `validator`.
         #[ink(message)]
-        pub fn delegate(
-            &mut self,
-            validator: AccountId,
-            amount: u128,
-        ) -> Result<(), Error> {
+        pub fn delegate(&mut self, validator: AccountId, amount: u128) -> Result<(), Error> {
             propchain_traits::non_reentrant!(self, {
                 let caller = self.env().caller();
                 let info = self
@@ -1425,10 +1405,8 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
                 self.update_validator_rewards(validator);
                 let info = self.validators.get(validator).unwrap();
 
-                let reward_debt = info
-                    .acc_reward_per_share
-                    .saturating_mul(amount)
-                    / REWARD_PRECISION;
+                let reward_debt =
+                    info.acc_reward_per_share.saturating_mul(amount) / REWARD_PRECISION;
 
                 let record = DelegationRecord {
                     delegator: caller,
@@ -1440,10 +1418,7 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
                 self.delegations.insert((caller, validator), &record);
 
                 // Update secondary indices
-                let mut delegators = self
-                    .validator_delegators
-                    .get(validator)
-                    .unwrap_or_default();
+                let mut delegators = self.validator_delegators.get(validator).unwrap_or_default();
                 delegators.push(caller);
                 self.validator_delegators.insert(validator, &delegators);
                 self.delegator_validator.insert(caller, &validator);
@@ -1452,8 +1427,7 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
                 let mut info = self.validators.get(validator).unwrap();
                 info.total_delegated = info.total_delegated.saturating_add(amount);
                 self.validators.insert(validator, &info);
-                self.total_delegated_stake =
-                    self.total_delegated_stake.saturating_add(amount);
+                self.total_delegated_stake = self.total_delegated_stake.saturating_add(amount);
 
                 self.env().emit_event(StakeDelegated {
                     delegator: caller,
@@ -1487,9 +1461,8 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
 
                 info.total_delegated = info.total_delegated.saturating_sub(record.amount);
                 self.validators.insert(validator, &info);
-                self.total_delegated_stake = self
-                    .total_delegated_stake
-                    .saturating_sub(record.amount);
+                self.total_delegated_stake =
+                    self.total_delegated_stake.saturating_sub(record.amount);
 
                 self.env().emit_event(UndelegationInitiated {
                     delegator: caller,
@@ -1522,10 +1495,7 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
                 self.delegator_validator.remove(caller);
 
                 // Remove from validator_delegators list
-                let mut delegators = self
-                    .validator_delegators
-                    .get(validator)
-                    .unwrap_or_default();
+                let mut delegators = self.validator_delegators.get(validator).unwrap_or_default();
                 if let Some(pos) = delegators.iter().position(|d| *d == caller) {
                     delegators.swap_remove(pos);
                 }
@@ -1541,10 +1511,7 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
 
         /// Claim pending delegation rewards (net of validator commission).
         #[ink(message)]
-        pub fn claim_delegation_rewards(
-            &mut self,
-            validator: AccountId,
-        ) -> Result<u128, Error> {
+        pub fn claim_delegation_rewards(&mut self, validator: AccountId) -> Result<u128, Error> {
             propchain_traits::non_reentrant!(self, {
                 let caller = self.env().caller();
                 let record = self
@@ -1566,10 +1533,8 @@ pub fn get_early_withdrawal_penalty_bps(&self) -> u128 {
                 self.reward_pool = self.reward_pool.saturating_sub(reward);
 
                 let mut record = self.delegations.get((caller, validator)).unwrap();
-                record.reward_debt = info
-                    .acc_reward_per_share
-                    .saturating_mul(record.amount)
-                    / REWARD_PRECISION;
+                record.reward_debt =
+                    info.acc_reward_per_share.saturating_mul(record.amount) / REWARD_PRECISION;
                 self.delegations.insert((caller, validator), &record);
 
                 self.env().emit_event(DelegationRewardsClaimed {

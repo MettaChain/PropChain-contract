@@ -90,8 +90,7 @@ mod reinsurance_stats_derives {
             net_recovery: 0,
         };
         let encoded = zero.encode();
-        let decoded =
-            ReinsuranceStats::decode(&mut encoded.as_slice()).expect("zero-value decode");
+        let decoded = ReinsuranceStats::decode(&mut encoded.as_slice()).expect("zero-value decode");
         assert_eq!(decoded.agreement_id, 0);
         assert_eq!(decoded.net_recovery, 0);
     }

@@ -305,7 +305,11 @@ mod propchain_analytics {
 
         /// Update portfolio positions for an owner.
         #[ink(message)]
-        pub fn set_portfolio_positions(&mut self, owner: AccountId, positions: Vec<PortfolioPosition>) {
+        pub fn set_portfolio_positions(
+            &mut self,
+            owner: AccountId,
+            positions: Vec<PortfolioPosition>,
+        ) {
             self.ensure_admin();
             self.portfolio_positions.insert(owner, &positions);
         }
@@ -345,10 +349,7 @@ mod propchain_analytics {
 
         /// Get portfolio rebalancing suggestions for an owner.
         #[ink(message)]
-        pub fn get_rebalancing_suggestions(
-            &self,
-            owner: AccountId,
-        ) -> Vec<RebalancingSuggestion> {
+        pub fn get_rebalancing_suggestions(&self, owner: AccountId) -> Vec<RebalancingSuggestion> {
             let positions = self.get_portfolio_positions(owner);
             let total_value: u128 = positions.iter().map(|p| p.value).sum();
             if total_value == 0 {
@@ -383,9 +384,13 @@ mod propchain_analytics {
                     let current_bips = ((current_value * 10000) / total_value) as u32;
                     let diff = current_bips as i32 - target_bips as i32;
                     let recommendation = if diff > 200 {
-                        String::from("Overweight: consider reducing exposure for this property type.")
+                        String::from(
+                            "Overweight: consider reducing exposure for this property type.",
+                        )
                     } else if diff < -200 {
-                        String::from("Underweight: consider increasing exposure for this property type.")
+                        String::from(
+                            "Underweight: consider increasing exposure for this property type.",
+                        )
                     } else {
                         String::from("Aligned with target allocation.")
                     };
@@ -427,8 +432,10 @@ mod propchain_analytics {
             } else {
                 0
             };
-            let trend_bonus = ((trend_total as i32) / (distinct_types.len().max(1) as i32)).clamp(-10, 10) as i8;
-            let mut score = 50i32 + distinct_bonus as i32 - concentration_penalty as i32 + trend_bonus as i32;
+            let trend_bonus =
+                ((trend_total as i32) / (distinct_types.len().max(1) as i32)).clamp(-10, 10) as i8;
+            let mut score =
+                50i32 + distinct_bonus as i32 - concentration_penalty as i32 + trend_bonus as i32;
             score = score.clamp(0, 100);
             score as u8
         }
@@ -474,8 +481,8 @@ mod propchain_analytics {
             }
 
             let block = self.env().block_number();
-            let effective_at = block
-                .saturating_add(propchain_traits::constants::KEY_ROTATION_COOLDOWN_BLOCKS);
+            let effective_at =
+                block.saturating_add(propchain_traits::constants::KEY_ROTATION_COOLDOWN_BLOCKS);
 
             self.pending_admin_rotation = Some(propchain_traits::KeyRotationRequest {
                 old_account: caller,
@@ -558,9 +565,7 @@ mod propchain_analytics {
 
         /// Get the pending admin rotation request, if any.
         #[ink(message)]
-        pub fn get_pending_admin_rotation(
-            &self,
-        ) -> Option<propchain_traits::KeyRotationRequest> {
+        pub fn get_pending_admin_rotation(&self) -> Option<propchain_traits::KeyRotationRequest> {
             self.pending_admin_rotation.clone()
         }
     }
@@ -631,7 +636,10 @@ mod propchain_analytics {
                 },
             );
             let score = contract.get_portfolio_health_score(owner);
-            assert!(score < 50, "Expected low score for concentrated, weak trend");
+            assert!(
+                score < 50,
+                "Expected low score for concentrated, weak trend"
+            );
         }
 
         #[ink::test]
@@ -681,7 +689,10 @@ mod propchain_analytics {
                 },
             );
             let score = contract.get_portfolio_health_score(owner);
-            assert!(score >= 60, "Expected higher score for diversified portfolio");
+            assert!(
+                score >= 60,
+                "Expected higher score for diversified portfolio"
+            );
         }
 
         #[ink::test]
@@ -724,7 +735,10 @@ mod propchain_analytics {
                 .iter()
                 .find(|s| s.property_type == propchain_traits::PropertyType::Residential)
                 .expect("Residential suggestion exists");
-            assert!(residential_first.target_allocation_bips > residential_first.current_allocation_bips);
+            assert!(
+                residential_first.target_allocation_bips
+                    > residential_first.current_allocation_bips
+            );
             assert!(residential_first.recommendation.contains("Underweight"));
 
             contract.update_property_type_trend(
@@ -751,7 +765,10 @@ mod propchain_analytics {
                 .iter()
                 .find(|s| s.property_type == propchain_traits::PropertyType::Residential)
                 .expect("Residential suggestion exists after trend shift");
-            assert!(residential_second.target_allocation_bips < residential_first.target_allocation_bips);
+            assert!(
+                residential_second.target_allocation_bips
+                    < residential_first.target_allocation_bips
+            );
         }
     }
 }

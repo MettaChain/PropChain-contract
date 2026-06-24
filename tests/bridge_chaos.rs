@@ -13,11 +13,11 @@
 #[cfg(test)]
 mod bridge_chaos {
     use bridge::bridge::{
-        BridgeOperationStatus, BridgeOperation, ChainTxStatus, Error, PauseFlags, PauseReason,
+        BridgeOperation, BridgeOperationStatus, ChainTxStatus, Error, PauseFlags, PauseReason,
         PropertyBridge,
     };
-    use propchain_traits::PropertyMetadata;
     use ink::env::{test, DefaultEnvironment};
+    use propchain_traits::PropertyMetadata;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -58,7 +58,9 @@ mod bridge_chaos {
         test::set_caller::<DefaultEnvironment>(alice());
         bridge.add_validator(alice()).expect("add validator alice");
         bridge.add_validator(bob()).expect("add validator bob");
-        bridge.add_validator(charlie()).expect("add validator charlie");
+        bridge
+            .add_validator(charlie())
+            .expect("add validator charlie");
         bridge
     }
 
@@ -162,9 +164,8 @@ mod bridge_chaos {
         // Attempt 3: try to register a trade with a very large amount_in that might
         // trip the hourly volume limit.  The bridge must either accept or return a
         // domain error — it must not panic.
-        let result_register = bridge.register_cross_chain_trade(
-            1, None, 2, bob(), u128::MAX / 4, 0,
-        );
+        let result_register =
+            bridge.register_cross_chain_trade(1, None, 2, bob(), u128::MAX / 4, 0);
         // Either Ok or a recognised error — never a panic
         match result_register {
             Ok(_) | Err(Error::RateLimitExceeded) | Err(Error::OperationPaused) => {}
@@ -293,14 +294,8 @@ mod bridge_chaos {
 
         // Operations must work normally after chaos
         test::set_caller::<DefaultEnvironment>(alice());
-        let result = bridge.initiate_bridge_multisig(
-            1,
-            2,
-            bob(),
-            2,
-            Some(100),
-            make_metadata("post-chaos"),
-        );
+        let result =
+            bridge.initiate_bridge_multisig(1, 2, bob(), 2, Some(100), make_metadata("post-chaos"));
         assert!(
             result.is_ok(),
             "bridge should accept new requests after all pauses are cleared"
@@ -458,7 +453,10 @@ mod bridge_chaos {
         // Analytics: 3 requests, 1 transaction completed
         let analytics = bridge.get_bridge_analytics();
         assert_eq!(analytics.total_requests, 3);
-        assert_eq!(analytics.total_transactions, 1, "only r1 should be a completed transaction");
+        assert_eq!(
+            analytics.total_transactions, 1,
+            "only r1 should be a completed transaction"
+        );
     }
 
     // ── Chaos Test 7: No funds double-spent ──────────────────────────────────
@@ -476,9 +474,13 @@ mod bridge_chaos {
 
         // Collect 2 valid signatures
         test::set_caller::<DefaultEnvironment>(alice());
-        bridge.sign_bridge_request(request_id, true).expect("alice sign");
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("alice sign");
         test::set_caller::<DefaultEnvironment>(bob());
-        bridge.sign_bridge_request(request_id, true).expect("bob sign");
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("bob sign");
 
         // First execution must succeed
         test::set_caller::<DefaultEnvironment>(alice());
@@ -515,13 +517,17 @@ mod bridge_chaos {
             .expect("pre-pause request");
 
         // Pause the bridge
-        bridge
-            .set_emergency_pause(true)
-            .expect("admin can pause");
+        bridge.set_emergency_pause(true).expect("admin can pause");
 
         // New requests must be blocked
-        let result = bridge
-            .initiate_bridge_multisig(2, 2, charlie(), 2, Some(200), make_metadata("post-pause"));
+        let result = bridge.initiate_bridge_multisig(
+            2,
+            2,
+            charlie(),
+            2,
+            Some(200),
+            make_metadata("post-pause"),
+        );
         assert_eq!(
             result,
             Err(Error::OperationPaused),
@@ -538,9 +544,17 @@ mod bridge_chaos {
         let _ = bridge.get_bridge_health_status();
 
         // Unpause and verify operations resume
-        bridge.set_emergency_pause(false).expect("admin can unpause");
-        let post_unpause = bridge
-            .initiate_bridge_multisig(2, 2, charlie(), 2, Some(200), make_metadata("post-unpause"));
+        bridge
+            .set_emergency_pause(false)
+            .expect("admin can unpause");
+        let post_unpause = bridge.initiate_bridge_multisig(
+            2,
+            2,
+            charlie(),
+            2,
+            Some(200),
+            make_metadata("post-unpause"),
+        );
         assert!(
             post_unpause.is_ok(),
             "new requests must be allowed after unpause"

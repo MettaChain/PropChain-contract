@@ -120,10 +120,6 @@ pub mod propchain_contracts {
         }
     }
 
-
-
-
-
     /// Property Registry contract
     #[ink(storage)]
     pub struct PropertyRegistry {
@@ -201,8 +197,6 @@ pub mod propchain_contracts {
         /// Reentrancy protection guard
         reentrancy_guard: ReentrancyGuard,
     }
-
-
 
     /// Escrow information
     #[derive(

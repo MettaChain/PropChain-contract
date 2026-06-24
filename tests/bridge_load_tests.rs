@@ -43,7 +43,6 @@ mod bridge_extreme_load_tests {
         daily_counts: Mutex<Vec<u64>>,
         rate_limit: u64,
         paused: std::sync::atomic::AtomicBool,
-
     }
 
     impl MockBridge {
@@ -88,7 +87,7 @@ mod bridge_extreme_load_tests {
                 status: BridgeStatus::Pending,
                 expires_at_ms: expires_at,
             });
-            
+
             Some(id)
         }
 

@@ -1191,7 +1191,11 @@ mod property_management {
         #[ink(message)]
         pub fn vote(&mut self, proposal_id: u64, support: bool) -> Result<(), Error> {
             let voter = self.env().caller();
-            if self.proposal_votes.get((proposal_id, voter)).unwrap_or(false) {
+            if self
+                .proposal_votes
+                .get((proposal_id, voter))
+                .unwrap_or(false)
+            {
                 return Err(Error::InvalidStatus);
             }
 

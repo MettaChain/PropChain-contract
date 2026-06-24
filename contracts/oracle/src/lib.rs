@@ -484,7 +484,8 @@ mod propchain_oracle {
                 fallback_source_ids: Vec::new(),
                 // Auto-slash configuration (Issue #497)
                 auto_slash_on_staleness: false,
-                auto_slash_staleness_threshold: propchain_traits::constants::DEFAULT_MAX_PRICE_STALENESS,
+                auto_slash_staleness_threshold:
+                    propchain_traits::constants::DEFAULT_MAX_PRICE_STALENESS,
                 auto_slash_on_deviation: false,
                 auto_slash_deviation_threshold_bps: 2000, // 20% default
                 auto_slash_on_missed_updates: false,
@@ -856,7 +857,8 @@ mod propchain_oracle {
                 action: action.clone(),
                 votes_for: 0,
                 votes_against: 0,
-                voting_end: now.saturating_add(self.governance_params.governance_voting_period_blocks),
+                voting_end: now
+                    .saturating_add(self.governance_params.governance_voting_period_blocks),
                 executed: false,
                 created_at: now,
             };
@@ -919,10 +921,7 @@ mod propchain_oracle {
 
         /// Execute a governance proposal after voting ends.
         #[ink(message)]
-        pub fn execute_governance_proposal(
-            &mut self,
-            proposal_id: u64,
-        ) -> Result<(), OracleError> {
+        pub fn execute_governance_proposal(&mut self, proposal_id: u64) -> Result<(), OracleError> {
             let mut proposal = self
                 .governance_proposals
                 .get(&proposal_id)
@@ -1022,10 +1021,8 @@ mod propchain_oracle {
 
             // ── Track per-source participation (Issue #497) ──────────────────
             // Build the set of sources that responded this round.
-            let responding: ink::prelude::collections::BTreeSet<String> = prices
-                .iter()
-                .map(|p| p.source.clone())
-                .collect();
+            let responding: ink::prelude::collections::BTreeSet<String> =
+                prices.iter().map(|p| p.source.clone()).collect();
 
             // Update last-report time for responding sources; increment
             // missed-update counter for non-responding active sources.
@@ -1037,7 +1034,8 @@ mod propchain_oracle {
                     self.source_missed_updates.insert(sid, &0);
                 } else {
                     let missed = self.source_missed_updates.get(sid).unwrap_or(0);
-                    self.source_missed_updates.insert(sid, &missed.saturating_add(1));
+                    self.source_missed_updates
+                        .insert(sid, &missed.saturating_add(1));
                 }
             }
 
@@ -1217,9 +1215,7 @@ mod propchain_oracle {
                 SlashingSeverity::Critical => self.slashing_config.critical_reputation_penalty,
             };
 
-            let slash_amount = current_stake
-                .saturating_mul(slash_bps as u128)
-                / 10_000;
+            let slash_amount = current_stake.saturating_mul(slash_bps as u128) / 10_000;
             let remaining_stake = current_stake.saturating_sub(slash_amount);
 
             // Apply stake slash
@@ -1245,9 +1241,11 @@ mod propchain_oracle {
 
             // Update running totals
             let current_count = self.slashing_counts.get(&source_id).unwrap_or(0);
-            self.slashing_counts.insert(&source_id, &(current_count + 1));
+            self.slashing_counts
+                .insert(&source_id, &(current_count + 1));
             let current_amount = self.slashed_amounts.get(&source_id).unwrap_or(0);
-            self.slashed_amounts.insert(&source_id, &current_amount.saturating_add(slash_amount));
+            self.slashed_amounts
+                .insert(&source_id, &current_amount.saturating_add(slash_amount));
 
             // Auto-suspend if slashing count exceeds threshold
             if current_count + 1 >= self.slashing_config.suspension_threshold {
@@ -1314,10 +1312,7 @@ mod propchain_oracle {
 
         /// Update slashing configuration parameters (admin only).
         #[ink(message)]
-        pub fn set_slashing_config(
-            &mut self,
-            config: SlashingConfig,
-        ) -> Result<(), OracleError> {
+        pub fn set_slashing_config(&mut self, config: SlashingConfig) -> Result<(), OracleError> {
             self.ensure_admin()?;
             self.slashing_config = config;
             Ok(())
@@ -1507,20 +1502,19 @@ mod propchain_oracle {
 
             if !self.fallback_source_ids.contains(&source.id) {
                 self.fallback_source_ids.push(source.id.clone());
-                self.fallback_source_ids
-                    .sort_by(|a, b| {
-                        let pa = self
-                            .fallback_sources
-                            .get(a)
-                            .map(|s| s.priority)
-                            .unwrap_or(999);
-                        let pb = self
-                            .fallback_sources
-                            .get(b)
-                            .map(|s| s.priority)
-                            .unwrap_or(999);
-                        pa.cmp(&pb)
-                    });
+                self.fallback_source_ids.sort_by(|a, b| {
+                    let pa = self
+                        .fallback_sources
+                        .get(a)
+                        .map(|s| s.priority)
+                        .unwrap_or(999);
+                    let pb = self
+                        .fallback_sources
+                        .get(b)
+                        .map(|s| s.priority)
+                        .unwrap_or(999);
+                    pa.cmp(&pb)
+                });
             }
 
             self.env().emit_event(FallbackSourceAdded {
@@ -1803,10 +1797,7 @@ mod propchain_oracle {
         /// When approval count reaches `multisig_threshold`, the proposal is
         /// executed automatically (source added or removed).
         #[ink(message)]
-        pub fn approve_source_proposal(
-            &mut self,
-            proposal_id: u64,
-        ) -> Result<bool, OracleError> {
+        pub fn approve_source_proposal(&mut self, proposal_id: u64) -> Result<bool, OracleError> {
             let caller = self.env().caller();
             if !self.multisig_signers.contains(&caller) {
                 return Err(OracleError::Unauthorized);
@@ -1845,18 +1836,12 @@ mod propchain_oracle {
 
         /// Get a source management proposal by ID.
         #[ink(message)]
-        pub fn get_source_proposal(
-            &self,
-            proposal_id: u64,
-        ) -> Option<OracleSourceProposal> {
+        pub fn get_source_proposal(&self, proposal_id: u64) -> Option<OracleSourceProposal> {
             self.source_proposals.get(&proposal_id)
         }
 
         /// Internal: execute a source management proposal.
-        fn execute_source_proposal(
-            &mut self,
-            proposal_id: u64,
-        ) -> Result<(), OracleError> {
+        fn execute_source_proposal(&mut self, proposal_id: u64) -> Result<(), OracleError> {
             let mut proposal = self
                 .source_proposals
                 .get(&proposal_id)
@@ -1916,7 +1901,10 @@ mod propchain_oracle {
             missed_update_count: u32,
         ) -> Result<(), OracleError> {
             self.ensure_admin()?;
-            if staleness_threshold_secs == 0 || deviation_threshold_bps == 0 || missed_update_count == 0 {
+            if staleness_threshold_secs == 0
+                || deviation_threshold_bps == 0
+                || missed_update_count == 0
+            {
                 return Err(OracleError::InvalidParameters);
             }
             self.auto_slash_on_staleness = on_staleness;
@@ -1932,9 +1920,7 @@ mod propchain_oracle {
         /// (on_staleness, staleness_secs, on_deviation, deviation_bps,
         ///  on_missed_updates, missed_count)
         #[ink(message)]
-        pub fn get_auto_slash_config(
-            &self,
-        ) -> (bool, u64, bool, u32, bool, u32) {
+        pub fn get_auto_slash_config(&self) -> (bool, u64, bool, u32, bool, u32) {
             (
                 self.auto_slash_on_staleness,
                 self.auto_slash_staleness_threshold,
@@ -1975,10 +1961,7 @@ mod propchain_oracle {
             for source_id in sources {
                 // ── Staleness check ───────────────────────────────────────────
                 if self.auto_slash_on_staleness {
-                    let last_report = self
-                        .source_last_report_time
-                        .get(&source_id)
-                        .unwrap_or(0);
+                    let last_report = self.source_last_report_time.get(&source_id).unwrap_or(0);
                     if last_report > 0
                         && now.saturating_sub(last_report) > self.auto_slash_staleness_threshold
                     {
@@ -1993,10 +1976,7 @@ mod propchain_oracle {
 
                 // ── Missed updates check ──────────────────────────────────────
                 if self.auto_slash_on_missed_updates {
-                    let missed = self
-                        .source_missed_updates
-                        .get(&source_id)
-                        .unwrap_or(0);
+                    let missed = self.source_missed_updates.get(&source_id).unwrap_or(0);
                     if missed >= self.auto_slash_missed_update_count {
                         let _ = self.internal_auto_slash(
                             source_id.clone(),
@@ -2015,10 +1995,7 @@ mod propchain_oracle {
                     // If the source's last_updated price deviates from consensus, slash.
                     if let Some(source) = self.oracle_sources.get(&source_id) {
                         // Check staleness of last reported value as proxy for participation
-                        let last_report = self
-                            .source_last_report_time
-                            .get(&source_id)
-                            .unwrap_or(0);
+                        let last_report = self.source_last_report_time.get(&source_id).unwrap_or(0);
                         // Only check sources that reported in this round
                         if now.saturating_sub(last_report) <= self.auto_slash_staleness_threshold {
                             // We don't have per-source reported price in current storage;
@@ -2041,10 +2018,7 @@ mod propchain_oracle {
             let current_stake = self.source_stakes.get(&source_id).unwrap_or(0);
             if current_stake == 0 {
                 // Slash reputation only if no stake
-                let current_rep = self
-                    .source_reputations
-                    .get(&source_id)
-                    .unwrap_or(500);
+                let current_rep = self.source_reputations.get(&source_id).unwrap_or(500);
                 let penalty = match severity {
                     SlashingSeverity::Minor => self.slashing_config.minor_reputation_penalty,
                     SlashingSeverity::Moderate => self.slashing_config.moderate_reputation_penalty,
@@ -2200,7 +2174,10 @@ mod propchain_oracle {
             if self.min_update_interval_blocks == 0 {
                 return Ok(()); // No frequency limit
             }
-            let last = self.last_source_update.get(&source_id.to_string()).unwrap_or(0);
+            let last = self
+                .last_source_update
+                .get(&source_id.to_string())
+                .unwrap_or(0);
             let current = self.env().block_number() as u64;
             if last > 0 && current.saturating_sub(last) < self.min_update_interval_blocks {
                 return Err(OracleError::RequestPending);
@@ -2556,7 +2533,11 @@ mod propchain_oracle {
             Ok((avg_bp / 100).min(100) as u32)
         }
 
-        fn collect_historical_window(&self, property_id: u64, window_days: u32) -> Vec<PropertyValuation> {
+        fn collect_historical_window(
+            &self,
+            property_id: u64,
+            window_days: u32,
+        ) -> Vec<PropertyValuation> {
             let history = self
                 .historical_valuations
                 .get(&property_id)
@@ -2629,10 +2610,7 @@ mod propchain_oracle {
             }
         }
 
-        fn compute_trend_metrics(
-            &self,
-            property_id: u64,
-        ) -> Result<TrendMetrics, OracleError> {
+        fn compute_trend_metrics(&self, property_id: u64) -> Result<TrendMetrics, OracleError> {
             let current = self.get_property_valuation(property_id)?;
             let window_7d = self.collect_historical_window(property_id, 7);
             let window_30d = self.collect_historical_window(property_id, 30);
@@ -2776,10 +2754,7 @@ mod propchain_oracle {
             };
 
             // Get existing snapshots
-            let mut snapshots = self
-                .oracle_snapshots
-                .get(&property_id)
-                .unwrap_or_default();
+            let mut snapshots = self.oracle_snapshots.get(&property_id).unwrap_or_default();
 
             // Add new snapshot
             snapshots.push(snapshot.clone());
@@ -2830,10 +2805,7 @@ mod propchain_oracle {
             };
 
             // Get existing history for this source
-            let mut history = self
-                .source_history
-                .get(&source_id)
-                .unwrap_or_default();
+            let mut history = self.source_history.get(&source_id).unwrap_or_default();
 
             // Add new entry
             history.push(entry);
@@ -2892,11 +2864,7 @@ mod propchain_oracle {
 
         /// Get source history for a specific oracle source
         #[ink(message)]
-        pub fn get_source_history(
-            &self,
-            source_id: String,
-            limit: u32,
-        ) -> Vec<SourceHistoryEntry> {
+        pub fn get_source_history(&self, source_id: String, limit: u32) -> Vec<SourceHistoryEntry> {
             self.source_history
                 .get(&source_id)
                 .unwrap_or_default()
@@ -2913,7 +2881,8 @@ mod propchain_oracle {
             property_id: u64,
             days_lookback: u32,
         ) -> Result<OracleHistoryStatistics, OracleError> {
-            let snapshots = self.oracle_snapshots
+            let snapshots = self
+                .oracle_snapshots
                 .get(&property_id)
                 .ok_or(OracleError::PropertyNotFound)?;
 
@@ -2968,7 +2937,9 @@ mod propchain_oracle {
             let trend_direction = if relevant_data.len() > 1 {
                 let first = relevant_data.first().unwrap().valuation as i128;
                 let last = relevant_data.last().unwrap().valuation as i128;
-                ((last - first) / (relevant_data.len() as i128)).max(-100).min(100) as i32
+                ((last - first) / (relevant_data.len() as i128))
+                    .max(-100)
+                    .min(100) as i32
             } else {
                 0
             };
@@ -3085,20 +3056,12 @@ mod propchain_oracle {
         }
 
         #[ink(message)]
-        fn get_oracle_snapshots(
-            &self,
-            property_id: u64,
-            limit: u32,
-        ) -> Vec<OracleDataSnapshot> {
+        fn get_oracle_snapshots(&self, property_id: u64, limit: u32) -> Vec<OracleDataSnapshot> {
             self.get_oracle_snapshots(property_id, limit)
         }
 
         #[ink(message)]
-        fn get_source_history(
-            &self,
-            source_id: String,
-            limit: u32,
-        ) -> Vec<SourceHistoryEntry> {
+        fn get_source_history(&self, source_id: String, limit: u32) -> Vec<SourceHistoryEntry> {
             self.get_source_history(source_id, limit)
         }
 

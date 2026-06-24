@@ -19,7 +19,7 @@ mod integration_governance_staking {
 
     // ── Governance contract ───────────────────────────────────────────────────
     use governance::governance::{
-        Error as GovernanceError, GovernanceAction, GovernanceProposal, Governance,
+        Error as GovernanceError, Governance, GovernanceAction, GovernanceProposal,
     };
 
     use ink::env::{test, DefaultEnvironment};
@@ -65,7 +65,9 @@ mod integration_governance_staking {
         test::set_caller::<DefaultEnvironment>(alice());
 
         let stake_amount: u128 = 10_000;
-        staking.stake(stake_amount, LockPeriod::Flexible).expect("stake should succeed");
+        staking
+            .stake(stake_amount, LockPeriod::Flexible)
+            .expect("stake should succeed");
 
         // Governance power must equal staked amount immediately after staking
         let power = staking.get_governance_power(alice());
@@ -88,7 +90,9 @@ mod integration_governance_staking {
 
         // Alice stakes
         test::set_caller::<DefaultEnvironment>(alice());
-        staking.stake(stake_amount, LockPeriod::Flexible).expect("alice stake");
+        staking
+            .stake(stake_amount, LockPeriod::Flexible)
+            .expect("alice stake");
 
         // Alice delegates governance to bob
         staking
@@ -188,12 +192,18 @@ mod integration_governance_staking {
 
         // Alice stakes and delegates to bob
         test::set_caller::<DefaultEnvironment>(alice());
-        staking.stake(alice_stake, LockPeriod::Flexible).expect("alice stake");
-        staking.delegate_governance(bob()).expect("alice delegates to bob");
+        staking
+            .stake(alice_stake, LockPeriod::Flexible)
+            .expect("alice stake");
+        staking
+            .delegate_governance(bob())
+            .expect("alice delegates to bob");
 
         // Bob stakes (creating his own power)
         test::set_caller::<DefaultEnvironment>(bob());
-        staking.stake(bob_stake, LockPeriod::Flexible).expect("bob stake");
+        staking
+            .stake(bob_stake, LockPeriod::Flexible)
+            .expect("bob stake");
 
         // Bob's governance power = his own stake + alice's delegated power
         let bob_power = staking.get_governance_power(bob());
@@ -228,13 +238,19 @@ mod integration_governance_staking {
 
         // All three stake
         test::set_caller::<DefaultEnvironment>(alice());
-        staking.stake(alice_stake, LockPeriod::Flexible).expect("alice stake");
+        staking
+            .stake(alice_stake, LockPeriod::Flexible)
+            .expect("alice stake");
 
         test::set_caller::<DefaultEnvironment>(bob());
-        staking.stake(bob_stake, LockPeriod::Flexible).expect("bob stake");
+        staking
+            .stake(bob_stake, LockPeriod::Flexible)
+            .expect("bob stake");
 
         test::set_caller::<DefaultEnvironment>(charlie());
-        staking.stake(charlie_stake, LockPeriod::Flexible).expect("charlie stake");
+        staking
+            .stake(charlie_stake, LockPeriod::Flexible)
+            .expect("charlie stake");
 
         // Alice creates a proposal
         test::set_caller::<DefaultEnvironment>(alice());
@@ -269,8 +285,7 @@ mod integration_governance_staking {
             "votes_for should equal alice + bob stake"
         );
         assert_eq!(
-            proposal.votes_against,
-            charlie_stake,
+            proposal.votes_against, charlie_stake,
             "votes_against should equal charlie's stake"
         );
     }
@@ -322,11 +337,8 @@ mod integration_governance_staking {
 
         // Django is not a signer
         test::set_caller::<DefaultEnvironment>(django());
-        let result = gov.create_proposal(
-            Hash::from([2u8; 32]),
-            GovernanceAction::SaleApproval,
-            None,
-        );
+        let result =
+            gov.create_proposal(Hash::from([2u8; 32]), GovernanceAction::SaleApproval, None);
         assert_eq!(
             result,
             Err(GovernanceError::NotASigner),
@@ -346,15 +358,21 @@ mod integration_governance_staking {
         let stake_amount: u128 = 10_000;
 
         test::set_caller::<DefaultEnvironment>(alice());
-        staking.stake(stake_amount, LockPeriod::Flexible).expect("alice stake");
+        staking
+            .stake(stake_amount, LockPeriod::Flexible)
+            .expect("alice stake");
 
         // First delegation: alice → bob
-        staking.delegate_governance(bob()).expect("first delegation");
+        staking
+            .delegate_governance(bob())
+            .expect("first delegation");
         assert_eq!(staking.get_governance_power(bob()), stake_amount);
         assert_eq!(staking.get_governance_power(alice()), 0);
 
         // Re-delegation: alice → charlie
-        staking.delegate_governance(charlie()).expect("second delegation");
+        staking
+            .delegate_governance(charlie())
+            .expect("second delegation");
         assert_eq!(
             staking.get_governance_power(charlie()),
             stake_amount,

@@ -31,7 +31,7 @@ pub mod escrow_tests {
     fn test_set_tax_compliance_contract() {
         let accounts = default_accounts();
         let mut contract = AdvancedEscrow::new(1_000_000, None);
-        
+
         let result = contract.set_tax_compliance_contract(Some(accounts.charlie));
         assert!(result.is_ok());
         // Since there is no getter, we just verify it doesn't error.
@@ -600,7 +600,10 @@ pub mod escrow_tests {
             )
             .expect("Escrow creation should succeed in test");
 
-        assert_eq!(contract.cleanup_escrow(escrow_id), Err(Error::InvalidStatus));
+        assert_eq!(
+            contract.cleanup_escrow(escrow_id),
+            Err(Error::InvalidStatus)
+        );
     }
 
     #[ink::test]
@@ -708,11 +711,17 @@ pub mod escrow_tests {
         assert!(contract.get_dispute(escrow_id).is_none());
         assert!(contract.get_documents(escrow_id).is_empty());
         assert!(contract.get_conditions(escrow_id).is_empty());
-        assert_eq!(contract.get_signature_count(escrow_id, ApprovalType::Release), 0);
-        assert_eq!(contract.get_signature_count(escrow_id, ApprovalType::Refund), 0);
+        assert_eq!(
+            contract.get_signature_count(escrow_id, ApprovalType::Release),
+            0
+        );
+        assert_eq!(
+            contract.get_signature_count(escrow_id, ApprovalType::Refund),
+            0
+        );
 
-        let after_bytes = encoded_len(&summary) as u64
-            + encoded_len(&contract.get_audit_trail(escrow_id)) as u64;
+        let after_bytes =
+            encoded_len(&summary) as u64 + encoded_len(&contract.get_audit_trail(escrow_id)) as u64;
         assert!(before_bytes > after_bytes);
     }
 
@@ -852,7 +861,8 @@ pub mod escrow_tests {
             &contract
                 .get_escrow_summary(escrow_id)
                 .expect("Summary should be retained after cleanup"),
-        ) as u64 + encoded_len(&contract.get_audit_trail(escrow_id)) as u64;
+        ) as u64
+            + encoded_len(&contract.get_audit_trail(escrow_id)) as u64;
 
         assert!(before_bytes > after_bytes);
     }

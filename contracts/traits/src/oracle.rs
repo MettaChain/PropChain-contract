@@ -329,12 +329,12 @@ pub struct MarketTrend {
 )]
 pub struct OracleDataSnapshot {
     pub property_id: u64,
-    pub source_id: String,                  // Which oracle source provided this data
-    pub valuation: u128,                    // The valuation value
-    pub timestamp: u64,                     // When this snapshot was captured
-    pub confidence_score: u32,              // Confidence in this data (0-100)
-    pub valuation_method: ValuationMethod,  // How the valuation was determined
-    pub is_anomaly: bool,                   // Flag if detected as anomaly
+    pub source_id: String,     // Which oracle source provided this data
+    pub valuation: u128,       // The valuation value
+    pub timestamp: u64,        // When this snapshot was captured
+    pub confidence_score: u32, // Confidence in this data (0-100)
+    pub valuation_method: ValuationMethod, // How the valuation was determined
+    pub is_anomaly: bool,      // Flag if detected as anomaly
 }
 
 /// Historical entry for a specific oracle source
@@ -347,9 +347,9 @@ pub struct SourceHistoryEntry {
     pub timestamp: u64,
     pub valuation: u128,
     pub property_id: u64,
-    pub success: bool,           // Whether this update was successful
+    pub success: bool, // Whether this update was successful
     pub confidence_score: u32,
-    pub update_count: u32,       // How many updates this source has made
+    pub update_count: u32, // How many updates this source has made
 }
 
 /// Statistics calculated from historical oracle data
@@ -366,8 +366,8 @@ pub struct OracleHistoryStatistics {
     pub data_points: u32,
     pub period_start: u64,
     pub period_end: u64,
-    pub volatility_percentage: u32,  // Volatility as percentage
-    pub trend_direction: i32,        // Positive (upward) or negative (downward)
+    pub volatility_percentage: u32, // Volatility as percentage
+    pub trend_direction: i32,       // Positive (upward) or negative (downward)
 }
 
 /// ========================================================================
@@ -410,19 +410,11 @@ pub trait Oracle {
 
     /// Get oracle data snapshots for a property
     #[ink(message)]
-    fn get_oracle_snapshots(
-        &self,
-        property_id: u64,
-        limit: u32,
-    ) -> Vec<OracleDataSnapshot>;
+    fn get_oracle_snapshots(&self, property_id: u64, limit: u32) -> Vec<OracleDataSnapshot>;
 
     /// Get history for a specific oracle source
     #[ink(message)]
-    fn get_source_history(
-        &self,
-        source_id: String,
-        limit: u32,
-    ) -> Vec<SourceHistoryEntry>;
+    fn get_source_history(&self, source_id: String, limit: u32) -> Vec<SourceHistoryEntry>;
 
     /// Get historical data within a date range
     #[ink(message)]

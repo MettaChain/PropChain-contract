@@ -140,7 +140,7 @@ mod closed_bugs_regression {
     #[ink::test]
     fn governance_threshold_enforced_before_execution() {
         use governance::governance::{
-            Error as GovError, GovernanceAction, GovernanceProposal, Governance,
+            Error as GovError, Governance, GovernanceAction, GovernanceProposal,
         };
         use ink::primitives::Hash;
 
@@ -148,7 +148,11 @@ mod closed_bugs_regression {
         let mut gov = Governance::new(vec![alice(), bob()], 2, 0);
 
         let pid = gov
-            .create_proposal(Hash::from([1u8; 32]), GovernanceAction::ModifyProperty, None)
+            .create_proposal(
+                Hash::from([1u8; 32]),
+                GovernanceAction::ModifyProperty,
+                None,
+            )
             .expect("create proposal");
 
         // Only one vote (alice) — threshold is 2

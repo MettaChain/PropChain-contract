@@ -128,7 +128,6 @@ pub mod property_token {
         snapshot_counter: Mapping<TokenId, u64>,
         snapshots: Mapping<(TokenId, u64), Snapshot>,
         account_snapshots: Mapping<(AccountId, TokenId, u64), u128>, // (account, token_id, snapshot_id) -> balance
-
     }
 
     // Data types extracted to types.rs (Issue #101)

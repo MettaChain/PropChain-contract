@@ -357,12 +357,12 @@ mod governance {
             let mut rejected = 0;
             let mut cancelled = 0;
             let mut active = 0;
-            
+
             let mut total_participation_bps: u64 = 0;
             let mut closed_count = 0;
-            
+
             let signer_count = self.signers.len() as u64;
-            
+
             for id in 0..total {
                 if let Some(proposal) = self.proposals.get(id) {
                     match proposal.status {
@@ -372,18 +372,24 @@ mod governance {
                             executed += 1;
                             closed_count += 1;
                             if signer_count > 0 {
-                                let total_votes = (proposal.votes_for.saturating_add(proposal.votes_against)) as u64;
+                                let total_votes =
+                                    (proposal.votes_for.saturating_add(proposal.votes_against))
+                                        as u64;
                                 let bps = total_votes.saturating_mul(10_000) / signer_count;
-                                total_participation_bps = total_participation_bps.saturating_add(bps);
+                                total_participation_bps =
+                                    total_participation_bps.saturating_add(bps);
                             }
                         }
                         ProposalStatus::Rejected => {
                             rejected += 1;
                             closed_count += 1;
                             if signer_count > 0 {
-                                let total_votes = (proposal.votes_for.saturating_add(proposal.votes_against)) as u64;
+                                let total_votes =
+                                    (proposal.votes_for.saturating_add(proposal.votes_against))
+                                        as u64;
                                 let bps = total_votes.saturating_mul(10_000) / signer_count;
-                                total_participation_bps = total_participation_bps.saturating_add(bps);
+                                total_participation_bps =
+                                    total_participation_bps.saturating_add(bps);
                             }
                         }
                         ProposalStatus::Cancelled => {
@@ -392,21 +398,24 @@ mod governance {
                         ProposalStatus::Expired => {
                             closed_count += 1;
                             if signer_count > 0 {
-                                let total_votes = (proposal.votes_for.saturating_add(proposal.votes_against)) as u64;
+                                let total_votes =
+                                    (proposal.votes_for.saturating_add(proposal.votes_against))
+                                        as u64;
                                 let bps = total_votes.saturating_mul(10_000) / signer_count;
-                                total_participation_bps = total_participation_bps.saturating_add(bps);
+                                total_participation_bps =
+                                    total_participation_bps.saturating_add(bps);
                             }
                         }
                     }
                 }
             }
-            
+
             let avg_participation_bps = if closed_count > 0 {
                 (total_participation_bps / closed_count) as u32
             } else {
                 0
             };
-            
+
             GovernanceAnalytics {
                 total_proposals: total,
                 executed_proposals: executed,
@@ -426,7 +435,10 @@ mod governance {
         /// Returns the participation rate for a specific proposal in basis points.
         #[ink(message)]
         pub fn get_proposal_participation(&self, proposal_id: u64) -> Result<u32, Error> {
-            let proposal = self.proposals.get(proposal_id).ok_or(Error::ProposalNotFound)?;
+            let proposal = self
+                .proposals
+                .get(proposal_id)
+                .ok_or(Error::ProposalNotFound)?;
             let signer_count = self.signers.len() as u32;
             if signer_count == 0 {
                 return Ok(0);
@@ -885,7 +897,12 @@ mod governance {
         }
 
         /// Internal vote recording logic shared by `vote` and `reveal_vote`.
-        fn record_vote(&mut self, proposal_id: u64, caller: AccountId, support: bool) -> Result<(), Error> {
+        fn record_vote(
+            &mut self,
+            proposal_id: u64,
+            caller: AccountId,
+            support: bool,
+        ) -> Result<(), Error> {
             let mut proposal = self
                 .proposals
                 .get(proposal_id)

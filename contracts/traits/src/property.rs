@@ -3,10 +3,10 @@
 //! This module contains the core property-related types, metadata structures,
 //! and trait definitions for property registration, escrow, and management.
 
+use crate::compliance::Jurisdiction;
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
 use ink::primitives::AccountId;
-use crate::compliance::Jurisdiction;
 
 // =========================================================================
 // Data Types
