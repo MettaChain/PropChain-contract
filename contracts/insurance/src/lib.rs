@@ -2479,9 +2479,11 @@ mod propchain_insurance {
                 property_value,
                 location_code: location_code.clone(),
                 construction_type: construction_type.clone(),
-                has_security_system,
-                has_fire_extinguisher,
-                has_alarm_system,
+                safety_flags: PropertyRiskFactors::encode_safety_flags(
+                    has_security_system,
+                    has_fire_extinguisher,
+                    has_alarm_system,
+                ),
                 owner_age_years,
                 years_as_owner,
                 assessed_at: now,
@@ -2625,7 +2627,12 @@ mod propchain_insurance {
             let new_premium_multiplier =
                 risk_model::calculate_premium_multiplier(new_overall_score);
 
-            // Update model
+            // Update model — also repack the safety flags in the stored factors
+            risk_model.property_factors.safety_flags = PropertyRiskFactors::encode_safety_flags(
+                has_security_system,
+                has_fire_extinguisher,
+                has_alarm_system,
+            );
             risk_model.age_risk_score = age_risk_score;
             risk_model.safety_features_score = safety_features_score;
             risk_model.overall_risk_score = new_overall_score;

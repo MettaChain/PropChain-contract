@@ -376,7 +376,30 @@ pub struct PoolLiquidityProvider {
 // RISK ASSESSMENT MODEL TYPES (Task #254)
 // =========================================================================
 
-/// Property risk factors for comprehensive risk assessment
+/// Bit positions for `PropertyRiskFactors::safety_flags`.
+///
+/// Packing three `bool` fields into a single `u8` reduces the SCALE-encoded
+/// size of every stored `PropertyRiskModel` by 2 bytes and cuts the number of
+/// storage reads needed to inspect all three flags from 3 to 1.
+pub mod safety_flag {
+    pub const SECURITY_SYSTEM: u8 = 0b0000_0001;
+    pub const FIRE_EXTINGUISHER: u8 = 0b0000_0010;
+    pub const ALARM_SYSTEM: u8 = 0b0000_0100;
+}
+
+/// Property risk factors for comprehensive risk assessment.
+///
+/// ### Storage layout change (issue #515)
+/// The three separate `bool` fields `has_security_system`, `has_fire_extinguisher`,
+/// and `has_alarm_system` have been packed into a single `u8 safety_flags` field:
+///
+/// | bit | meaning                |
+/// |-----|------------------------|
+/// |  0  | `has_security_system`  |
+/// |  1  | `has_fire_extinguisher`|
+/// |  2  | `has_alarm_system`     |
+///
+/// Use the [`safety_flag`] constants and the accessor methods below.
 #[derive(
     Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
 )]
@@ -387,12 +410,40 @@ pub struct PropertyRiskFactors {
     pub property_value: u128,
     pub location_code: String,
     pub construction_type: String,
-    pub has_security_system: bool,
-    pub has_fire_extinguisher: bool,
-    pub has_alarm_system: bool,
+    /// Packed safety-feature flags.  See [`safety_flag`] for bit positions.
+    pub safety_flags: u8,
     pub owner_age_years: u32,
     pub years_as_owner: u32,
     pub assessed_at: u64,
+}
+
+impl PropertyRiskFactors {
+    /// Construct `safety_flags` from three individual boolean values.
+    #[inline]
+    pub fn encode_safety_flags(
+        has_security_system: bool,
+        has_fire_extinguisher: bool,
+        has_alarm_system: bool,
+    ) -> u8 {
+        (has_security_system as u8 * safety_flag::SECURITY_SYSTEM)
+            | (has_fire_extinguisher as u8 * safety_flag::FIRE_EXTINGUISHER)
+            | (has_alarm_system as u8 * safety_flag::ALARM_SYSTEM)
+    }
+
+    #[inline]
+    pub fn has_security_system(&self) -> bool {
+        self.safety_flags & safety_flag::SECURITY_SYSTEM != 0
+    }
+
+    #[inline]
+    pub fn has_fire_extinguisher(&self) -> bool {
+        self.safety_flags & safety_flag::FIRE_EXTINGUISHER != 0
+    }
+
+    #[inline]
+    pub fn has_alarm_system(&self) -> bool {
+        self.safety_flags & safety_flag::ALARM_SYSTEM != 0
+    }
 }
 
 /// Comprehensive risk assessment model with detailed scoring
