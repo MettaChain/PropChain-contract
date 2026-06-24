@@ -270,6 +270,12 @@ mod compliance_registry {
         kyc_metrics: KycMetrics,
         /// KYC funnel metrics scoped by jurisdiction
         jurisdiction_kyc_metrics: Mapping<Jurisdiction, KycMetrics>,
+        /// Merkle root of the sanctions list for on-chain verification
+        sanctions_list_merkle_root: [u8; 32],
+        /// Cache of screening results per account
+        screening_cache: Mapping<AccountId, ScreeningResult>,
+        /// TTL for cached screening results in seconds
+        screening_cache_ttl: u64,
     }
 
     /// Errors
@@ -298,6 +304,8 @@ mod compliance_registry {
         InvalidDocumentType,
         /// Jurisdiction not supported
         JurisdictionNotSupported,
+        /// Sanctions check failed
+        SanctionsCheckFailed,
     }
 
     impl core::fmt::Display for Error {
@@ -314,6 +322,7 @@ mod compliance_registry {
                 Error::InvalidRiskScore => write!(f, "Invalid risk score"),
                 Error::InvalidDocumentType => write!(f, "Invalid document type"),
                 Error::JurisdictionNotSupported => write!(f, "Jurisdiction not supported"),
+                Error::SanctionsCheckFailed => write!(f, "Sanctions check failed"),
             }
         }
     }
@@ -354,6 +363,9 @@ mod compliance_registry {
                 Error::JurisdictionNotSupported => {
                     propchain_traits::errors::compliance_codes::COMPLIANCE_JURISDICTION_NOT_SUPPORTED
                 }
+                Error::SanctionsCheckFailed => {
+                    propchain_traits::errors::compliance_codes::COMPLIANCE_SANCTIONS_CHECK_FAILED
+                }
             }
         }
 
@@ -382,6 +394,9 @@ mod compliance_registry {
                 Error::JurisdictionNotSupported => {
                     "The specified jurisdiction is not currently supported"
                 }
+                Error::SanctionsCheckFailed => {
+                    "The account has failed sanctions screening"
+                }
             }
         }
 
@@ -402,6 +417,7 @@ mod compliance_registry {
                 Error::InvalidRiskScore => "compliance.invalid_risk_score",
                 Error::InvalidDocumentType => "compliance.invalid_document_type",
                 Error::JurisdictionNotSupported => "compliance.jurisdiction_not_supported",
+                Error::SanctionsCheckFailed => "compliance.sanctions_check_failed",
             }
         }
     }
@@ -473,6 +489,22 @@ mod compliance_registry {
         jurisdiction_code: u32,
         outstanding_tax: Balance,
         timestamp: Timestamp,
+    }
+
+    #[ink(event)]
+    pub struct AddressFlagged {
+        #[ink(topic)]
+        account: AccountId,
+        status: ScreeningStatus,
+        matched_lists: Vec<SanctionsList>,
+        timestamp: u64,
+    }
+
+    #[ink(event)]
+    pub struct SanctionsListUpdated {
+        merkle_root: [u8; 32],
+        updated_by: AccountId,
+        timestamp: u64,
     }
 
     /// Compliance report for an account (audit trail and reporting - Issue #45)
@@ -557,6 +589,33 @@ mod compliance_registry {
         pub lists_checked: Vec<u8>,
     }
 
+    /// Screening result for an address
+    #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub struct ScreeningResult {
+        pub account: AccountId,
+        pub status: ScreeningStatus,
+        pub matched_lists: Vec<SanctionsList>,
+        pub match_details: String,
+        pub screened_at: u64,
+        pub expires_at: u64,
+    }
+
+    /// Screening status
+    #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub enum ScreeningStatus {
+        Cleared,
+        Flagged,
+        Blocked,
+    }
+
     impl Default for ComplianceRegistry {
         fn default() -> Self {
             Self::new()
@@ -589,6 +648,9 @@ mod compliance_registry {
                 tax_compliance_status: Mapping::default(),
                 kyc_metrics: KycMetrics::default(),
                 jurisdiction_kyc_metrics: Mapping::default(),
+                sanctions_list_merkle_root: [0u8; 32],
+                screening_cache: Mapping::default(),
+                screening_cache_ttl: 3600,
             };
 
             // Initialize default jurisdiction rules
@@ -1488,6 +1550,117 @@ mod compliance_registry {
             }
         }
 
+        /// Screen an address against sanctions lists with caching
+        #[ink(message)]
+        pub fn screen_address(&mut self, account: AccountId) -> Result<ScreeningResult> {
+            let now = self.env().block_timestamp();
+
+            // Check cache first
+            if let Some(cached) = self.screening_cache.get(account) {
+                if now < cached.expires_at {
+                    return Ok(cached);
+                }
+            }
+
+            // Perform screening against compliance data
+            let result = self.perform_screening(account, now)?;
+
+            // Cache the result
+            let ttl_ms = self.screening_cache_ttl * 1000;
+            let mut screened = result.clone();
+            screened.expires_at = now.saturating_add(ttl_ms);
+            self.screening_cache.insert(account, &screened);
+
+            // Emit event if flagged or blocked
+            match screened.status {
+                ScreeningStatus::Flagged | ScreeningStatus::Blocked => {
+                    self.env().emit_event(AddressFlagged {
+                        account: screened.account,
+                        status: screened.status.clone(),
+                        matched_lists: screened.matched_lists.clone(),
+                        timestamp: now,
+                    });
+                }
+                _ => {}
+            }
+
+            Ok(screened)
+        }
+
+        /// Perform the actual screening logic
+        fn perform_screening(
+            &self,
+            account: AccountId,
+            now: u64,
+        ) -> Result<ScreeningResult> {
+            if let Some(data) = self.compliance_data.get(account) {
+                let status = if !data.sanctions_checked {
+                    ScreeningStatus::Blocked
+                } else if data.risk_level == RiskLevel::Prohibited {
+                    ScreeningStatus::Blocked
+                } else if data.risk_level == RiskLevel::High {
+                    ScreeningStatus::Flagged
+                } else {
+                    ScreeningStatus::Cleared
+                };
+
+                let matched_lists = vec![data.sanctions_list_checked];
+
+                let match_details = match &status {
+                    ScreeningStatus::Cleared => "No sanctions match found".into(),
+                    ScreeningStatus::Flagged => "Potential sanctions match detected".into(),
+                    ScreeningStatus::Blocked => "Confirmed sanctions match".into(),
+                };
+
+                let ttl_ms = self.screening_cache_ttl * 1000;
+                Ok(ScreeningResult {
+                    account,
+                    status,
+                    matched_lists,
+                    match_details,
+                    screened_at: now,
+                    expires_at: now.saturating_add(ttl_ms),
+                })
+            } else {
+                Err(Error::NotVerified)
+            }
+        }
+
+        /// Update the sanctions list merkle root (admin only)
+        #[ink(message)]
+        pub fn update_sanctions_list(&mut self, merkle_root: [u8; 32]) -> Result<()> {
+            self.ensure_owner()?;
+            self.sanctions_list_merkle_root = merkle_root;
+
+            self.env().emit_event(SanctionsListUpdated {
+                merkle_root,
+                updated_by: self.env().caller(),
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Set the screening cache TTL in seconds (admin only)
+        #[ink(message)]
+        pub fn set_screening_cache_ttl(&mut self, ttl_seconds: u64) -> Result<()> {
+            self.ensure_owner()?;
+            self.screening_cache_ttl = ttl_seconds;
+            Ok(())
+        }
+
+        /// Get cached screening result for an account
+        #[ink(message)]
+        pub fn get_cached_screening(&self, account: AccountId) -> Option<ScreeningResult> {
+            if let Some(cached) = self.screening_cache.get(account) {
+                let now = self.env().block_timestamp();
+                if now < cached.expires_at {
+                    return Some(cached);
+                }
+            }
+            None
+        }
+
         // === Helper Functions ===
 
         fn ensure_owner(&self) -> Result<()> {
@@ -2119,6 +2292,133 @@ mod compliance_registry {
             assert_eq!(metrics.converted_requests, 1);
             assert_eq!(metrics.successful_verifications, 1);
             assert_eq!(metrics.verification_rate_bips, 10_000);
+        }
+
+        // Issue #528: Sanctions screening integration tests
+
+        #[ink::test]
+        fn screen_compliant_account_returns_cleared() {
+            let mut contract = ComplianceRegistry::new();
+            let user = AccountId::from([0x10; 32]);
+            let kyc_hash = [0u8; 32];
+
+            contract
+                .submit_verification(
+                    user,
+                    Jurisdiction::US,
+                    kyc_hash,
+                    RiskLevel::Low,
+                    DocumentType::Passport,
+                    BiometricMethod::FaceRecognition,
+                    10,
+                )
+                .expect("submit verification");
+
+            contract
+                .update_sanctions_status(user, true, SanctionsList::OFAC)
+                .expect("update sanctions status");
+
+            let result = contract.screen_address(user).expect("screen address");
+            assert_eq!(result.status, ScreeningStatus::Cleared);
+            assert_eq!(result.account, user);
+            assert!(result.expires_at > 0);
+        }
+
+        #[ink::test]
+        fn screen_sanctioned_account_returns_blocked() {
+            let mut contract = ComplianceRegistry::new();
+            let user = AccountId::from([0x11; 32]);
+            let kyc_hash = [0u8; 32];
+
+            contract
+                .submit_verification(
+                    user,
+                    Jurisdiction::US,
+                    kyc_hash,
+                    RiskLevel::Low,
+                    DocumentType::Passport,
+                    BiometricMethod::FaceRecognition,
+                    10,
+                )
+                .expect("submit verification");
+
+            contract
+                .update_sanctions_status(user, false, SanctionsList::OFAC)
+                .expect("update sanctions status");
+
+            let result = contract.screen_address(user).expect("screen address");
+            assert_eq!(result.status, ScreeningStatus::Blocked);
+            assert!(!result.matched_lists.is_empty());
+        }
+
+        #[ink::test]
+        fn screen_unverified_account_returns_error() {
+            let mut contract = ComplianceRegistry::new();
+            let user = AccountId::from([0x12; 32]);
+
+            let result = contract.screen_address(user);
+            assert_eq!(result, Err(Error::NotVerified));
+        }
+
+        #[ink::test]
+        fn screening_cache_returns_cached_result() {
+            let mut contract = ComplianceRegistry::new();
+            let user = AccountId::from([0x13; 32]);
+            let kyc_hash = [0u8; 32];
+
+            contract
+                .submit_verification(
+                    user,
+                    Jurisdiction::US,
+                    kyc_hash,
+                    RiskLevel::Low,
+                    DocumentType::Passport,
+                    BiometricMethod::FaceRecognition,
+                    10,
+                )
+                .expect("submit verification");
+
+            contract
+                .update_sanctions_status(user, true, SanctionsList::OFAC)
+                .expect("update sanctions status");
+
+            let first = contract.screen_address(user).expect("first screen");
+            let cached = contract.get_cached_screening(user).expect("cached result");
+            assert_eq!(first, cached);
+        }
+
+        #[ink::test]
+        fn update_sanctions_list_admin_only() {
+            let mut contract = ComplianceRegistry::new();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            // Owner can update
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            let root = [1u8; 32];
+            contract
+                .update_sanctions_list(root)
+                .expect("owner should be able to update");
+
+            // Non-owner cannot update
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            let new_root = [2u8; 32];
+            let result = contract.update_sanctions_list(new_root);
+            assert_eq!(result, Err(Error::NotAuthorized));
+        }
+
+        #[ink::test]
+        fn set_screening_cache_ttl_admin_only() {
+            let mut contract = ComplianceRegistry::new();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract
+                .set_screening_cache_ttl(7200)
+                .expect("owner should be able to set TTL");
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            let result = contract.set_screening_cache_ttl(1800);
+            assert_eq!(result, Err(Error::NotAuthorized));
         }
     }
 }

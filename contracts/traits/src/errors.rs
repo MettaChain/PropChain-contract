@@ -309,6 +309,9 @@ pub mod escrow_codes {
     pub const APPROVAL_REQUEST_ALREADY_EXECUTED: u32 = 2017;
     pub const APPROVAL_REQUEST_CANCELLED: u32 = 2018;
     pub const LARGE_TRANSFER_APPROVAL_REQUIRED: u32 = 2019;
+    // Fee-related error codes
+    pub const FEE_RATE_TOO_HIGH: u32 = 2020;
+    pub const INVALID_FEE_AMOUNT: u32 = 2021;
 }
 
 /// Bridge error codes (3000-3999)
@@ -376,7 +379,8 @@ pub mod compliance_codes {
     pub const COMPLIANCE_JURISDICTION_NOT_SUPPORTED: u32 = 6011;
     pub const COMPLIANCE_INVALID_DOCUMENT_TYPE: u32 = 6012;
     pub const COMPLIANCE_DATA_RETENTION_EXPIRED: u32 = 6013;
-    pub const REENTRANT_CALL: u32 = 6014;
+    pub const COMPLIANCE_SANCTIONS_CHECK_FAILED: u32 = 6014;
+    pub const REENTRANT_CALL: u32 = 6015;
 }
 
 /// DEX error codes (7000-7999)
@@ -508,6 +512,7 @@ mod tests {
             compliance_codes::COMPLIANCE_JURISDICTION_NOT_SUPPORTED,
             compliance_codes::COMPLIANCE_INVALID_DOCUMENT_TYPE,
             compliance_codes::COMPLIANCE_DATA_RETENTION_EXPIRED,
+            compliance_codes::COMPLIANCE_SANCTIONS_CHECK_FAILED,
             compliance_codes::REENTRANT_CALL,
         ];
         let len = codes.len();

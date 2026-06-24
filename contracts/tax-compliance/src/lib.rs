@@ -9,11 +9,11 @@ use propchain_traits::*;
 #[ink::contract]
 mod tax_compliance {
     use super::*;
-    mod tax_engine;
-    mod jurisdiction_presets;
-    mod tax_strategies;
-
     const BASIS_POINTS_DENOMINATOR: Balance = 10_000;
+
+    include!("tax_engine.rs");
+    include!("jurisdiction_presets.rs");
+    include!("tax_strategies.rs");
 
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -36,13 +36,6 @@ mod tax_compliance {
             }
         }
     }
-
-    // Re-export tax strategy types
-    pub use tax_strategies::{
-        StrategyType, TaxStrategy, TimingStrategy, TransferStrategy, PortfolioStrategy,
-        EntityStrategy, InstallmentStrategy, CrossBorderStrategy, OptimizationAnalysis,
-    };
-
     #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(
         feature = "std",
@@ -313,6 +306,39 @@ mod tax_compliance {
         pub status: TaxStatus,
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    pub struct CachedCompliance {
+        pub snapshot: ComplianceSnapshot,
+        pub cached_at: u64,
+        pub expires_at: u64,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub struct GlobalComplianceSummary {
+        pub total_properties: u32,
+        pub total_jurisdictions: u32,
+        pub compliant_properties: u32,
+        pub non_compliant_properties: u32,
+        pub total_outstanding_tax: Balance,
+        pub overdue_jurisdictions: Vec<OverdueJurisdiction>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub struct OverdueJurisdiction {
+        pub property_id: u64,
+        pub jurisdiction_code: u32,
+        pub outstanding_tax: Balance,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(
         feature = "std",
@@ -349,6 +375,7 @@ mod tax_compliance {
         InvalidRate,
         ReentrantCall,
         TreatyNotFound,
+        JurisdictionNotFound,
     }
 
     impl From<ReentrancyError> for Error {
@@ -368,6 +395,7 @@ mod tax_compliance {
                 Self::InvalidRate => write!(f, "Tax configuration is invalid"),
                 Self::ReentrantCall => write!(f, "Reentrant call"),
                 Self::TreatyNotFound => write!(f, "Tax treaty not found"),
+                Self::JurisdictionNotFound => write!(f, "Jurisdiction not found for property"),
             }
         }
     }
@@ -397,6 +425,9 @@ mod tax_compliance {
                 Self::TreatyNotFound => {
                     propchain_traits::errors::compliance_codes::COMPLIANCE_CHECK_FAILED
                 }
+                Self::JurisdictionNotFound => {
+                    propchain_traits::errors::compliance_codes::COMPLIANCE_CHECK_FAILED
+                }
             }
         }
 
@@ -416,6 +447,9 @@ mod tax_compliance {
                 }
                 Self::ReentrantCall => "Reentrancy guard detected a reentrant call",
                 Self::TreatyNotFound => "No tax treaty was configured for the requested jurisdiction pair",
+                Self::JurisdictionNotFound => {
+                    "The property is not registered in the requested jurisdiction"
+                }
             }
         }
 
@@ -488,6 +522,20 @@ pub struct ComplianceRegistrySyncRequested {
     outstanding_tax: Balance,
     legal_documents_verified: bool,
     reporting_submitted: bool,
+}
+
+#[ink(event)]
+pub struct ComplianceCacheHit {
+    property_id: u64,
+    jurisdiction_code: u32,
+    timestamp: u64,
+}
+
+#[ink(event)]
+pub struct ComplianceCacheMiss {
+    property_id: u64,
+    jurisdiction_code: u32,
+    timestamp: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -646,6 +694,11 @@ pub struct TaxDeadlineNotification {
         advisor_property_assignments: Mapping<(AccountId, u64), bool>,
         /// Tax treaties keyed by (min(a,b), max(a,b)) for canonical ordering
         tax_treaties: Mapping<(u32, u32), TaxTreaty>,
+        /// Cached compliance snapshots with TTL (Issue #513)
+        compliance_cache: Mapping<(u64, u32), CachedCompliance>,
+        compliance_cache_ttl: u64,
+        /// Tracks which jurisdictions each property is assessed in (Issue #529)
+        property_jurisdictions: Mapping<u64, Vec<u32>>,
     }
 
     impl TaxComplianceModule {
@@ -667,6 +720,9 @@ pub struct TaxDeadlineNotification {
                 tax_advisors: Mapping::default(),
                 advisor_property_assignments: Mapping::default(),
                 tax_treaties: Mapping::default(),
+                compliance_cache: Mapping::default(),
+                compliance_cache_ttl: 300_000,
+                property_jurisdictions: Mapping::default(),
             }
         }
 
@@ -724,19 +780,19 @@ pub struct TaxDeadlineNotification {
 
             match region {
                 RegionType::US => {
-                    let jurisdiction = jurisdiction_presets::jurisdiction_from_country(b"US");
-                    self.tax_rules.insert(jurisdiction.code, &jurisdiction_presets::us_federal_rule());
-                    self.jurisdiction_profiles.insert(jurisdiction.code, &jurisdiction_presets::us_federal_profile());
+                    let jurisdiction = jurisdiction_from_country(b"US");
+                    self.tax_rules.insert(jurisdiction.code, &us_federal_rule());
+                    self.jurisdiction_profiles.insert(jurisdiction.code, &us_federal_profile());
                 }
                 RegionType::EU => {
-                    let jurisdiction = jurisdiction_presets::jurisdiction_from_country(b"DE");
-                    self.tax_rules.insert(jurisdiction.code, &jurisdiction_presets::eu_standard_rule());
-                    self.jurisdiction_profiles.insert(jurisdiction.code, &jurisdiction_presets::eu_standard_profile());
+                    let jurisdiction = jurisdiction_from_country(b"DE");
+                    self.tax_rules.insert(jurisdiction.code, &eu_standard_rule());
+                    self.jurisdiction_profiles.insert(jurisdiction.code, &eu_standard_profile());
                 }
                 RegionType::Asia => {
-                    let jurisdiction = jurisdiction_presets::jurisdiction_from_country(b"SG");
-                    self.tax_rules.insert(jurisdiction.code, &jurisdiction_presets::asia_standard_rule());
-                    self.jurisdiction_profiles.insert(jurisdiction.code, &jurisdiction_presets::asia_standard_profile());
+                    let jurisdiction = jurisdiction_from_country(b"SG");
+                    self.tax_rules.insert(jurisdiction.code, &asia_standard_rule());
+                    self.jurisdiction_profiles.insert(jurisdiction.code, &asia_standard_profile());
                 }
             }
 
@@ -763,6 +819,7 @@ pub struct TaxDeadlineNotification {
             };
             self.property_assessments
                 .insert((property_id, jurisdiction.code), &assessment);
+            self.track_jurisdiction(property_id, jurisdiction.code);
             self.log_audit(
                 property_id,
                 jurisdiction.code,
@@ -771,6 +828,7 @@ pub struct TaxDeadlineNotification {
                 assessed_value,
                 [0u8; 32],
             );
+            self.invalidate_compliance_cache(property_id, jurisdiction.code);
             Ok(())
         }
 
@@ -814,7 +872,8 @@ pub struct TaxDeadlineNotification {
                     })
                     .unwrap_or(0);
                 let tax_due = gross_tax.saturating_sub(treaty_reduction);
-                let mut record = TaxRecord {                    property_id,
+                let mut record = TaxRecord {
+                    property_id,
                     jurisdiction_code: jurisdiction.code,
                     reporting_period,
                     assessed_value: assessment.assessed_value,
@@ -828,6 +887,12 @@ pub struct TaxDeadlineNotification {
                         .map(|value: TaxRecord| value.last_payment_at)
                         .unwrap_or(0),
                     status: TaxStatus::Assessed,
+                    penalty_amount: existing
+                        .map(|value: TaxRecord| value.penalty_amount)
+                        .unwrap_or(0),
+                    discount_amount: existing
+                        .map(|value: TaxRecord| value.discount_amount)
+                        .unwrap_or(0),
                     payment_reference: existing
                         .map(|value: TaxRecord| value.payment_reference)
                         .unwrap_or([0u8; 32]),
@@ -857,7 +922,7 @@ pub struct TaxDeadlineNotification {
                 });
 
                 // Emit tax deadline notification if approaching
-                if let Some(days) = crate::tax_engine::days_until_due(now, record.due_at) {
+                if let Some(days) = days_until_due(now, record.due_at) {
                     if days <= 30 {
                         let alert_level = if days <= 7 { DeadlineAlertLevel::Urgent } else { DeadlineAlertLevel::Approaching };
                         self.env().emit_event(TaxDeadlineApproaching {
@@ -886,6 +951,7 @@ pub struct TaxDeadlineNotification {
                     Some(record),
                 );
                 self.emit_registry_sync_requested(snapshot);
+                self.invalidate_compliance_cache(property_id, jurisdiction.code);
 
                 Ok(record)
             })
@@ -943,6 +1009,7 @@ pub struct TaxDeadlineNotification {
                     Some(record),
                 );
                 self.emit_registry_sync_requested(snapshot);
+                self.invalidate_compliance_cache(property_id, jurisdiction.code);
 
                 Ok(record)
             })
@@ -1000,6 +1067,7 @@ pub struct TaxDeadlineNotification {
                     Some(record),
                 );
                 self.emit_registry_sync_requested(snapshot);
+                self.invalidate_compliance_cache(property_id, jurisdiction.code);
 
                 Ok(())
             })
@@ -1051,6 +1119,7 @@ pub struct TaxDeadlineNotification {
                 let snapshot =
                     self.build_snapshot(property_id, jurisdiction.code, &rule, &assessment, record);
                 self.emit_registry_sync_requested(snapshot);
+                self.invalidate_compliance_cache(property_id, jurisdiction.code);
 
                 Ok(())
             })
@@ -1065,10 +1134,6 @@ pub struct TaxDeadlineNotification {
             self.ensure_admin()?;
             let now = self.env().block_timestamp();
             let rule = self.get_active_rule(jurisdiction.code)?;
-            let assessment = self
-                .property_assessments
-                .get((property_id, jurisdiction.code))
-                .ok_or(Error::AssessmentNotFound)?;
             let reporting_period = self
                 .latest_reporting_period
                 .get((property_id, jurisdiction.code))
@@ -1079,11 +1144,11 @@ pub struct TaxDeadlineNotification {
 
             non_reentrant!(self, {
                 let snapshot =
-                    self.build_snapshot(property_id, jurisdiction.code, &rule, &assessment, record);
+                    self.get_or_refresh_compliance(property_id, jurisdiction.code, now)?;
 
                 // Emit tax deadline notification if approaching during compliance check
                 if let Some(record) = record {
-                    if let Some(days) = crate::tax_engine::days_until_due(now, record.due_at) {
+                    if let Some(days) = days_until_due(now, record.due_at) {
                         if days <= 30 {
                             let alert_level = if days <= 7 { DeadlineAlertLevel::Urgent } else { DeadlineAlertLevel::Approaching };
                             self.env().emit_event(TaxDeadlineApproaching {
@@ -1142,6 +1207,150 @@ pub struct TaxDeadlineNotification {
         #[ink(message)]
         pub fn get_tax_rule(&self, jurisdiction_code: u32) -> Option<TaxRule> {
             self.tax_rules.get(jurisdiction_code)
+        }
+
+        /// Query cached compliance. Returns None if no cache entry or expired.
+        #[ink(message)]
+        pub fn get_cached_compliance(
+            &self,
+            property_id: u64,
+            jurisdiction_code: u32,
+        ) -> Option<CachedCompliance> {
+            if let Some(cached) = self.compliance_cache.get((property_id, jurisdiction_code)) {
+                let now = self.env().block_timestamp();
+                if cached.expires_at > now {
+                    return Some(cached);
+                }
+            }
+            None
+        }
+
+        /// Admin: force refresh compliance cache for a jurisdiction.
+        #[ink(message)]
+        pub fn force_refresh_compliance(
+            &mut self,
+            property_id: u64,
+            jurisdiction: Jurisdiction,
+        ) -> Result<ComplianceSnapshot> {
+            self.ensure_admin()?;
+            let now = self.env().block_timestamp();
+            let snapshot = self.get_or_refresh_compliance(property_id, jurisdiction.code, now)?;
+            Ok(snapshot)
+        }
+
+        /// Admin: set cache TTL in milliseconds.
+        #[ink(message)]
+        pub fn set_compliance_cache_ttl(&mut self, ttl_ms: u64) -> Result<()> {
+            self.ensure_admin()?;
+            self.compliance_cache_ttl = ttl_ms;
+            Ok(())
+        }
+
+        /// Query compliance status across multiple jurisdictions for a property.
+        /// Returns a snapshot per jurisdiction with outstanding tax, reporting
+        /// status, document verification, and overall compliance flags.
+        #[ink(message)]
+        pub fn get_multi_jurisdiction_compliance(
+            &mut self,
+            property_id: u64,
+        ) -> Result<Vec<ComplianceSnapshot>> {
+            self.ensure_admin()?;
+            let jurisdictions = self
+                .property_jurisdictions
+                .get(&property_id)
+                .ok_or(Error::JurisdictionNotFound)?;
+            let now = self.env().block_timestamp();
+            let mut snapshots: Vec<ComplianceSnapshot> = Vec::new();
+            for code in &jurisdictions {
+                if let Ok(rule) = self.get_active_rule(*code) {
+                    if let Some(assessment) =
+                        self.property_assessments.get((property_id, *code))
+                    {
+                        let reporting_period = self
+                            .latest_reporting_period
+                            .get((property_id, *code))
+                            .unwrap_or(self.reporting_period(now, rule.reporting_frequency));
+                        let record = self
+                            .tax_records
+                            .get((property_id, *code, reporting_period));
+                        let snapshot = self
+                            .build_snapshot(property_id, *code, &rule, &assessment, record);
+                        snapshots.push(snapshot);
+                    }
+                }
+            }
+            Ok(snapshots)
+        }
+
+        /// Aggregate compliance across all properties owned by `owner`. Returns
+        /// a `GlobalComplianceSummary` counting compliant vs non-compliant
+        /// properties, total outstanding tax, and a list of overdue jurisdictions.
+        #[ink(message)]
+        pub fn get_global_compliance_summary(
+            &self,
+            owner: AccountId,
+            property_ids: Vec<u64>,
+        ) -> GlobalComplianceSummary {
+            let mut total_properties = 0u32;
+            let mut total_jurisdictions = 0u32;
+            let mut compliant_properties = 0u32;
+            let mut non_compliant_properties = 0u32;
+            let mut total_outstanding_tax: Balance = 0;
+            let mut overdue: Vec<OverdueJurisdiction> = Vec::new();
+
+            for pid in &property_ids {
+                let mut property_has_non_compliant = false;
+                if let Some(jurisdictions) = self.property_jurisdictions.get(pid) {
+                    total_jurisdictions += jurisdictions.len() as u32;
+                    for code in &jurisdictions {
+                        if let Some(assessment) =
+                            self.property_assessments.get((*pid, *code))
+                        {
+                            if assessment.owner != owner {
+                                continue;
+                            }
+                            // We need to get the latest record to check outstanding tax
+                            let now = self.env().block_timestamp();
+                            if let Ok(rule) = self.get_active_rule(*code) {
+                                let rp = self
+                                    .latest_reporting_period
+                                    .get((*pid, *code))
+                                    .unwrap_or(self.reporting_period(now, rule.reporting_frequency));
+                                if let Some(record) =
+                                    self.tax_records.get((*pid, *code, rp))
+                                {
+                                    let outstanding = self.outstanding_tax(&record);
+                                    if outstanding > 0 {
+                                        property_has_non_compliant = true;
+                                        total_outstanding_tax =
+                                            total_outstanding_tax.saturating_add(outstanding);
+                                        overdue.push(OverdueJurisdiction {
+                                            property_id: *pid,
+                                            jurisdiction_code: *code,
+                                            outstanding_tax: outstanding,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                total_properties += 1;
+                if property_has_non_compliant {
+                    non_compliant_properties += 1;
+                } else {
+                    compliant_properties += 1;
+                }
+            }
+
+            GlobalComplianceSummary {
+                total_properties,
+                total_jurisdictions,
+                compliant_properties,
+                non_compliant_properties,
+                total_outstanding_tax,
+                overdue_jurisdictions: overdue,
+            }
         }
 
         /// Create or update a tax treaty between two jurisdictions.
@@ -1210,7 +1419,7 @@ pub struct TaxDeadlineNotification {
             let profile = self.jurisdiction_profiles.get(jurisdiction_code);
             let now = self.env().block_timestamp();
 
-            Ok(tax_engine::build_breakdown(rule, profile, assessment, record, now))
+            Ok(build_breakdown(rule, profile, assessment, record, now))
         }
 
         #[ink(message)]
@@ -1322,7 +1531,7 @@ pub struct TaxDeadlineNotification {
             let reporting_period = self.reporting_period(now, rule.reporting_frequency);
             let record = self.tax_records.get((property_id, jurisdiction.code, reporting_period));
 
-            Ok(tax_strategies::calculate_timing_strategy(rule, profile, record, now))
+            Ok(calculate_timing_strategy(rule, profile, record, now))
         }
 
         /// Recommends property transfer optimization strategies
@@ -1338,7 +1547,7 @@ pub struct TaxDeadlineNotification {
                 .get((property_id, jurisdiction.code))
                 .ok_or(Error::AssessmentNotFound)?;
 
-            Ok(tax_strategies::calculate_transfer_strategy(assessment, rule))
+            Ok(calculate_transfer_strategy(assessment, rule))
         }
 
         /// Recommends portfolio rebalancing strategy for multiple properties
@@ -1349,7 +1558,7 @@ pub struct TaxDeadlineNotification {
             property_count: u32,
             harvesting_opportunity: Balance,
         ) -> PortfolioStrategy {
-            tax_strategies::calculate_portfolio_strategy(
+            calculate_portfolio_strategy(
                 total_portfolio_value,
                 property_count,
                 harvesting_opportunity,
@@ -1369,7 +1578,7 @@ pub struct TaxDeadlineNotification {
                 .get((property_id, jurisdiction.code))
                 .ok_or(Error::AssessmentNotFound)?;
 
-            Ok(tax_strategies::calculate_entity_strategy(
+            Ok(calculate_entity_strategy(
                 rule.rate_basis_points,
                 assessment.assessed_value,
             ))
@@ -1378,7 +1587,7 @@ pub struct TaxDeadlineNotification {
         /// Recommends installment-based transaction structure
         #[ink(message)]
         pub fn get_installment_strategy(&self, transaction_amount: Balance) -> InstallmentStrategy {
-            tax_strategies::calculate_installment_strategy(transaction_amount)
+            calculate_installment_strategy(transaction_amount)
         }
 
         /// Recommends cross-border transaction optimization
@@ -1392,7 +1601,7 @@ pub struct TaxDeadlineNotification {
             let source_rule = self.get_active_rule(source_jurisdiction_code)?;
             let target_rule = self.get_active_rule(target_jurisdiction_code)?;
 
-            Ok(tax_strategies::calculate_cross_border_strategy(
+            Ok(calculate_cross_border_strategy(
                 source_jurisdiction_code,
                 target_jurisdiction_code,
                 source_rule.rate_basis_points,
@@ -1420,7 +1629,7 @@ pub struct TaxDeadlineNotification {
             let reporting_period = self.reporting_period(now, rule.reporting_frequency);
             let record = self.tax_records.get((property_id, jurisdiction.code, reporting_period));
 
-            Ok(tax_strategies::analyze_strategies(
+            Ok(analyze_strategies(
                 rule,
                 profile,
                 assessment,
@@ -1550,6 +1759,17 @@ pub struct TaxDeadlineNotification {
             }
         }
 
+        fn track_jurisdiction(&mut self, property_id: u64, jurisdiction_code: u32) {
+            let mut jurisdictions = self
+                .property_jurisdictions
+                .get(&property_id)
+                .unwrap_or_default();
+            if !jurisdictions.contains(&jurisdiction_code) {
+                jurisdictions.push(jurisdiction_code);
+                self.property_jurisdictions.insert(&property_id, &jurisdictions);
+            }
+        }
+
         fn emit_registry_sync_requested(&self, snapshot: ComplianceSnapshot) {
             self.env().emit_event(ComplianceRegistrySyncRequested {
                 property_id: snapshot.property_id,
@@ -1559,6 +1779,57 @@ pub struct TaxDeadlineNotification {
                 legal_documents_verified: snapshot.legal_documents_verified,
                 reporting_submitted: snapshot.reporting_submitted,
             });
+        }
+
+        fn get_or_refresh_compliance(
+            &mut self,
+            property_id: u64,
+            jurisdiction_code: u32,
+            now: u64,
+        ) -> Result<ComplianceSnapshot> {
+            if let Some(cached) = self.compliance_cache.get((property_id, jurisdiction_code)) {
+                if cached.expires_at > now {
+                    self.env().emit_event(ComplianceCacheHit {
+                        property_id,
+                        jurisdiction_code,
+                        timestamp: now,
+                    });
+                    return Ok(cached.snapshot);
+                }
+            }
+
+            self.env().emit_event(ComplianceCacheMiss {
+                property_id,
+                jurisdiction_code,
+                timestamp: now,
+            });
+
+            let rule = self.get_active_rule(jurisdiction_code)?;
+            let assessment = self
+                .property_assessments
+                .get((property_id, jurisdiction_code))
+                .ok_or(Error::AssessmentNotFound)?;
+            let reporting_period = self
+                .latest_reporting_period
+                .get((property_id, jurisdiction_code))
+                .unwrap_or(self.reporting_period(now, rule.reporting_frequency));
+            let record = self
+                .tax_records
+                .get((property_id, jurisdiction_code, reporting_period));
+            let snapshot = self.build_snapshot(property_id, jurisdiction_code, &rule, &assessment, record);
+
+            let cached = CachedCompliance {
+                snapshot: snapshot.clone(),
+                cached_at: now,
+                expires_at: now.saturating_add(self.compliance_cache_ttl),
+            };
+            self.compliance_cache.insert((property_id, jurisdiction_code), &cached);
+
+            Ok(snapshot)
+        }
+
+        fn invalidate_compliance_cache(&mut self, property_id: u64, jurisdiction_code: u32) {
+            self.compliance_cache.remove((property_id, jurisdiction_code));
         }
 
         fn log_audit(
@@ -1755,7 +2026,7 @@ pub struct TaxDeadlineNotification {
                 advisor_id,
                 name,
                 license_number,
-                jurisdiction_codes,
+                jurisdiction_codes: jurisdiction_codes.clone(),
                 is_active: true,
                 registered_at: now,
             };
@@ -1907,7 +2178,7 @@ pub struct TaxDeadlineNotification {
     }
 
     #[cfg(test)]
-    mod tests {
+    mod unit_tests {
         use super::*;
 
         fn jurisdiction() -> Jurisdiction {
@@ -1965,7 +2236,7 @@ pub struct TaxDeadlineNotification {
                 .set_property_assessment(11, jurisdiction(), owner, 240_000, 0)
                 .expect("assessment");
 
-            let initial_record = contract.calculate_tax(11, jurisdiction()).expect("tax");
+            let initial_record = contract.calculate_tax(11, jurisdiction(), None).expect("tax");
 
             contract
                 .set_property_assessment(11, jurisdiction(), owner, 180_000, 0)
@@ -2229,6 +2500,140 @@ pub struct TaxDeadlineNotification {
         fn no_treaty_returns_none() {
             let contract = TaxComplianceModule::new(None);
             assert!(contract.get_tax_treaty(1001, 9999).is_none());
+        }
+
+        // ── Cached compliance (Issue #513) ─────────────────────────────
+
+        #[ink::test]
+        fn test_cache_hit_returns_fresh_snapshot() {
+            let mut contract = TaxComplianceModule::new(None);
+            let owner = AccountId::from([0x20; 32]);
+
+            contract.configure_tax_rule(jurisdiction(), rule()).expect("rule");
+            contract
+                .set_property_assessment(30, jurisdiction(), owner, 200_000, 0)
+                .expect("assessment");
+            contract.calculate_tax(30, jurisdiction(), None).expect("tax");
+
+            // First call populates the cache
+            let first = contract.check_compliance(30, jurisdiction()).expect("compliance");
+            assert_eq!(first.property_id, 30);
+
+            // Second call should be a cache hit
+            let second = contract.check_compliance(30, jurisdiction()).expect("compliance");
+            assert_eq!(second.property_id, 30);
+        }
+
+        #[ink::test]
+        fn test_cache_invalidated_on_mutation() {
+            let mut contract = TaxComplianceModule::new(None);
+            let owner = AccountId::from([0x21; 32]);
+
+            contract.configure_tax_rule(jurisdiction(), rule()).expect("rule");
+            contract
+                .set_property_assessment(31, jurisdiction(), owner, 200_000, 0)
+                .expect("assessment");
+            let record = contract.calculate_tax(31, jurisdiction(), None).expect("tax");
+
+            // Populate cache
+            contract.check_compliance(31, jurisdiction()).expect("compliance");
+
+            // Mutate: record payment
+            contract
+                .record_tax_payment(31, jurisdiction(), record.reporting_period, record.tax_due, [0x99; 32])
+                .expect("payment");
+
+            // Cache should be invalidated, so a new check returns updated data
+            let snapshot = contract.check_compliance(31, jurisdiction()).expect("compliance");
+            assert_eq!(snapshot.outstanding_tax, 0);
+        }
+
+        #[ink::test]
+        fn test_force_refresh_updates_cache() {
+            let mut contract = TaxComplianceModule::new(None);
+            let owner = AccountId::from([0x22; 32]);
+
+            contract.configure_tax_rule(jurisdiction(), rule()).expect("rule");
+            contract
+                .set_property_assessment(32, jurisdiction(), owner, 200_000, 0)
+                .expect("assessment");
+            contract.calculate_tax(32, jurisdiction(), None).expect("tax");
+
+            // Populate cache via check_compliance
+            contract.check_compliance(32, jurisdiction()).expect("compliance");
+
+            // Force refresh
+            let refreshed = contract
+                .force_refresh_compliance(32, jurisdiction())
+                .expect("force refresh");
+            assert_eq!(refreshed.property_id, 32);
+        }
+
+        // ── Multi-jurisdiction compliance (Issue #529) ──────────────────────
+
+        fn jurisdiction_b() -> Jurisdiction {
+            Jurisdiction {
+                code: 2002,
+                country_code: *b"GB",
+                region_code: 10,
+                locality_code: 20,
+            }
+        }
+
+        #[ink::test]
+        fn multi_jurisdiction_compliance_returns_all_snapshots() {
+            let mut contract = TaxComplianceModule::new(None);
+            let owner = AccountId::from([0x02; 32]);
+
+            contract
+                .configure_tax_rule(jurisdiction(), rule())
+                .expect("rule A");
+            contract
+                .configure_tax_rule(jurisdiction_b(), rule())
+                .expect("rule B");
+            contract
+                .set_property_assessment(7, jurisdiction(), owner, 200_000, 5_000)
+                .expect("assessment A");
+            contract
+                .set_property_assessment(7, jurisdiction_b(), owner, 300_000, 10_000)
+                .expect("assessment B");
+
+            let snapshots = contract
+                .get_multi_jurisdiction_compliance(7)
+                .expect("multi-jurisdiction query");
+            assert_eq!(snapshots.len(), 2, "should have 2 jurisdiction snapshots");
+            let codes: Vec<u32> = snapshots.iter().map(|s| s.jurisdiction_code).collect();
+            assert!(codes.contains(&1001));
+            assert!(codes.contains(&2002));
+        }
+
+        #[ink::test]
+        fn global_compliance_summary_aggregates_across_properties() {
+            let mut contract = TaxComplianceModule::new(None);
+            let owner = AccountId::from([0x02; 32]);
+            let other = AccountId::from([0x03; 32]);
+
+            contract
+                .configure_tax_rule(jurisdiction(), rule())
+                .expect("rule");
+
+            // Property 7 owned by `owner`
+            contract
+                .set_property_assessment(7, jurisdiction(), owner, 200_000, 0)
+                .expect("assessment");
+            contract
+                .calculate_tax(7, jurisdiction(), None)
+                .expect("tax");
+
+            // Property 8 owned by `other` (should be excluded when querying owner)
+            contract
+                .set_property_assessment(8, jurisdiction(), other, 100_000, 0)
+                .expect("assessment");
+
+            let summary = contract.get_global_compliance_summary(owner, vec![7, 8]);
+            assert_eq!(summary.total_properties, 2);
+            assert_eq!(summary.compliant_properties, 1); // property 8 has no record -> not overdue
+            assert_eq!(summary.non_compliant_properties, 1); // property 7 has outstanding tax
         }
     }
 }
