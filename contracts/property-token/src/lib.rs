@@ -680,7 +680,9 @@ pub mod property_token {
             self.token_owner.get(token_id)
         }
 
-        /// ERC-721: Transfers a token from one account to another
+        /// ERC-721: Transfers a token from one account to another.
+        /// Protected by the shared `ReentrancyGuard` (Issue #564) so any future
+        /// callback-driven receiver cannot re-enter this function mid-execution.
         #[ink(message)]
         pub fn transfer_from(
             &mut self,
@@ -688,64 +690,66 @@ pub mod property_token {
             to: AccountId,
             token_id: TokenId,
         ) -> Result<(), Error> {
-            let caller = self.env().caller();
-
-            // Check if caller is authorized to transfer
-            let token_owner = self.token_owner.get(token_id).ok_or_else(|| {
+            non_reentrant!(self, {
                 let caller = self.env().caller();
-                self.log_error(
-                    caller,
-                    "TOKEN_NOT_FOUND".to_string(),
-                    format!("Token ID {} does not exist", token_id),
-                    vec![
-                        ("token_id".to_string(), token_id.to_string()),
-                        ("operation".to_string(), "transfer_from".to_string()),
-                    ],
-                );
-                Error::TokenNotFound
-            })?;
-            if token_owner != from {
-                let caller = self.env().caller();
-                self.log_error(
-                    caller,
-                    "UNAUTHORIZED".to_string(),
-                    format!("Caller is not authorized to transfer token {}", token_id),
-                    vec![
-                        ("token_id".to_string(), token_id.to_string()),
-                        ("caller".to_string(), format!("{:?}", caller)),
-                        ("owner".to_string(), format!("{:?}", token_owner)),
-                    ],
-                );
-                return Err(Error::Unauthorized);
-            }
 
-            if caller != from
-                && Some(caller) != self.token_approvals.get(token_id)
-                && !self.is_approved_for_all(from, caller)
-            {
-                return Err(Error::Unauthorized);
-            }
+                // Check if caller is authorized to transfer
+                let token_owner = self.token_owner.get(token_id).ok_or_else(|| {
+                    let caller = self.env().caller();
+                    self.log_error(
+                        caller,
+                        "TOKEN_NOT_FOUND".to_string(),
+                        format!("Token ID {} does not exist", token_id),
+                        vec![
+                            ("token_id".to_string(), token_id.to_string()),
+                            ("operation".to_string(), "transfer_from".to_string()),
+                        ],
+                    );
+                    Error::TokenNotFound
+                })?;
+                if token_owner != from {
+                    let caller = self.env().caller();
+                    self.log_error(
+                        caller,
+                        "UNAUTHORIZED".to_string(),
+                        format!("Caller is not authorized to transfer token {}", token_id),
+                        vec![
+                            ("token_id".to_string(), token_id.to_string()),
+                            ("caller".to_string(), format!("{:?}", caller)),
+                            ("owner".to_string(), format!("{:?}", token_owner)),
+                        ],
+                    );
+                    return Err(Error::Unauthorized);
+                }
 
-            self.verify_kyc_transfer(&from, &to, token_id, 1)?;
+                if caller != from
+                    && Some(caller) != self.token_approvals.get(token_id)
+                    && !self.is_approved_for_all(from, caller)
+                {
+                    return Err(Error::Unauthorized);
+                }
 
-            // Perform the transfer
-            self.remove_token_from_owner(from, token_id)?;
-            self.add_token_to_owner(to, token_id)?;
-            self.update_transfer_quota(&from, &to, token_id, 1)?;
+                self.verify_kyc_transfer(&from, &to, token_id, 1)?;
 
-            // Clear approvals
-            self.token_approvals.remove(token_id);
+                // Perform the transfer
+                self.remove_token_from_owner(from, token_id)?;
+                self.add_token_to_owner(to, token_id)?;
+                self.update_transfer_quota(&from, &to, token_id, 1)?;
 
-            // Update ownership history
-            self.update_ownership_history(token_id, from, to)?;
+                // Clear approvals
+                self.token_approvals.remove(token_id);
 
-            self.env().emit_event(Transfer {
-                from: Some(from),
-                to: Some(to),
-                id: token_id,
-            });
+                // Update ownership history
+                self.update_ownership_history(token_id, from, to)?;
 
-            Ok(())
+                self.env().emit_event(Transfer {
+                    from: Some(from),
+                    to: Some(to),
+                    id: token_id,
+                });
+
+                Ok(())
+            })
         }
 
         /// ERC-721: Approves an account to transfer a specific token
