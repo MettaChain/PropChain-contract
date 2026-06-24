@@ -1007,3 +1007,170 @@ mod tests {
     }
 }
 
+// =========================================================================
+// Operator Management Tests (Issue #559)
+// =========================================================================
+
+#[cfg(test)]
+mod operator_management_tests {
+    use super::*;
+    use ink::env::{test, DefaultEnvironment};
+
+    fn mint_token(contract: &mut PropertyToken, owner: ink::primitives::AccountId) -> TokenId {
+        test::set_caller::<DefaultEnvironment>(owner);
+        let metadata = PropertyMetadata {
+            location: String::from("100 Operator St"),
+            size: 500,
+            legal_description: String::from("Operator test property"),
+            valuation: 200000,
+            documents_url: String::from("ipfs://op-docs"),
+        };
+        contract.register_property_with_token(metadata).expect("mint failed")
+    }
+
+    #[ink::test]
+    fn test_approve_by_owner_succeeds() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let token_id = mint_token(&mut contract, accounts.alice);
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = contract.approve(accounts.bob, token_id);
+        assert!(result.is_ok(), "Owner should be able to approve a spender");
+
+        let approved = contract.get_approved(token_id);
+        assert_eq!(approved, Some(accounts.bob));
+    }
+
+    #[ink::test]
+    fn test_approve_by_non_owner_fails() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let token_id = mint_token(&mut contract, accounts.alice);
+
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        let result = contract.approve(accounts.bob, token_id);
+        assert_eq!(result, Err(Error::Unauthorized));
+    }
+
+    #[ink::test]
+    fn test_approve_nonexistent_token_fails() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = contract.approve(accounts.bob, 9999);
+        assert_eq!(result, Err(Error::TokenNotFound));
+    }
+
+    #[ink::test]
+    fn test_approve_clears_previous_approval() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let token_id = mint_token(&mut contract, accounts.alice);
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        contract.approve(accounts.bob, token_id).unwrap();
+        assert_eq!(contract.get_approved(token_id), Some(accounts.bob));
+
+        contract.approve(accounts.charlie, token_id).unwrap();
+        assert_eq!(contract.get_approved(token_id), Some(accounts.charlie));
+    }
+
+    #[ink::test]
+    fn test_approved_operator_can_approve_on_behalf_of_owner() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let token_id = mint_token(&mut contract, accounts.alice);
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        contract.set_approval_for_all(accounts.bob, true).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let result = contract.approve(accounts.charlie, token_id);
+        assert!(result.is_ok(), "Operator should be able to approve on behalf of owner");
+        assert_eq!(contract.get_approved(token_id), Some(accounts.charlie));
+    }
+
+    #[ink::test]
+    fn test_set_approval_for_all_grants_operator() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        contract.set_approval_for_all(accounts.bob, true).unwrap();
+
+        assert!(contract.is_approved_for_all(accounts.alice, accounts.bob));
+    }
+
+    #[ink::test]
+    fn test_set_approval_for_all_revokes_operator() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        contract.set_approval_for_all(accounts.bob, true).unwrap();
+        assert!(contract.is_approved_for_all(accounts.alice, accounts.bob));
+
+        contract.set_approval_for_all(accounts.bob, false).unwrap();
+        assert!(!contract.is_approved_for_all(accounts.alice, accounts.bob));
+    }
+
+    #[ink::test]
+    fn test_is_approved_for_all_returns_false_by_default() {
+        let contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        assert!(!contract.is_approved_for_all(accounts.alice, accounts.bob));
+        assert!(!contract.is_approved_for_all(accounts.bob, accounts.alice));
+    }
+
+    #[ink::test]
+    fn test_get_approved_returns_none_for_no_approval() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let token_id = mint_token(&mut contract, accounts.alice);
+
+        assert_eq!(contract.get_approved(token_id), None);
+    }
+
+    #[ink::test]
+    fn test_multiple_operators_per_owner() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        contract.set_approval_for_all(accounts.bob, true).unwrap();
+        contract.set_approval_for_all(accounts.charlie, true).unwrap();
+
+        assert!(contract.is_approved_for_all(accounts.alice, accounts.bob));
+        assert!(contract.is_approved_for_all(accounts.alice, accounts.charlie));
+    }
+
+    #[ink::test]
+    fn test_operator_approval_is_per_owner() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        contract.set_approval_for_all(accounts.bob, true).unwrap();
+
+        assert!(!contract.is_approved_for_all(accounts.charlie, accounts.bob));
+    }
+
+    #[ink::test]
+    fn test_token_approval_does_not_grant_all_tokens() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let token_id_1 = mint_token(&mut contract, accounts.alice);
+        let token_id_2 = mint_token(&mut contract, accounts.alice);
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        contract.approve(accounts.bob, token_id_1).unwrap();
+
+        assert_eq!(contract.get_approved(token_id_1), Some(accounts.bob));
+        assert_eq!(contract.get_approved(token_id_2), None);
+        assert!(!contract.is_approved_for_all(accounts.alice, accounts.bob));
+    }
+}
+
