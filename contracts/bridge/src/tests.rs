@@ -941,4 +941,88 @@ mod tests {
             legacy_bytes.saturating_sub(optimized_bytes)
         );
     }
+
+    // ── Travel rule (FATF) tests ─────────────────────────────────────────
+
+    fn make_travel_rule_data(accounts: &ink::env::test::DefaultAccounts<DefaultEnvironment>) -> TravelRuleData {
+        TravelRuleData {
+            originator_name: b"Alice Smith".to_vec(),
+            originator_account: accounts.alice,
+            beneficiary_name: b"Bob Jones".to_vec(),
+            beneficiary_account: accounts.bob,
+            transfer_amount: 2_000_000,
+            data_hash: [0xAB; 32],
+            submitted_at: 0,
+        }
+    }
+
+    fn setup_bridge_with_locked_request(high_value: bool) -> (PropertyBridge, u64, ink::env::test::DefaultAccounts<DefaultEnvironment>) {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        bridge.add_validator(accounts.alice).unwrap();
+        bridge.add_validator(accounts.bob).unwrap();
+        bridge.add_bridge_operator(accounts.alice).unwrap();
+        bridge.add_bridge_operator(accounts.bob).unwrap();
+
+        let valuation = if high_value { 2_000_000 } else { 500 };
+        let metadata = PropertyMetadata {
+            location: String::from("Test Property"),
+            size: 1000,
+            legal_description: String::from("Test"),
+            valuation,
+            documents_url: String::from("ipfs://test"),
+        };
+
+        let request_id = bridge
+            .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(100), metadata)
+            .unwrap();
+
+        // Collect 2 signatures to reach Locked state
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.sign_bridge_request(request_id, true).unwrap();
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge.sign_bridge_request(request_id, true).unwrap();
+
+        (bridge, request_id, accounts)
+    }
+
+    #[ink::test]
+    fn test_execute_bridge_fails_without_travel_rule_data() {
+        let (mut bridge, request_id, accounts) =
+            setup_bridge_with_locked_request(true);
+
+        // Set threshold below the valuation (1_000_000 < 2_000_000)
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.set_travel_rule_threshold(2, 1_000_000).unwrap();
+
+        // Execution should be blocked: travel rule data not submitted
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = bridge.execute_bridge(request_id);
+        assert_eq!(result, Err(Error::TravelRuleDataRequired));
+    }
+
+    #[ink::test]
+    fn test_execute_bridge_succeeds_after_travel_rule_data_submission() {
+        let (mut bridge, request_id, accounts) =
+            setup_bridge_with_locked_request(true);
+
+        // Set threshold below the valuation
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.set_travel_rule_threshold(2, 1_000_000).unwrap();
+
+        // Submit travel rule data as the originator
+        let data = make_travel_rule_data(&accounts);
+        bridge.submit_travel_rule_data(request_id, data).unwrap();
+
+        // Verify data is retrievable
+        let stored = bridge.get_travel_rule_data(request_id);
+        assert!(stored.is_some());
+        assert_eq!(stored.unwrap().data_hash, [0xAB; 32]);
+
+        // Now execution should succeed
+        let result = bridge.execute_bridge(request_id);
+        assert!(result.is_ok(), "bridge execution should succeed after travel rule data is submitted");
+    }
 }

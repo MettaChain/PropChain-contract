@@ -331,6 +331,8 @@ pub mod bridge_codes {
     pub const BRIDGE_INVALID_STATUS_TRANSITION: u32 = 3016;
     pub const BRIDGE_OPERATION_PAUSED: u32 = 3017;
     pub const BRIDGE_NOT_GUARDIAN: u32 = 3018;
+    pub const BRIDGE_TRAVEL_RULE_DATA_REQUIRED: u32 = 3019;
+    pub const BRIDGE_TRAVEL_RULE_DATA_ALREADY_SUBMITTED: u32 = 3020;
 }
 
 /// Oracle error codes (4000-4999)

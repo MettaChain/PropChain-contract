@@ -25,6 +25,10 @@ pub enum Error {
     OperationPaused,
     /// Caller is not a registered guardian (and not the admin).
     NotGuardian,
+    /// Bridge execution requires travel rule data that has not been submitted.
+    TravelRuleDataRequired,
+    /// Travel rule data for this request has already been submitted.
+    TravelRuleDataAlreadySubmitted,
 }
 
 impl core::fmt::Display for Error {
@@ -48,6 +52,8 @@ impl core::fmt::Display for Error {
             Error::InvalidStatusTransition => write!(f, "Invalid cross-chain status transition"),
             Error::OperationPaused => write!(f, "Operation is currently paused"),
             Error::NotGuardian => write!(f, "Caller is not a guardian"),
+            Error::TravelRuleDataRequired => write!(f, "Travel rule data required before bridge execution"),
+            Error::TravelRuleDataAlreadySubmitted => write!(f, "Travel rule data already submitted for this request"),
         }
     }
 }
@@ -73,6 +79,8 @@ impl ContractError for Error {
             Error::InvalidStatusTransition => bridge_codes::BRIDGE_INVALID_STATUS_TRANSITION,
             Error::OperationPaused => bridge_codes::BRIDGE_OPERATION_PAUSED,
             Error::NotGuardian => bridge_codes::BRIDGE_NOT_GUARDIAN,
+            Error::TravelRuleDataRequired => bridge_codes::BRIDGE_TRAVEL_RULE_DATA_REQUIRED,
+            Error::TravelRuleDataAlreadySubmitted => bridge_codes::BRIDGE_TRAVEL_RULE_DATA_ALREADY_SUBMITTED,
         }
     }
 
@@ -107,6 +115,12 @@ impl ContractError for Error {
             }
             Error::NotGuardian => {
                 "The caller is not registered as a guardian and is not the admin"
+            }
+            Error::TravelRuleDataRequired => {
+                "FATF travel rule data must be submitted before this bridge request can be executed"
+            }
+            Error::TravelRuleDataAlreadySubmitted => {
+                "Travel rule data has already been submitted for this bridge request"
             }
         }
     }

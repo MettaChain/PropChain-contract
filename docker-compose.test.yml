@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  substrate-node:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-node
+    container_name: propchain-test-node
+    ports:
+      - "9944:9944"
+      - "9933:9933"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9933/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - propchain-test-network
+
+  ipfs:
+    image: ipfs/kubo:latest
+    container_name: propchain-test-ipfs
+    ports:
+      - "5001:5001"
+      - "8080:8080"
+    networks:
+      - propchain-test-network
+
+  indexer:
+    image: subsquid/substrate-ingest:latest
+    container_name: propchain-test-indexer
+    environment:
+      - CHAIN_ENDPOINT=ws://substrate-node:9944
+    depends_on:
+      substrate-node:
+        condition: service_healthy
+    networks:
+      - propchain-test-network
+
+networks:
+  propchain-test-network:
+    driver: bridge

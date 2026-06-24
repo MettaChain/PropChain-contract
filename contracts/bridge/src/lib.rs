@@ -364,6 +364,12 @@ mod bridge {
         failed_signatures_window_count: u32,
         /// Start-of-hour timestamp the failed-signature counter applies to.
         failed_signatures_window_start: u64,
+
+        // ── Travel rule (FATF) ──────────────────────────────────────────────
+        /// Encrypted hash of travel rule data per bridge request (actual data stored off-chain).
+        travel_rule_data: Mapping<u64, TravelRuleData>,
+        /// Jurisdiction-specific travel rule thresholds (chain_id -> minimum amount requiring compliance).
+        travel_rule_thresholds: Mapping<ChainId, u128>,
     }
 
     /// Events for bridge operations
@@ -498,6 +504,52 @@ mod bridge {
         pub timestamp: u64,
     }
 
+    // ── Travel rule (FATF) data structure ─────────────────────────────────
+
+    /// Originator and beneficiary information required by FATF Recommendation 16.
+    /// The raw PII is stored off-chain; only the `data_hash` (SHA-256 of the
+    /// canonical off-chain payload) is persisted on-chain.
+    #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub struct TravelRuleData {
+        /// UTF-8 name of the originator (hashed reference; actual name stored off-chain).
+        pub originator_name: Vec<u8>,
+        /// On-chain account of the originator.
+        pub originator_account: AccountId,
+        /// UTF-8 name of the beneficiary.
+        pub beneficiary_name: Vec<u8>,
+        /// On-chain account of the beneficiary.
+        pub beneficiary_account: AccountId,
+        /// Transfer amount in the base token unit.
+        pub transfer_amount: u128,
+        /// SHA-256 hash of the canonical off-chain compliance payload.
+        pub data_hash: [u8; 32],
+        /// Block timestamp at which the data was submitted (set by the contract).
+        pub submitted_at: u64,
+    }
+
+    /// Emitted when travel rule data is submitted for a bridge request.
+    #[ink(event)]
+    pub struct TravelRuleDataSubmitted {
+        #[ink(topic)]
+        pub request_id: u64,
+        #[ink(topic)]
+        pub originator_account: AccountId,
+        pub data_hash: [u8; 32],
+        pub timestamp: u64,
+    }
+
+    /// Emitted when a jurisdiction-specific travel rule threshold is updated.
+    #[ink(event)]
+    pub struct TravelRuleThresholdUpdated {
+        pub chain_id: ChainId,
+        pub threshold_amount: u128,
+        pub timestamp: u64,
+    }
+
     impl PropertyBridge {
         /// Creates a new PropertyBridge contract
         #[ink(constructor)]
@@ -557,6 +609,8 @@ mod bridge {
                 chain_hourly_window_start: Mapping::default(),
                 failed_signatures_window_count: 0,
                 failed_signatures_window_start: 0,
+                travel_rule_data: Mapping::default(),
+                travel_rule_thresholds: Mapping::default(),
             };
 
             // Set up default chain information
@@ -902,6 +956,9 @@ mod bridge {
                     return Err(Error::InsufficientSignatures);
                 }
 
+                // FATF travel rule compliance check
+                self.ensure_travel_rule_compliance(request_id, &request)?;
+
                 // Generate transaction hash
                 let transaction_hash = self.generate_transaction_hash(&request);
                 let old_source_chain = request.source_chain;
@@ -1039,6 +1096,82 @@ mod bridge {
 
                 Ok(())
             })
+        }
+
+        // ── Travel rule (FATF) messages ────────────────────────────────────────
+
+        /// Submit travel rule data for a bridge request (must be called before
+        /// [`execute_bridge`] when the transfer amount exceeds the jurisdiction threshold).
+        ///
+        /// Only the request originator or the admin may submit travel rule data.
+        /// The raw PII should be stored off-chain; supply its SHA-256 hash as `data.data_hash`.
+        #[ink(message)]
+        pub fn submit_travel_rule_data(
+            &mut self,
+            request_id: u64,
+            data: TravelRuleData,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+            let request = self
+                .bridge_requests
+                .get(request_id)
+                .ok_or(Error::InvalidRequest)?;
+
+            if request.sender != caller && caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            if self.travel_rule_data.contains(request_id) {
+                return Err(Error::TravelRuleDataAlreadySubmitted);
+            }
+
+            let mut stored = data;
+            stored.submitted_at = self.env().block_timestamp();
+            self.travel_rule_data.insert(request_id, &stored);
+
+            self.env().emit_event(TravelRuleDataSubmitted {
+                request_id,
+                originator_account: stored.originator_account,
+                data_hash: stored.data_hash,
+                timestamp: stored.submitted_at,
+            });
+
+            Ok(())
+        }
+
+        /// Return the on-chain travel rule record for `request_id`, or `None` if not yet submitted.
+        /// The returned `data_hash` is a reference to the off-chain compliance payload.
+        #[ink(message)]
+        pub fn get_travel_rule_data(&self, request_id: u64) -> Option<TravelRuleData> {
+            self.travel_rule_data.get(request_id)
+        }
+
+        /// Admin: set the minimum transfer amount above which travel rule data is required
+        /// for transfers to `chain_id`.  Set to `u128::MAX` to disable for a jurisdiction.
+        #[ink(message)]
+        pub fn set_travel_rule_threshold(
+            &mut self,
+            chain_id: ChainId,
+            threshold_amount: u128,
+        ) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            self.travel_rule_thresholds.insert(chain_id, &threshold_amount);
+            self.env().emit_event(TravelRuleThresholdUpdated {
+                chain_id,
+                threshold_amount,
+                timestamp: self.env().block_timestamp(),
+            });
+            Ok(())
+        }
+
+        /// Return the travel rule threshold for `chain_id`.
+        /// Defaults to `u128::MAX` (disabled) when no threshold has been configured.
+        #[ink(message)]
+        pub fn get_travel_rule_threshold(&self, chain_id: ChainId) -> u128 {
+            self.travel_rule_thresholds.get(chain_id).unwrap_or(u128::MAX)
         }
 
         // ── #201: Transaction rollback mechanism ─────────────────────────────────
@@ -2118,6 +2251,32 @@ mod bridge {
             let base_gas = 100000; // Base gas for bridge operation
             let metadata_gas = request.metadata.legal_description.len() as u64 * 100; // Gas for metadata
             base_gas + metadata_gas
+        }
+
+        /// Check FATF travel rule compliance for the given bridge request.
+        ///
+        /// Returns `Ok(())` when the transfer amount is below the configured threshold or when
+        /// travel rule data has already been submitted. Returns `Err(TravelRuleDataRequired)`
+        /// when the amount exceeds the threshold and no data has been submitted.
+        fn ensure_travel_rule_compliance(
+            &self,
+            request_id: u64,
+            request: &StoredBridgeRequest,
+        ) -> Result<(), Error> {
+            let threshold = self
+                .travel_rule_thresholds
+                .get(request.destination_chain)
+                .unwrap_or(u128::MAX);
+
+            if request.metadata.valuation <= threshold {
+                return Ok(());
+            }
+
+            if !self.travel_rule_data.contains(request_id) {
+                return Err(Error::TravelRuleDataRequired);
+            }
+
+            Ok(())
         }
 
         fn check_and_update_rate_limits(
