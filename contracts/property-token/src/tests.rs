@@ -5,6 +5,145 @@ mod tests {
     use super::*;
     use ink::env::{test, DefaultEnvironment};
 
+    // =========================================================================
+    // Issue #557 – metadata versioning tests
+    // =========================================================================
+
+    fn make_metadata(location: &str, valuation: u128) -> PropertyMetadata {
+        PropertyMetadata {
+            location: String::from(location),
+            size: 1000,
+            legal_description: String::from("Test property"),
+            valuation,
+            documents_url: String::from("ipfs://docs"),
+        }
+    }
+
+    #[ink::test]
+    fn test_metadata_version_count_starts_at_zero() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let token_id = contract
+            .register_property_with_token(make_metadata("123 Main St", 500_000))
+            .unwrap();
+
+        assert_eq!(contract.metadata_version_count(token_id), 0);
+    }
+
+    #[ink::test]
+    fn test_first_update_creates_version_one() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let token_id = contract
+            .register_property_with_token(make_metadata("123 Main St", 500_000))
+            .unwrap();
+
+        contract
+            .update_property_metadata(token_id, make_metadata("123 Main St Updated", 600_000))
+            .unwrap();
+
+        assert_eq!(contract.metadata_version_count(token_id), 1);
+    }
+
+    #[ink::test]
+    fn test_get_metadata_at_returns_snapshot() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let original = make_metadata("Original Location", 100_000);
+        let token_id = contract
+            .register_property_with_token(original.clone())
+            .unwrap();
+
+        let updated = make_metadata("Updated Location", 200_000);
+        contract
+            .update_property_metadata(token_id, updated.clone())
+            .unwrap();
+
+        let v1 = contract.get_metadata_at(token_id, 1).expect("version 1 must exist");
+        assert_eq!(v1.version_number, 1);
+        assert_eq!(v1.metadata.location, original.location);
+        assert_eq!(v1.metadata.valuation, original.valuation);
+    }
+
+    #[ink::test]
+    fn test_multiple_versions_tracked() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let token_id = contract
+            .register_property_with_token(make_metadata("v0", 100_000))
+            .unwrap();
+
+        contract
+            .update_property_metadata(token_id, make_metadata("v1", 200_000))
+            .unwrap();
+        contract
+            .update_property_metadata(token_id, make_metadata("v2", 300_000))
+            .unwrap();
+        contract
+            .update_property_metadata(token_id, make_metadata("v3", 400_000))
+            .unwrap();
+
+        assert_eq!(contract.metadata_version_count(token_id), 3);
+
+        let v1 = contract.get_metadata_at(token_id, 1).unwrap();
+        let v2 = contract.get_metadata_at(token_id, 2).unwrap();
+        let v3 = contract.get_metadata_at(token_id, 3).unwrap();
+        assert_eq!(v1.metadata.valuation, 100_000);
+        assert_eq!(v2.metadata.valuation, 200_000);
+        assert_eq!(v3.metadata.valuation, 300_000);
+    }
+
+    #[ink::test]
+    fn test_get_metadata_at_version_zero_returns_none() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let token_id = contract
+            .register_property_with_token(make_metadata("Test", 100_000))
+            .unwrap();
+
+        assert_eq!(contract.get_metadata_at(token_id, 0), None);
+    }
+
+    #[ink::test]
+    fn test_get_metadata_at_nonexistent_version_returns_none() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let token_id = contract
+            .register_property_with_token(make_metadata("Test", 100_000))
+            .unwrap();
+
+        assert_eq!(contract.get_metadata_at(token_id, 5), None);
+    }
+
+    #[ink::test]
+    fn test_metadata_update_unauthorized() {
+        let mut contract = PropertyToken::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let token_id = contract
+            .register_property_with_token(make_metadata("Test", 100_000))
+            .unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let result =
+            contract.update_property_metadata(token_id, make_metadata("Hacked", 999_999));
+        assert_eq!(result, Err(Error::Unauthorized));
+        assert_eq!(contract.metadata_version_count(token_id), 0);
+    }
+
     fn setup_contract() -> PropertyToken {
         PropertyToken::new()
     }

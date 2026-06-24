@@ -128,6 +128,12 @@ pub mod property_token {
         snapshot_counter: Mapping<TokenId, u64>,
         snapshots: Mapping<(TokenId, u64), Snapshot>,
         account_snapshots: Mapping<(AccountId, TokenId, u64), u128>, // (account, token_id, snapshot_id) -> balance
+
+        // Metadata versioning (Issue #557)
+        /// Number of historical versions stored for a token (0 = no updates yet)
+        metadata_version_count: Mapping<TokenId, u32>,
+        /// Versioned metadata snapshots: (token_id, version_number) -> MetadataVersion
+        metadata_versions: Mapping<(TokenId, u32), MetadataVersion>,
     }
 
     // Data types extracted to types.rs (Issue #101)
@@ -665,6 +671,10 @@ pub mod property_token {
                 share_last_reward_block: Mapping::default(),
                 share_reward_rate_bps: Mapping::default(),
                 share_reward_pool: Mapping::default(),
+
+                // Metadata versioning (Issue #557)
+                metadata_version_count: Mapping::default(),
+                metadata_versions: Mapping::default(),
             }
         }
 
@@ -1918,7 +1928,9 @@ pub mod property_token {
         // Metadata Methods
         // =========================================================================
 
-        /// Updates the on-chain metadata for a property
+        /// Updates the on-chain metadata for a property (Issue #557).
+        /// The previous metadata is snapshotted as an immutable `MetadataVersion`
+        /// before the new metadata is applied, preserving full history.
         #[ink(message)]
         pub fn update_property_metadata(
             &mut self,
@@ -1935,6 +1947,22 @@ pub mod property_token {
                 .token_properties
                 .get(token_id)
                 .ok_or(Error::TokenNotFound)?;
+
+            // Snapshot the CURRENT metadata before overwriting it
+            let version_number = self
+                .metadata_version_count
+                .get(token_id)
+                .unwrap_or(0)
+                .saturating_add(1);
+            let snapshot = MetadataVersion {
+                version_number,
+                metadata: property_info.metadata.clone(),
+                updated_by: caller,
+                updated_at: self.env().block_timestamp(),
+            };
+            self.metadata_versions.insert((token_id, version_number), &snapshot);
+            self.metadata_version_count.insert(token_id, &version_number);
+
             property_info.metadata = metadata;
             self.token_properties.insert(token_id, &property_info);
 
@@ -1944,6 +1972,31 @@ pub mod property_token {
             });
 
             Ok(())
+        }
+
+        /// Returns the immutable metadata snapshot at `version` for `token_id` (Issue #557).
+        /// Version numbers are 1-based; the initial mint metadata is at the live
+        /// `token_properties` mapping and is snapshotted as version 1 on the first update.
+        #[ink(message)]
+        pub fn get_metadata_at(
+            &self,
+            token_id: TokenId,
+            version: u32,
+        ) -> Option<MetadataVersion> {
+            if version == 0 {
+                return None;
+            }
+            let count = self.metadata_version_count.get(token_id).unwrap_or(0);
+            if version > count {
+                return None;
+            }
+            self.metadata_versions.get((token_id, version))
+        }
+
+        /// Returns the total number of historical versions stored for `token_id` (Issue #557).
+        #[ink(message)]
+        pub fn metadata_version_count(&self, token_id: TokenId) -> u32 {
+            self.metadata_version_count.get(token_id).unwrap_or(0)
         }
 
         /// Sets a custom URI for a token, overriding the default generated format
