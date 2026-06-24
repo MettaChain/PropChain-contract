@@ -309,6 +309,9 @@ pub mod escrow_codes {
     pub const APPROVAL_REQUEST_ALREADY_EXECUTED: u32 = 2017;
     pub const APPROVAL_REQUEST_CANCELLED: u32 = 2018;
     pub const LARGE_TRANSFER_APPROVAL_REQUIRED: u32 = 2019;
+    // Fee-related error codes
+    pub const FEE_RATE_TOO_HIGH: u32 = 2020;
+    pub const INVALID_FEE_AMOUNT: u32 = 2021;
 }
 
 /// Bridge error codes (3000-3999)

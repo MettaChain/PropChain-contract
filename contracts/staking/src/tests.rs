@@ -614,28 +614,6 @@ mod tests {
             .sum();
         assert_eq!(sum, staking.get_total_delegated_stake());
     }
-}
-    use super::*;
-
-    fn default_accounts() -> ink::env::test::DefaultAccounts<ink::env::DefaultEnvironment> {
-        ink::env::test::default_accounts::<ink::env::DefaultEnvironment>()
-    }
-
-    fn set_caller(caller: AccountId) {
-        ink::env::test::set_caller::<ink::env::DefaultEnvironment>(caller);
-    }
-
-    fn advance_block(n: u32) {
-        for _ in 0..n {
-            ink::env::test::advance_block::<ink::env::DefaultEnvironment>();
-        }
-    }
-
-    fn create_staking() -> Staking {
-        let accounts = default_accounts();
-        set_caller(accounts.alice);
-        Staking::new(500, 1_000)
-    }
 
     #[ink::test]
     fn constructor_sets_defaults() {

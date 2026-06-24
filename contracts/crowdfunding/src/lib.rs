@@ -1292,8 +1292,8 @@ mod propchain_crowdfunding {
             let mut accredited_investors = 0u32;
             let mut total_investment = 0u128;
             let mut max_investment = 0u128;
-            let mut jurisdiction_counts = Mapping::default();
-            let mut investment_ranges = Mapping::default(); // 0-1k, 1k-10k, 10k-100k, 100k+
+            let mut jurisdiction_counts = Mapping::<u32, u32>::default();
+            let mut investment_ranges = Mapping::<u32, u32>::default(); // 0-1k, 1k-10k, 10k-100k, 100k+
 
             // This is a simplified implementation
             // In practice, we'd need to iterate through all investments

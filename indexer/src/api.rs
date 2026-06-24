@@ -1,5 +1,6 @@
 use crate::db::{Db, EventQuery, IndexedEvent};
 use axum::{
+    body::Body,
     extract::Query,
     http::{Request, StatusCode},
     middleware::Next,
@@ -38,7 +39,7 @@ pub async fn api_version() -> Json<VersionResponse> {
 }
 
 /// Axum middleware that injects `X-API-Version` into every response (#174).
-pub async fn set_api_version_header<B>(req: Request<B>, next: Next<B>) -> Response {
+pub async fn set_api_version_header(req: Request<Body>, next: Next) -> Response {
     let mut response = next.run(req).await;
     response
         .headers_mut()

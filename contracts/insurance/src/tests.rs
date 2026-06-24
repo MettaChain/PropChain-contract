@@ -1177,6 +1177,8 @@ mod insurance_tests {
         // Bob (not admin or assessor) tries to assess fraud
         let result = contract.assess_claim_fraud_risk(claim_id, policy_id);
         assert_eq!(result, Err(InsuranceError::Unauthorized));
+    }
+
     // PARAMETRIC INSURANCE TESTS (Issue #249)
     // =========================================================================
 

@@ -1,7 +1,3 @@
-use crate::{
-    Balance, JurisdictionProfile, PropertyAssessment, TaxBreakdown, TaxRecord, TaxRule, TaxStatus,
-    Timestamp, BASIS_POINTS_DENOMINATOR,
-};
 
 pub(crate) fn calculate_tax_record(
     property_id: u64,

@@ -25,7 +25,7 @@ pub struct OracleBatchItemFailure {
 
 /// Actions that can be governed by oracle governance proposals.
 #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
 pub enum GovernanceAction {
     /// Update the minimum stake required for oracle sources
     UpdateMinStake(u128),
@@ -43,7 +43,7 @@ pub enum GovernanceAction {
 
 /// Governance-controlled oracle parameters.
 #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
 pub struct GovernanceParams {
     pub min_oracle_stake: u128,
     pub max_sources: u32,
@@ -64,7 +64,7 @@ impl Default for GovernanceParams {
 
 /// A governance proposal for changing oracle parameters.
 #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
 pub struct GovernanceProposal {
     pub id: u64,
     pub proposer: AccountId,

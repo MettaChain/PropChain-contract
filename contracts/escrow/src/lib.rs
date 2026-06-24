@@ -76,6 +76,10 @@ mod propchain_escrow {
         fee_rate_bps: u16,
         /// Fee recipient account
         fee_recipient: Option<AccountId>,
+        /// Aggregated escrow analytics for dashboard display
+        analytics: EscrowAnalytics,
+        /// Tracks unique participants: AccountId -> bool
+        analytics_participants: Mapping<AccountId, bool>,
     }
 
     // Events
@@ -329,6 +333,21 @@ mod propchain_escrow {
                 tax_compliance_contract,
                 fee_rate_bps: 0,
                 fee_recipient: None,
+                analytics: EscrowAnalytics {
+                    total_created: 0,
+                    total_released: 0,
+                    total_refunded: 0,
+                    total_disputed: 0,
+                    total_active: 0,
+                    total_volume: 0,
+                    total_released_volume: 0,
+                    total_fees_collected: 0,
+                    average_escrow_amount: 0,
+                    average_dispute_resolution_time: 0,
+                    total_disputes_resolved: 0,
+                    unique_participants: 0,
+                },
+                analytics_participants: Mapping::default(),
             }
         }
 
