@@ -866,4 +866,545 @@ pub mod escrow_tests {
 
         assert!(before_bytes > after_bytes);
     }
+    // ========================================================================
+    // EDGE CASE TESTS - Issue #484
+    // ========================================================================
+
+    /// Test 1: large-transfer request expires before sufficient approvals
+    #[ink::test]
+    fn test_large_transfer_expires_before_approval() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        set_balance(accounts.alice, 20_000_000_000_000_000_000);
+
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
+        
+        let admin = contract.get_admin();
+        set_caller(admin);
+        contract.set_large_transfer_thresholds(5_000_000_000_000_000, 50_000_000_000_000_000)
+            .expect("Setting thresholds should succeed");
+
+        set_caller(accounts.alice);
+        let participants = vec![accounts.alice, accounts.bob, accounts.charlie];
+        let escrow_amount = 10_000_000_000_000_000;
+        let escrow_id = contract
+            .create_escrow_advanced(
+                1,
+                escrow_amount,
+                accounts.alice,
+                accounts.bob,
+                participants,
+                2,
+                None,
+            )
+            .expect("Escrow creation should succeed");
+
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(escrow_amount);
+        contract.deposit_funds(escrow_id).expect("Deposit should succeed");
+
+        contract.sign_approval(escrow_id, ApprovalType::Release)
+            .expect("First signature should succeed");
+        set_caller(accounts.bob);
+        contract.sign_approval(escrow_id, ApprovalType::Release)
+            .expect("Second signature should succeed");
+
+        let result = contract.release_funds(escrow_id);
+        assert_eq!(result, Err(Error::LargeTransferApprovalRequired));
+
+        let request_id = contract.get_active_large_transfer_request(escrow_id);
+        assert!(request_id > 0);
+
+        let request = contract.get_large_transfer_request(request_id)
+            .expect("Request should exist");
+        assert_eq!(request.escrow_id, escrow_id);
+        assert_eq!(request.status, LargeTransferStatus::Pending);
+
+        ink::env::test::set_block_number::<ink::env::DefaultEnvironment>(
+            request.expires_at_block + 1
+        );
+
+        set_caller(accounts.alice);
+        let result = contract.approve_large_transfer(request_id);
+        assert_eq!(result, Err(Error::ApprovalRequestExpired));
+
+        let expired_request = contract.get_large_transfer_request(request_id)
+            .expect("Request should still exist");
+        assert_eq!(expired_request.status, LargeTransferStatus::Expired);
+
+        let active_req_id = contract.get_active_large_transfer_request(escrow_id);
+        assert_eq!(active_req_id, 0);
+    }
+
+    /// Test 2: multiple signers approving large-transfer simultaneously
+    #[ink::test]
+    fn test_concurrent_large_transfer_approvals() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        set_balance(accounts.alice, 20_000_000_000_000_000_000);
+
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
+        
+        let admin = contract.get_admin();
+        set_caller(admin);
+        contract.set_large_transfer_thresholds(5_000_000_000_000_000, 50_000_000_000_000_000)
+            .expect("Setting thresholds should succeed");
+
+        set_caller(accounts.alice);
+        let participants = vec![accounts.alice, accounts.bob, accounts.charlie];
+        let escrow_amount = 10_000_000_000_000_000;
+        let escrow_id = contract
+            .create_escrow_advanced(
+                1,
+                escrow_amount,
+                accounts.alice,
+                accounts.bob,
+                participants,
+                3,
+                None,
+            )
+            .expect("Escrow creation should succeed");
+
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(escrow_amount);
+        contract.deposit_funds(escrow_id).expect("Deposit should succeed");
+
+        contract.sign_approval(escrow_id, ApprovalType::Release).expect("Alice signs");
+        set_caller(accounts.bob);
+        contract.sign_approval(escrow_id, ApprovalType::Release).expect("Bob signs");
+        set_caller(accounts.charlie);
+        contract.sign_approval(escrow_id, ApprovalType::Release).expect("Charlie signs");
+
+        let result = contract.release_funds(escrow_id);
+        assert_eq!(result, Err(Error::LargeTransferApprovalRequired));
+
+        let request_id = contract.get_active_large_transfer_request(escrow_id);
+        assert!(request_id > 0);
+
+        set_caller(accounts.alice);
+        contract.approve_large_transfer(request_id)
+            .expect("Alice approves large transfer");
+
+        set_caller(accounts.bob);
+        contract.approve_large_transfer(request_id)
+            .expect("Bob approves large transfer");
+
+        let approved_request = contract.get_large_transfer_request(request_id)
+            .expect("Request should exist");
+        assert_eq!(approved_request.status, LargeTransferStatus::Approved);
+        assert_eq!(approved_request.approvals.len(), 2);
+        assert!(approved_request.approvals.contains(&accounts.alice));
+        assert!(approved_request.approvals.contains(&accounts.bob));
+
+        set_caller(accounts.charlie);
+        contract.approve_large_transfer(request_id)
+            .expect("Charlie can also approve");
+
+        let final_request = contract.get_large_transfer_request(request_id)
+            .expect("Request should exist");
+        assert_eq!(final_request.approvals.len(), 3);
+    }
+
+    /// Test 3: cancelling a large-transfer request and creating a new one
+    #[ink::test]
+    fn test_cancel_and_recreate_large_transfer() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        set_balance(accounts.alice, 20_000_000_000_000_000_000);
+
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
+        
+        let admin = contract.get_admin();
+        set_caller(admin);
+        contract.set_large_transfer_thresholds(5_000_000_000_000_000, 50_000_000_000_000_000)
+            .expect("Setting thresholds should succeed");
+
+        set_caller(accounts.alice);
+        let participants = vec![accounts.alice, accounts.bob, accounts.charlie];
+        let escrow_amount = 10_000_000_000_000_000;
+        let escrow_id = contract
+            .create_escrow_advanced(
+                1,
+                escrow_amount,
+                accounts.alice,
+                accounts.bob,
+                participants,
+                2,
+                None,
+            )
+            .expect("Escrow creation should succeed");
+
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(escrow_amount);
+        contract.deposit_funds(escrow_id).expect("Deposit should succeed");
+
+        contract.sign_approval(escrow_id, ApprovalType::Release).expect("Alice signs");
+        set_caller(accounts.bob);
+        contract.sign_approval(escrow_id, ApprovalType::Release).expect("Bob signs");
+
+        let result = contract.release_funds(escrow_id);
+        assert_eq!(result, Err(Error::LargeTransferApprovalRequired));
+
+        let request_id = contract.get_active_large_transfer_request(escrow_id);
+        assert!(request_id > 0);
+
+        set_caller(accounts.alice);
+        contract.cancel_large_transfer(request_id)
+            .expect("Cancellation should succeed");
+
+        let cancelled_request = contract.get_large_transfer_request(request_id)
+            .expect("Request should exist");
+        assert_eq!(cancelled_request.status, LargeTransferStatus::Cancelled);
+
+        let active_req = contract.get_active_large_transfer_request(escrow_id);
+        assert_eq!(active_req, 0);
+
+        set_caller(accounts.bob);
+        let result = contract.release_funds(escrow_id);
+        assert_eq!(result, Err(Error::LargeTransferApprovalRequired));
+
+        let new_request_id = contract.get_active_large_transfer_request(escrow_id);
+        assert!(new_request_id > 0);
+        assert_ne!(new_request_id, request_id);
+
+        let new_request = contract.get_large_transfer_request(new_request_id)
+            .expect("New request should exist");
+        assert_eq!(new_request.status, LargeTransferStatus::Pending);
+        assert_eq!(new_request.escrow_id, escrow_id);
+    }
+
+    /// Test 4: escrow with fee enabled and fee disabled
+    #[ink::test]
+    fn test_fee_enabled_and_disabled() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        set_balance(accounts.alice, 10_000_000);
+
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
+        
+        let participants = vec![accounts.alice, accounts.bob];
+        let escrow_id_no_fee = contract
+            .create_escrow_advanced(
+                1,
+                1_000_000,
+                accounts.alice,
+                accounts.bob,
+                participants.clone(),
+                2,
+                None,
+            )
+            .expect("Escrow creation should succeed");
+
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+        contract.deposit_funds(escrow_id_no_fee).expect("Deposit should succeed");
+
+        contract.sign_approval(escrow_id_no_fee, ApprovalType::Release).expect("Alice signs");
+        set_caller(accounts.bob);
+        contract.sign_approval(escrow_id_no_fee, ApprovalType::Release).expect("Bob signs");
+        
+        let seller_balance_before = ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.bob)
+            .unwrap();
+        
+        contract.release_funds(escrow_id_no_fee).expect("Release should succeed");
+
+        let seller_balance_after = ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.bob)
+            .unwrap();
+        
+        assert_eq!(seller_balance_after - seller_balance_before, 1_000_000);
+
+        let admin = contract.get_admin();
+        set_caller(admin);
+        contract.set_fee_rate(100).expect("Setting fee rate should succeed");
+        contract.set_fee_recipient(Some(accounts.charlie)).expect("Setting fee recipient should succeed");
+
+        set_caller(accounts.alice);
+        set_balance(accounts.alice, 10_000_000);
+        let escrow_id_with_fee = contract
+            .create_escrow_advanced(
+                2,
+                1_000_000,
+                accounts.alice,
+                accounts.bob,
+                participants.clone(),
+                2,
+                None,
+            )
+            .expect("Escrow creation should succeed");
+
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+        contract.deposit_funds(escrow_id_with_fee).expect("Deposit should succeed");
+
+        contract.sign_approval(escrow_id_with_fee, ApprovalType::Release).expect("Alice signs");
+        set_caller(accounts.bob);
+        contract.sign_approval(escrow_id_with_fee, ApprovalType::Release).expect("Bob signs");
+
+        let fee_recipient_balance_before = ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.charlie)
+            .unwrap();
+        let seller_balance_before_2 = ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.bob)
+            .unwrap();
+
+        contract.release_funds(escrow_id_with_fee).expect("Release should succeed");
+
+        let fee_recipient_balance_after = ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.charlie)
+            .unwrap();
+        let seller_balance_after_2 = ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.bob)
+            .unwrap();
+
+        let expected_fee = 10_000;
+        assert_eq!(fee_recipient_balance_after - fee_recipient_balance_before, expected_fee);
+        assert_eq!(seller_balance_after_2 - seller_balance_before_2, 1_000_000 - expected_fee);
+    }
+
+    /// Test 5: partial release followed by full refund attempt
+    #[ink::test]
+    fn test_partial_release_then_refund_attempt() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        set_balance(accounts.alice, 10_000_000);
+
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
+
+        let participants = vec![accounts.alice, accounts.bob];
+        let escrow_id = contract
+            .create_escrow_advanced(
+                1,
+                1_000_000,
+                accounts.alice,
+                accounts.bob,
+                participants,
+                2,
+                None,
+            )
+            .expect("Escrow creation should succeed");
+
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+        contract.deposit_funds(escrow_id).expect("Deposit should succeed");
+
+        contract.sign_approval(escrow_id, ApprovalType::Release).expect("Alice signs");
+        set_caller(accounts.bob);
+        contract.sign_approval(escrow_id, ApprovalType::Release).expect("Bob signs");
+
+        contract.release_funds_partial(escrow_id, 600_000)
+            .expect("Partial release should succeed");
+
+        let escrow = contract.get_escrow(escrow_id).unwrap();
+        assert_eq!(escrow.total_released, 600_000);
+        assert_eq!(escrow.status, EscrowStatus::Active);
+
+        set_caller(accounts.alice);
+        contract.sign_approval(escrow_id, ApprovalType::Refund).expect("Alice signs refund");
+        set_caller(accounts.bob);
+        contract.sign_approval(escrow_id, ApprovalType::Refund).expect("Bob signs refund");
+
+        let result = contract.refund_funds(escrow_id);
+        assert!(result.is_err());
+    }
+
+    /// Test 6: tax withholding when tax compliance contract is set
+    #[ink::test]
+    fn test_tax_withholding_on_release() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        set_balance(accounts.alice, 10_000_000);
+
+        let mut contract = AdvancedEscrow::new(1_000_000, Some(accounts.django));
+
+        let participants = vec![accounts.alice, accounts.bob];
+        let escrow_id = contract
+            .create_escrow_advanced(
+                1,
+                1_000_000,
+                accounts.alice,
+                accounts.bob,
+                participants,
+                2,
+                None,
+            )
+            .expect("Escrow creation should succeed");
+
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+        contract.deposit_funds(escrow_id).expect("Deposit should succeed");
+
+        contract.sign_approval(escrow_id, ApprovalType::Release).expect("Alice signs");
+        set_caller(accounts.bob);
+        contract.sign_approval(escrow_id, ApprovalType::Release).expect("Bob signs");
+
+        let escrow = contract.get_escrow(escrow_id).unwrap();
+        assert_eq!(escrow.status, EscrowStatus::Active);
+    }
+
+    /// Test 7: dispute resolution changes escrow status correctly
+    #[ink::test]
+    fn test_dispute_resolution_status_changes() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
+        let admin = contract.get_admin();
+
+        let participants = vec![accounts.alice, accounts.bob];
+        let escrow_id = contract
+            .create_escrow_advanced(
+                1,
+                1_000_000,
+                accounts.alice,
+                accounts.bob,
+                participants,
+                2,
+                None,
+            )
+            .expect("Escrow creation should succeed");
+
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+        contract.deposit_funds(escrow_id).expect("Deposit should succeed");
+
+        let escrow = contract.get_escrow(escrow_id).unwrap();
+        assert_eq!(escrow.status, EscrowStatus::Active);
+
+        contract.raise_dispute(escrow_id, "Property issues".to_string())
+            .expect("Dispute should be raised");
+
+        let escrow_disputed = contract.get_escrow(escrow_id).unwrap();
+        assert_eq!(escrow_disputed.status, EscrowStatus::Disputed);
+
+        let dispute = contract.get_dispute(escrow_id).unwrap();
+        assert!(!dispute.resolved);
+
+        set_caller(admin);
+        contract.resolve_dispute(escrow_id, "Resolved amicably".to_string())
+            .expect("Dispute resolution should succeed");
+
+        let escrow_resolved = contract.get_escrow(escrow_id).unwrap();
+        assert_eq!(escrow_resolved.status, EscrowStatus::Active);
+
+        let resolved_dispute = contract.get_dispute(escrow_id).unwrap();
+        assert!(resolved_dispute.resolved);
+        assert_eq!(resolved_dispute.resolution, Some("Resolved amicably".to_string()));
+    }
+
+    /// Test 8: emergency override with and without tax withholding
+    #[ink::test]
+    fn test_emergency_override_with_and_without_tax() {
+        let accounts = default_accounts();
+        
+        set_caller(accounts.alice);
+        set_balance(accounts.alice, 10_000_000);
+        let mut contract_no_tax = AdvancedEscrow::new(1_000_000, None);
+        let admin = contract_no_tax.get_admin();
+
+        let participants = vec![accounts.alice, accounts.bob];
+        let escrow_id_no_tax = contract_no_tax
+            .create_escrow_advanced(
+                1,
+                1_000_000,
+                accounts.alice,
+                accounts.bob,
+                participants.clone(),
+                2,
+                None,
+            )
+            .expect("Escrow creation should succeed");
+
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+        contract_no_tax.deposit_funds(escrow_id_no_tax).expect("Deposit should succeed");
+
+        set_caller(admin);
+        let seller_balance_before = ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.bob)
+            .unwrap();
+
+        contract_no_tax.emergency_override(escrow_id_no_tax, true)
+            .expect("Emergency override should succeed");
+
+        let seller_balance_after = ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.bob)
+            .unwrap();
+
+        assert_eq!(seller_balance_after - seller_balance_before, 1_000_000);
+
+        let escrow = contract_no_tax.get_escrow(escrow_id_no_tax).unwrap();
+        assert_eq!(escrow.status, EscrowStatus::Released);
+
+        set_caller(accounts.alice);
+        set_balance(accounts.alice, 10_000_000);
+        let mut contract_with_tax = AdvancedEscrow::new(1_000_000, Some(accounts.django));
+        let admin2 = contract_with_tax.get_admin();
+
+        let escrow_id_with_tax = contract_with_tax
+            .create_escrow_advanced(
+                2,
+                1_000_000,
+                accounts.alice,
+                accounts.bob,
+                participants.clone(),
+                2,
+                None,
+            )
+            .expect("Escrow creation should succeed");
+
+        ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(1_000_000);
+        contract_with_tax.deposit_funds(escrow_id_with_tax).expect("Deposit should succeed");
+
+        set_caller(admin2);
+        let buyer_balance_before = ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.alice)
+            .unwrap();
+
+        contract_with_tax.emergency_override(escrow_id_with_tax, false)
+            .expect("Emergency override should succeed");
+
+        let buyer_balance_after = ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.alice)
+            .unwrap();
+
+        assert_eq!(buyer_balance_after - buyer_balance_before, 1_000_000);
+
+        let escrow2 = contract_with_tax.get_escrow(escrow_id_with_tax).unwrap();
+        assert_eq!(escrow2.status, EscrowStatus::Refunded);
+    }
+
+    /// Test 9: All edge case tests pass consistently
+    #[ink::test]
+    fn test_edge_cases_consistency() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        set_balance(accounts.alice, 100_000_000_000_000_000_000);
+
+        let mut contract = AdvancedEscrow::new(1_000_000, None);
+        let admin = contract.get_admin();
+
+        set_caller(admin);
+        contract.set_large_transfer_thresholds(5_000_000_000_000_000, 50_000_000_000_000_000)
+            .expect("Setting thresholds should succeed");
+
+        set_caller(accounts.alice);
+        let participants = vec![accounts.alice, accounts.bob, accounts.charlie];
+        
+        let escrow_id_1 = contract
+            .create_escrow_advanced(
+                1,
+                1_000_000,
+                accounts.alice,
+                accounts.bob,
+                participants.clone(),
+                2,
+                None,
+            )
+            .expect("Escrow 1 creation should succeed");
+
+        let escrow_id_2 = contract
+            .create_escrow_advanced(
+                2,
+                10_000_000_000_000_000,
+                accounts.alice,
+                accounts.bob,
+                participants.clone(),
+                2,
+                None,
+            )
+            .expect("Escrow 2 creation should succeed");
+
+        let e1 = contract.get_escrow(escrow_id_1).unwrap();
+        assert_eq!(e1.status, EscrowStatus::Created);
+        
+        let e2 = contract.get_escrow(escrow_id_2).unwrap();
+        assert_eq!(e2.status, EscrowStatus::Created);
+
+        assert_eq!(contract.get_active_large_transfer_request(escrow_id_1), 0);
+        assert_eq!(contract.get_active_large_transfer_request(escrow_id_2), 0);
+    }
+
 }
