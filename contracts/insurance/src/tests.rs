@@ -1,5 +1,65 @@
 // Unit tests for the insurance contract (Issue #101 - extracted from lib.rs)
 
+// ============================================================================
+// Regression test for Issue #435 — ReinsuranceStats missing derives
+// Verifies that ReinsuranceStats implements Encode + Decode + TypeInfo +
+// StorageLayout so it can be returned from an #[ink(message)] and stored in
+// a Mapping without compile errors.
+// ============================================================================
+#[cfg(test)]
+mod reinsurance_stats_derives {
+    use crate::propchain_insurance::{
+        CoverageType, PropertyInsurance, ReinsuranceStats, ReinsuranceTreatyType,
+    };
+    use ink::env::{test, DefaultEnvironment};
+
+    fn setup() -> PropertyInsurance {
+        PropertyInsurance::new()
+    }
+
+    /// Constructing the struct directly verifies that all fields have the
+    /// correct types and that PartialEq (needed for assertions) is derived.
+    #[ink::test]
+    fn reinsurance_stats_can_be_constructed_and_compared() {
+        let a = ReinsuranceStats {
+            agreement_id: 1,
+            treaty_type: ReinsuranceTreatyType::QuotaShare,
+            total_ceded_premiums: 1_000_000,
+            total_recoveries: 500_000,
+            cession_count: 10,
+            recovery_count: 5,
+            net_recovery: -500_000i128,
+        };
+        let b = a.clone();
+        assert_eq!(a, b, "Clone + PartialEq must be derived");
+    }
+
+    /// Calling `get_reinsurance_stats` (which returns `Option<ReinsuranceStats>`)
+    /// would fail to compile if the struct were missing Encode/Decode/TypeInfo.
+    #[ink::test]
+    fn get_reinsurance_stats_returns_some_after_register() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let mut contract = setup();
+
+        let id = contract
+            .register_reinsurance(
+                accounts.bob,
+                1_000_000,
+                500_000,
+                20u32,
+                vec![CoverageType::Fire],
+                86_400,
+            )
+            .expect("reinsurance registration must succeed");
+
+        let stats = contract.get_reinsurance_stats(id);
+        assert!(stats.is_some(), "stats must be present after registration");
+        assert_eq!(stats.unwrap().agreement_id, id);
+    }
+}
+
 #[cfg(test)]
 mod insurance_tests {
     use ink::env::{test, DefaultEnvironment};
