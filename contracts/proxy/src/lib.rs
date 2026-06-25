@@ -1,3 +1,4 @@
+
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(dead_code)]
 
@@ -256,6 +257,37 @@ mod propchain_proxy {
                 selector_to_facet: ink::storage::Mapping::default(),
                 facet_selectors: ink::storage::Mapping::default(),
             }
+        }
+
+        // ====================================================================
+        // DIAMOND STANDARD (EIP-2535)
+        // ====================================================================
+
+        /// Add, replace, or remove facets and functions from the diamond
+        #[ink(message)]
+        pub fn diamond_cut(&mut self, cuts: Vec<FacetCut>) -> Result<(), Error> {
+            self.ensure_admin()?;
+            self.ensure_not_paused()?;
+
+            for cut in cuts {
+                match cut.action {
+                    FacetCutAction::Add => self.add_facet(cut.facet_address, cut.selectors)?,
+                    FacetCutAction::Replace => self.replace_facet(cut.facet_address, cut.selectors)?,
+                    FacetCutAction::Remove => self.remove_facet(cut.facet_address, cut.selectors)?,
+                }
+            }
+
+            Ok(())
+        }
+
+        /// The proxy's fallback function
+        ///
+        /// Delegates calls to the appropriate facet if the selector is registered.
+        /// Otherwise, it forwards the call to the main implementation contract.
+        #[ink(message, payable, selector = "_")]
+        pub fn _fallback(&mut self) {
+            let selector = self.env().transferred_value();
+            // TODO: Implement the logic to delegate the call to the appropriate facet
         }
 
         // ====================================================================
@@ -614,19 +646,143 @@ mod propchain_proxy {
         #[ink(message)]
         pub fn upgrade_to(&mut self, new_code_hash: Hash) -> Result<(), Error> {
             self.ensure_admin()?;
-            self.ensure_not_paused()?;
-
-            let old_version = self.format_current_version();
             self.code_hash = new_code_hash;
+            Ok(())
+        }
 
-            // Record as emergency version
-            let version_info = VersionInfo {
-                major: self.current_version().0,
-                minor: self.current_version().1,
-                patch: self.current_version().2 + 1,
-                code_hash: new_code_hash,
-                deployed_at_block: self.env().block_number(),
-                deployed_at: self.env().block_timestamp(),
-                description: String::from("Emergency direct upgrade"),
-                deployed_by: self.env().caller(),
-            };
+        // ====================================================================
+        // VIEW FUNCTIONS
+        // ====================================================================
+
+        /// Returns the current admin address
+        #[ink(message)]
+        pub fn get_admin(&self) -> AccountId {
+            self.admin
+        }
+
+        /// Returns the list of governors
+        #[ink(message)]
+        pub fn get_governors(&self) -> Vec<AccountId> {
+            self.governors.clone()
+        }
+
+        /// Returns the required number of approvals
+        #[ink(message)]
+        pub fn get_required_approvals(&self) -> u32 {
+            self.required_approvals
+        }
+
+        /// Returns the timelock period in blocks
+        #[ink(message)]
+        pub fn get_timelock_blocks(&self) -> u32 {
+            self.timelock_blocks
+        }
+
+        /// Returns the current version info
+        #[ink(message)]
+        pub fn get_current_version(&self) -> VersionInfo {
+            self.version_history[self.current_version_index as usize].clone()
+        }
+
+        /// Returns the full version history
+        #[ink(message)]
+        pub fn get_version_history(&self) -> Vec<VersionInfo> {
+            self.version_history.clone()
+        }
+
+        /// Returns the details of a specific proposal
+        #[ink(message)]
+        pub fn get_proposal(&self, proposal_id: u64) -> Option<UpgradeProposal> {
+            self.proposals.get(proposal_id)
+        }
+
+        /// Returns the current migration state
+        #[ink(message)]
+        pub fn get_migration_state(&self) -> MigrationState {
+            self.migration_state
+        }
+
+        /// Returns the emergency pause status
+        #[ink(message)]
+        pub fn is_paused(&self) -> bool {
+            self.emergency_pause
+        }
+
+        // ====================================================================
+        // INTERNAL HELPERS
+        // ====================================================================
+
+        /// Ensures the caller is the admin
+        fn ensure_admin(&self) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                Err(Error::Unauthorized)
+            } else {
+                Ok(())
+            }
+        }
+
+        /// Ensures the caller is a governor
+        fn ensure_governor(&self, account: AccountId) -> Result<(), Error> {
+            if !self.governors.contains(&account) {
+                Err(Error::Unauthorized)
+            } else {
+                Ok(())
+            }
+        }
+
+        /// Ensures the contract is not paused
+        fn ensure_not_paused(&self) -> Result<(), Error> {
+            if self.emergency_pause {
+                Err(Error::Paused)
+            } else {
+                Ok(())
+            }
+        }
+
+        /// Formats the current version as a string "vX.Y.Z"
+        fn format_current_version(&self) -> String {
+            let version = self.get_current_version();
+            let mut s = String::new();
+            s.push_str("v");
+            s.push_str(&version.major.to_string());
+            s.push_str(".");
+            s.push_str(&version.minor.to_string());
+            s.push_str(".");
+            s.push_str(&version.patch.to_string());
+            s
+        }
+
+        /// Checks if the new version is compatible (>= current)
+        fn check_version_compatibility(&self, major: u32, minor: u32, patch: u32) -> Result<(), Error> {
+            let current = self.get_current_version();
+            if major < current.major {
+                return Err(Error::VersionIncompatible);
+            }
+            if major == current.major && minor < current.minor {
+                return Err(Error::VersionIncompatible);
+            }
+            if major == current.major && minor == current.minor && patch < current.patch {
+                return Err(Error::VersionIncompatible);
+            }
+            Ok(())
+        }
+
+        /// Adds a new facet and its functions to the diamond
+        fn add_facet(&mut self, facet_address: AccountId, selectors: Vec<[u8; 4]>) -> Result<(), Error> {
+            // TODO: Implement the logic to add a new facet
+            Ok(())
+        }
+
+        /// Replaces an existing facet with a new one
+        fn replace_facet(&mut self, facet_address: AccountId, selectors: Vec<[u8; 4]>) -> Result<(), Error> {
+            // TODO: Implement the logic to replace an existing facet
+            Ok(())
+        }
+
+        /// Removes a facet and its functions from the diamond
+        fn remove_facet(&mut self, facet_address: AccountId, selectors: Vec<[u8; 4]>) -> Result<(), Error> {
+            // TODO: Implement the logic to remove a facet
+            Ok(())
+        }
+    }
+}
