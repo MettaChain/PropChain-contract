@@ -74,6 +74,24 @@ pub mod propchain_identity {
         pub details: String,
     }
 
+    /// Reason for identity revocation
+    #[derive(
+        Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum RevocationReason {
+        /// KYC/AML policy violation
+        KycAmlRevoked,
+        /// Fraudulent activity detected
+        FraudDetected,
+        /// Account compromised
+        AccountCompromised,
+        /// User request
+        UserRequest,
+        /// Other reason
+        Other,
+    }
+
     /// Revocation record for a revoked identity
     #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
@@ -82,7 +100,7 @@ pub mod propchain_identity {
     pub struct RevocationRecord {
         pub account: AccountId,
         pub revoked_by: AccountId,
-        pub reason: String,
+        pub reason: RevocationReason,
         pub revoked_at: u64,
     }
 
