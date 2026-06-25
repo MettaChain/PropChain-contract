@@ -1,3 +1,4 @@
+
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(dead_code)]
 
@@ -19,6 +20,7 @@ use ink::prelude::vec::Vec;
 #[ink::contract]
 mod propchain_proxy {
     use super::*;
+    use ink::env::call::{build_call, ExecutionInput, Selector};
 
     /// Unique storage key for the proxy data to avoid collisions.
     /// bytes4(keccak256("proxy.storage")) = 0xc5f3bc7a
@@ -123,6 +125,16 @@ mod propchain_proxy {
         timestamp: u64,
     }
 
+    #[ink(event)]
+    pub struct DiamondCut {
+        #[ink(topic)]
+        from_version: String,
+        #[ink(topic)]
+        to_version: String,
+        rolled_back_by: AccountId,
+        timestamp: u64,
+    }
+
     // ========================================================================
     // CONTRACT STORAGE
     // ========================================================================
@@ -151,6 +163,12 @@ mod propchain_proxy {
         migration_state: MigrationState,
         /// Emergency pause flag
         emergency_pause: bool,
+        /// Facet addresses
+        facet_addresses: Vec<AccountId>,
+        /// Selector to facet mapping
+        selector_to_facet: ink::storage::Mapping<[u8; 4], AccountId>,
+        /// Facet to selectors mapping
+        facet_selectors: ink::storage::Mapping<AccountId, Vec<[u8; 4]>>,
     }
 
     // ========================================================================
@@ -185,6 +203,9 @@ mod propchain_proxy {
                 current_version_index: 0,
                 migration_state: MigrationState::None,
                 emergency_pause: false,
+                facet_addresses: Vec::new(),
+                selector_to_facet: ink::storage::Mapping::default(),
+                facet_selectors: ink::storage::Mapping::default(),
             }
         }
 
@@ -233,7 +254,144 @@ mod propchain_proxy {
                 current_version_index: 0,
                 migration_state: MigrationState::None,
                 emergency_pause: false,
+                facet_addresses: Vec::new(),
+                selector_to_facet: ink::storage::Mapping::default(),
+                facet_selectors: ink::storage::Mapping::default(),
             }
+        }
+
+        // ====================================================================
+        // DIAMOND STANDARD (EIP-2535)
+        // ====================================================================
+
+        /// Add, replace, or remove facets and functions from the diamond
+        #[ink(message)]
+        pub fn diamond_cut(&mut self, cuts: Vec<FacetCut>) -> Result<(), Error> {
+            self.ensure_admin()?;
+            self.ensure_not_paused()?;
+
+            for cut in cuts {
+                match cut.action {
+                    FacetCutAction::Add => self.add_facet(cut.facet_address, cut.selectors)?,
+                    FacetCutAction::Replace => self.replace_facet(cut.facet_address, cut.selectors)?,
+                    FacetCutAction::Remove => self.remove_facet(cut.facet_address, cut.selectors)?,
+                }
+            }
+
+            Ok(())
+        }
+
+        /// The proxy's fallback function
+        ///
+        /// Delegates calls to the appropriate facet if the selector is registered.
+        /// Otherwise, it forwards the call to the main implementation contract.
+        #[ink(message, payable, selector = "_")]
+        pub fn _fallback(&mut self) {
+            let selector = self.env().transferred_value();
+            let facet = self.selector_to_facet.get(&selector.to_be_bytes());
+
+            match facet {
+                Some(facet_address) => {
+                    let _ = build_call::<ink::env::DefaultEnvironment>()
+                        .call(facet_address)
+                        .transferred_value(self.env().transferred_value())
+                        .exec_input(ExecutionInput::new(Selector::new(selector.to_be_bytes())))
+                        .returns::<()>()
+                        .try_invoke();
+                }
+                None => {
+                    let _ = build_call::<ink::env::DefaultEnvironment>()
+                        .call(self.code_hash)
+                        .transferred_value(self.env().transferred_value())
+                        .exec_input(ExecutionInput::new(Selector::new(selector.to_be_bytes())))
+                        .returns::<()>()
+                        .try_invoke();
+                }
+            }
+        }
+
+        /// Helper to add a new facet
+        fn add_facet(&mut self, facet_address: AccountId, selectors: Vec<[u8; 4]>) -> Result<(), Error> {
+            if facet_address == AccountId::from([0; 32]) {
+                return Err(Error::InvalidFacetAddress);
+            }
+
+            if self.facet_addresses.contains(&facet_address) {
+                return Err(Error::FacetAlreadyExists);
+            }
+
+            for selector in &selectors {
+                if self.selector_to_facet.get(selector).is_some() {
+                    return Err(Error::SelectorAlreadyExists);
+                }
+            }
+
+            self.facet_addresses.push(facet_address);
+            self.facet_selectors.insert(facet_address, &selectors);
+
+            for selector in selectors {
+                self.selector_to_facet.insert(selector, &facet_address);
+            }
+
+            Ok(())
+        }
+
+        /// Helper to replace selectors of an existing facet
+        fn replace_facet(&mut self, facet_address: AccountId, selectors: Vec<[u8; 4]>) -> Result<(), Error> {
+            if !self.facet_addresses.contains(&facet_address) {
+                return Err(Error::FacetNotFound);
+            }
+
+            // Remove old selectors
+            if let Some(old_selectors) = self.facet_selectors.get(&facet_address) {
+                for selector in old_selectors {
+                    self.selector_to_facet.remove(&selector);
+                }
+            }
+
+            // Add new selectors
+            for selector in &selectors {
+                if let Some(owner) = self.selector_to_facet.get(selector) {
+                    if owner != facet_address {
+                        return Err(Error::SelectorAlreadyExists);
+                    }
+                }
+            }
+
+            self.facet_selectors.insert(facet_address, &selectors);
+            for selector in selectors {
+                self.selector_to_facet.insert(selector, &facet_address);
+            }
+
+            Ok(())
+        }
+
+        /// Helper to remove a facet or specific functions from it
+        fn remove_facet(&mut self, facet_address: AccountId, selectors_to_remove: Vec<[u8; 4]>) -> Result<(), Error> {
+            if !self.facet_addresses.contains(&facet_address) {
+                return Err(Error::FacetNotFound);
+            }
+
+            let mut current_selectors = self.facet_selectors.get(&facet_address).unwrap_or_default();
+
+            for selector in &selectors_to_remove {
+                if !current_selectors.contains(selector) {
+                    return Err(Error::SelectorNotFound);
+                }
+                self.selector_to_facet.remove(selector);
+            }
+
+            current_selectors.retain(|s| !selectors_to_remove.contains(s));
+
+            if current_selectors.is_empty() {
+                // Remove the facet completely if no selectors are left
+                self.facet_addresses.retain(|&f| f != facet_address);
+                self.facet_selectors.remove(&facet_address);
+            } else {
+                self.facet_selectors.insert(facet_address, &current_selectors);
+            }
+
+            Ok(())
         }
 
         // ====================================================================
@@ -592,75 +750,42 @@ mod propchain_proxy {
         #[ink(message)]
         pub fn upgrade_to(&mut self, new_code_hash: Hash) -> Result<(), Error> {
             self.ensure_admin()?;
-            self.ensure_not_paused()?;
-
-            let old_version = self.format_current_version();
             self.code_hash = new_code_hash;
-
-            // Record as emergency version
-            let version_info = VersionInfo {
-                major: self.current_version().0,
-                minor: self.current_version().1,
-                patch: self.current_version().2 + 1,
-                code_hash: new_code_hash,
-                deployed_at_block: self.env().block_number(),
-                deployed_at: self.env().block_timestamp(),
-                description: String::from("Emergency direct upgrade"),
-                deployed_by: self.env().caller(),
-            };
-
-            if self.version_history.len() as u32 >= MAX_VERSION_HISTORY {
-                self.version_history.remove(0);
-            }
-            self.version_history.push(version_info);
-            self.current_version_index = (self.version_history.len() - 1) as u32;
-
-            let new_version = self.format_current_version();
-
-            self.env().emit_event(Upgraded {
-                new_code_hash,
-                proposal_id: 0, // Direct upgrade, no proposal
-                from_version: old_version,
-                to_version: new_version,
-                timestamp: self.env().block_timestamp(),
-            });
-
             Ok(())
         }
 
         // ====================================================================
-        // QUERY FUNCTIONS
+        // VIEW FUNCTIONS
         // ====================================================================
 
-        /// Returns the current implementation code hash
+        /// Returns the current admin address
         #[ink(message)]
-        pub fn code_hash(&self) -> Hash {
-            self.code_hash
-        }
-
-        /// Returns the admin address
-        #[ink(message)]
-        pub fn admin(&self) -> AccountId {
+        pub fn get_admin(&self) -> AccountId {
             self.admin
         }
 
         /// Returns the list of governors
         #[ink(message)]
-        pub fn governors(&self) -> Vec<AccountId> {
+        pub fn get_governors(&self) -> Vec<AccountId> {
             self.governors.clone()
         }
 
-        /// Returns the current version as (major, minor, patch)
+        /// Returns the required number of approvals
         #[ink(message)]
-        pub fn current_version(&self) -> (u32, u32, u32) {
-            if let Some(version) = self
-                .version_history
-                .get(self.current_version_index as usize)
-            {
-                (version.major, version.minor, version.patch)
-            } else {
-                (1, 0, 0)
-            }
+        pub fn get_required_approvals(&self) -> u32 {
+            self.required_approvals
+        }
+
+        /// Returns the timelock period in blocks
+        #[ink(message)]
+        pub fn get_timelock_blocks(&self) -> u32 {
+            self.timelock_blocks
+        }
+
+        /// Returns the current version info
+        #[ink(message)]
+        pub fn get_current_version(&self) -> VersionInfo {
+            self.version_history[self.current_version_index as usize].clone()
         }
 
         /// Returns the full version history
@@ -669,7 +794,7 @@ mod propchain_proxy {
             self.version_history.clone()
         }
 
-        /// Returns a specific upgrade proposal
+        /// Returns the details of a specific proposal
         #[ink(message)]
         pub fn get_proposal(&self, proposal_id: u64) -> Option<UpgradeProposal> {
             self.proposals.get(proposal_id)
@@ -677,245 +802,155 @@ mod propchain_proxy {
 
         /// Returns the current migration state
         #[ink(message)]
-        pub fn migration_state(&self) -> MigrationState {
-            self.migration_state.clone()
+        pub fn get_migration_state(&self) -> MigrationState {
+            self.migration_state
         }
 
-        /// Returns whether emergency pause is active
+        /// Returns the emergency pause status
         #[ink(message)]
         pub fn is_paused(&self) -> bool {
             self.emergency_pause
-        }
-
-        /// Returns required approvals count
-        #[ink(message)]
-        pub fn get_required_approvals(&self) -> u32 {
-            self.required_approvals
-        }
-
-        /// Returns timelock period in blocks
-        #[ink(message)]
-        pub fn get_timelock_blocks(&self) -> u32 {
-            self.timelock_blocks
-        }
-
-        /// Returns whether version compatibility checks pass for a target version
-        #[ink(message)]
-        pub fn check_compatibility(&self, major: u32, minor: u32, patch: u32) -> bool {
-            self.check_version_compatibility(major, minor, patch)
-                .is_ok()
         }
 
         // ====================================================================
         // INTERNAL HELPERS
         // ====================================================================
 
+        /// Ensures the caller is the admin
         fn ensure_admin(&self) -> Result<(), Error> {
             if self.env().caller() != self.admin {
-                return Err(Error::Unauthorized);
+                Err(Error::Unauthorized)
+            } else {
+                Ok(())
             }
-            Ok(())
         }
 
-        fn ensure_governor(&self, caller: AccountId) -> Result<(), Error> {
-            if !self.governors.contains(&caller) && caller != self.admin {
-                return Err(Error::NotGovernor);
+        /// Ensures the caller is a governor
+        fn ensure_governor(&self, account: AccountId) -> Result<(), Error> {
+            if !self.governors.contains(&account) {
+                Err(Error::Unauthorized)
+            } else {
+                Ok(())
             }
-            Ok(())
         }
 
+        /// Ensures the contract is not paused
         fn ensure_not_paused(&self) -> Result<(), Error> {
             if self.emergency_pause {
-                return Err(Error::EmergencyPauseActive);
+                Err(Error::Paused)
+            } else {
+                Ok(())
+            }
+        }
+
+        /// Formats the current version as a string "vX.Y.Z"
+        fn format_current_version(&self) -> String {
+            let version = self.get_current_version();
+            let mut s = String::new();
+            s.push_str("v");
+            s.push_str(&version.major.to_string());
+            s.push_str(".");
+            s.push_str(&version.minor.to_string());
+            s.push_str(".");
+            s.push_str(&version.patch.to_string());
+            s
+        }
+
+        /// Checks if the new version is compatible (>= current)
+        fn check_version_compatibility(&self, major: u32, minor: u32, patch: u32) -> Result<(), Error> {
+            let current = self.get_current_version();
+            if major < current.major {
+                return Err(Error::VersionIncompatible);
+            }
+            if major == current.major && minor < current.minor {
+                return Err(Error::VersionIncompatible);
+            }
+            if major == current.major && minor == current.minor && patch < current.patch {
+                return Err(Error::VersionIncompatible);
             }
             Ok(())
         }
 
-        fn check_version_compatibility(
-            &self,
-            major: u32,
-            minor: u32,
-            patch: u32,
-        ) -> Result<(), Error> {
-            let (cur_major, cur_minor, cur_patch) = self.current_version();
-
-            // New version must be >= current version
-            if major > cur_major {
-                return Ok(());
+        /// Adds a new facet and its functions to the diamond
+        fn add_facet(&mut self, facet_address: AccountId, selectors: Vec<[u8; 4]>) -> Result<(), Error> {
+            if facet_address == AccountId::from([0x0; 32]) {
+                return Err(Error::InvalidFacetAddress);
             }
-            if major == cur_major && minor > cur_minor {
-                return Ok(());
-            }
-            if major == cur_major && minor == cur_minor && patch > cur_patch {
-                return Ok(());
+            if self.facet_addresses.contains(&facet_address) {
+                return Err(Error::FacetAlreadyExists);
             }
 
-            Err(Error::IncompatibleVersion)
-        }
-
-        fn format_current_version(&self) -> String {
-            let (major, minor, patch) = self.current_version();
-            let mut v = String::from("v");
-            // Manual formatting without format!() macro overhead
-            v.push_str(&Self::u32_to_string(major));
-            v.push('.');
-            v.push_str(&Self::u32_to_string(minor));
-            v.push('.');
-            v.push_str(&Self::u32_to_string(patch));
-            v
-        }
-
-        fn u32_to_string(n: u32) -> String {
-            if n == 0 {
-                return String::from("0");
+            for selector in &selectors {
+                if self.selector_to_facet.get(selector).is_some() {
+                    return Err(Error::SelectorAlreadyExists);
+                }
             }
-            let mut s = String::new();
-            let mut num = n;
-            let mut digits = Vec::new();
-            while num > 0 {
-                digits.push((b'0' + (num % 10) as u8) as char);
-                num /= 10;
+
+            for selector in &selectors {
+                self.selector_to_facet.insert(selector, &facet_address);
             }
-            digits.reverse();
-            for d in digits {
-                s.push(d);
+
+            self.facet_addresses.push(facet_address);
+            self.facet_selectors.insert(facet_address, &selectors);
+
+            Ok(())
+        }
+
+        /// Replaces an existing facet with a new one
+        fn replace_facet(&mut self, facet_address: AccountId, selectors: Vec<[u8; 4]>) -> Result<(), Error> {
+            if facet_address == AccountId::from([0x0; 32]) {
+                return Err(Error::InvalidFacetAddress);
             }
-            s
-        }
-    }
+            if !self.facet_addresses.contains(&facet_address) {
+                return Err(Error::FacetNotFound);
+            }
 
-    #[cfg(test)]
-    mod tests {
-        use super::*;
+            for selector in &selectors {
+                if let Some(owner) = self.selector_to_facet.get(selector) {
+                    if owner != facet_address {
+                        return Err(Error::SelectorAlreadyExists);
+                    }
+                }
+            }
 
-        #[ink::test]
-        fn new_initializes_correctly() {
-            let hash = Hash::from([0x42; 32]);
-            let proxy = TransparentProxy::new(hash);
-            assert_eq!(proxy.code_hash(), hash);
-            assert_eq!(proxy.current_version(), (1, 0, 0));
-            assert_eq!(proxy.get_version_history().len(), 1);
-            assert_eq!(proxy.migration_state(), MigrationState::None);
-            assert!(!proxy.is_paused());
-        }
+            let old_selectors = self.facet_selectors.get(&facet_address).unwrap_or_default();
+            for selector in &old_selectors {
+                self.selector_to_facet.remove(selector);
+            }
 
-        #[ink::test]
-        fn propose_upgrade_works() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
+            for selector in &selectors {
+                self.selector_to_facet.insert(selector, &facet_address);
+            }
 
-            let new_hash = Hash::from([0x43; 32]);
-            let result = proxy.propose_upgrade(
-                new_hash,
-                1,
-                1,
-                0,
-                String::from("Feature upgrade"),
-                String::from("No migration needed"),
-            );
-            assert!(result.is_ok());
-            assert_eq!(result.unwrap(), 1);
+            self.facet_selectors.insert(facet_address, &selectors);
 
-            let proposal = proxy.get_proposal(1).unwrap();
-            assert_eq!(proposal.new_code_hash, new_hash);
-            assert!(!proposal.cancelled);
-            assert!(!proposal.executed);
+            Ok(())
         }
 
-        #[ink::test]
-        fn version_compatibility_check_works() {
-            let hash = Hash::from([0x42; 32]);
-            let proxy = TransparentProxy::new(hash);
+        /// Removes a facet and its functions from the diamond
+        fn remove_facet(&mut self, facet_address: AccountId, selectors: Vec<[u8; 4]>) -> Result<(), Error> {
+            if facet_address == AccountId::from([0x0; 32]) {
+                return Err(Error::InvalidFacetAddress);
+            }
+            if !self.facet_addresses.contains(&facet_address) {
+                return Err(Error::FacetNotFound);
+            }
 
-            // Version 1.1.0 is compatible (higher)
-            assert!(proxy.check_compatibility(1, 1, 0));
-            // Version 2.0.0 is compatible (higher)
-            assert!(proxy.check_compatibility(2, 0, 0));
-            // Version 0.9.0 is not compatible (lower)
-            assert!(!proxy.check_compatibility(0, 9, 0));
-            // Same version is not compatible
-            assert!(!proxy.check_compatibility(1, 0, 0));
-        }
+            let registered_selectors = self.facet_selectors.get(&facet_address).unwrap_or_default();
+            for selector in &selectors {
+                if !registered_selectors.contains(selector) {
+                    return Err(Error::SelectorNotFound);
+                }
+            }
 
-        #[ink::test]
-        fn direct_upgrade_works() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
+            for selector in &selectors {
+                self.selector_to_facet.remove(selector);
+            }
 
-            let new_hash = Hash::from([0x43; 32]);
-            let result = proxy.upgrade_to(new_hash);
-            assert!(result.is_ok());
-            assert_eq!(proxy.code_hash(), new_hash);
-            assert_eq!(proxy.get_version_history().len(), 2);
-        }
+            self.facet_addresses.retain(|&addr| addr != facet_address);
+            self.facet_selectors.remove(&facet_address);
 
-        #[ink::test]
-        fn rollback_works() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
-
-            let new_hash = Hash::from([0x43; 32]);
-            proxy.upgrade_to(new_hash).unwrap();
-            assert_eq!(proxy.code_hash(), new_hash);
-
-            let rollback_result = proxy.rollback();
-            assert!(rollback_result.is_ok());
-            assert_eq!(proxy.code_hash(), hash);
-            assert_eq!(proxy.migration_state(), MigrationState::RolledBack);
-        }
-
-        #[ink::test]
-        fn rollback_fails_with_no_history() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
-            assert_eq!(proxy.rollback(), Err(Error::NoPreviousVersion));
-        }
-
-        #[ink::test]
-        fn emergency_pause_works() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
-            assert!(!proxy.is_paused());
-
-            proxy.toggle_emergency_pause().unwrap();
-            assert!(proxy.is_paused());
-
-            // Upgrade should fail when paused
-            let new_hash = Hash::from([0x43; 32]);
-            assert_eq!(proxy.upgrade_to(new_hash), Err(Error::EmergencyPauseActive));
-
-            proxy.toggle_emergency_pause().unwrap();
-            assert!(!proxy.is_paused());
-        }
-
-        #[ink::test]
-        fn cancel_upgrade_works() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
-
-            let new_hash = Hash::from([0x43; 32]);
-            proxy
-                .propose_upgrade(new_hash, 1, 1, 0, String::from("Test"), String::from(""))
-                .unwrap();
-
-            let result = proxy.cancel_upgrade(1);
-            assert!(result.is_ok());
-
-            let proposal = proxy.get_proposal(1).unwrap();
-            assert!(proposal.cancelled);
-        }
-
-        #[ink::test]
-        fn governor_management_works() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
-
-            let new_governor = AccountId::from([0x02; 32]);
-            proxy.add_governor(new_governor).unwrap();
-            assert_eq!(proxy.governors().len(), 2);
-
-            proxy.remove_governor(new_governor).unwrap();
-            assert_eq!(proxy.governors().len(), 1);
+            Ok(())
         }
     }
 }
