@@ -139,3 +139,8 @@ plan.md
 
 # Codex CLI artifacts
 .codex
+
+# cargo-mutants artifacts
+/mutants.out/
+/mutants.out.old/
+

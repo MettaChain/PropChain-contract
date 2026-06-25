@@ -27,6 +27,13 @@ propchain-monitoring = { path = "../contracts/monitoring", default-features = fa
 tax-compliance = { path = "../contracts/tax-compliance", default-features = false }
 compliance_registry = { path = "../contracts/compliance_registry", default-features = false }
 
+# Issue #488 / #487 / #489: contract crates needed for new test modules
+fractional = { path = "../contracts/fractional", default-features = false }
+governance = { path = "../contracts/governance", default-features = false }
+staking = { path = "../contracts/staking", default-features = false }
+propchain-bridge = { path = "../contracts/bridge", default-features = false }
+propchain-insurance = { path = "../contracts/insurance", default-features = false }
+
 # Async runtime
 tokio = { version = "1.0", features = ["full"], optional = true }
 
@@ -55,6 +62,11 @@ std = [
     "propchain-monitoring/std",
     "tax-compliance/std",
     "compliance_registry/std",
+    "fractional/std",
+    "governance/std",
+    "staking/std",
+    "propchain-bridge/std",
+    "propchain-insurance/std",
     "serde/std",
     "serde_json/std",
     "tokio",

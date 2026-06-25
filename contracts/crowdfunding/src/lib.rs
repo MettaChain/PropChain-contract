@@ -267,7 +267,7 @@ mod propchain_crowdfunding {
         pub largest_investment: u128,
         pub milestone_completion_rate: u32, // in basis points
         pub days_active: u32,
-        pub funding_velocity: u128, // tokens per day
+        pub funding_velocity: u128,       // tokens per day
         pub investor_retention_rate: u32, // in basis points
         pub risk_score: u32,
         pub projected_completion_days: u32,
@@ -888,7 +888,11 @@ mod propchain_crowdfunding {
         }
 
         #[ink(message)]
-        pub fn share_campaign(&mut self, campaign_id: u64, platform: String) -> Result<(), CrowdfundingError> {
+        pub fn share_campaign(
+            &mut self,
+            campaign_id: u64,
+            platform: String,
+        ) -> Result<(), CrowdfundingError> {
             let _campaign = self
                 .campaigns
                 .get(campaign_id)
@@ -1256,7 +1260,8 @@ mod propchain_crowdfunding {
             let projected_completion_days = if funding_velocity == 0 {
                 0
             } else {
-                ((campaign.target_amount.saturating_sub(total_investment)) / funding_velocity) as u32
+                ((campaign.target_amount.saturating_sub(total_investment)) / funding_velocity)
+                    as u32
             };
 
             Some(CampaignAnalytics {
@@ -1320,10 +1325,10 @@ mod propchain_crowdfunding {
 
             // Placeholder investment distribution
             let investment_distribution = vec![
-                (1_000, total_investors * 3 / 10),      // 0-1k
-                (10_000, total_investors * 4 / 10),     // 1k-10k
-                (100_000, total_investors * 2 / 10),    // 10k-100k
-                (1_000_000, total_investors * 1 / 10),  // 100k+
+                (1_000, total_investors * 3 / 10),     // 0-1k
+                (10_000, total_investors * 4 / 10),    // 1k-10k
+                (100_000, total_investors * 2 / 10),   // 10k-100k
+                (1_000_000, total_investors * 1 / 10), // 100k+
             ];
 
             Some(InvestorDemographics {
@@ -1338,7 +1343,10 @@ mod propchain_crowdfunding {
 
         /// Get performance comparison with similar campaigns
         #[ink(message)]
-        pub fn get_campaign_performance_comparison(&self, campaign_id: u64) -> Option<(u32, u32, u32)> {
+        pub fn get_campaign_performance_comparison(
+            &self,
+            campaign_id: u64,
+        ) -> Option<(u32, u32, u32)> {
             let campaign = self.campaigns.get(campaign_id)?;
             if self.env().caller() != campaign.creator && self.env().caller() != self.admin {
                 return None;
@@ -1426,9 +1434,8 @@ mod tests {
     use super::*;
     use ink::env::{test, DefaultEnvironment};
     use propchain_crowdfunding::{
-        CampaignFilter, CampaignStatus, CrowdfundingError, RealEstateCrowdfunding, RiskRating,
         CampaignAnalytics, CampaignFilter, CampaignStatus, CampaignSummary, CrowdfundingError,
-        InvestorDemographics, RiskRating, RealEstateCrowdfunding,
+        InvestorDemographics, RealEstateCrowdfunding, RiskRating,
     };
 
     fn setup() -> RealEstateCrowdfunding {

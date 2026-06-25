@@ -163,6 +163,66 @@ let comparables = oracle.get_comparable_properties(property_id, 5);
 - **Fallback Mechanisms**: Multiple oracle sources prevent single points of failure
 - **Rate Limiting**: Prevents oracle manipulation through rapid updates
 
+## Gas Optimization: Batched Aggregation
+
+The oracle supports batched price collection to reduce gas costs. Enable it via the admin function:
+
+```rust
+oracle.set_batch_aggregation(true)?;
+```
+
+### How It Works
+
+The batched path optimizes three gas-expensive operations:
+
+1. **Source config caching**: All active source configs are read into a local `Vec` in a single pass, avoiding repeated `Mapping::get` storage reads during the collection loop.
+
+2. **Batched `last_source_update` writes**: Instead of N individual `Mapping::insert` calls per source, updates are collected and written in a single pass at the end.
+
+3. **Packed source weights**: Weights are stored as two `u32` values packed into a single `u64`, reducing storage reads during weighted-mean aggregation from O(N²) (linear scan per source) to O(N) (indexed lookup).
+
+### Gas Savings Breakdown
+
+| Operation | Sequential (N sources) | Batched (N sources) | Savings |
+|-----------|----------------------|---------------------|---------|
+| Source config reads | N × `Mapping::get` | N (cached upfront) | ~30-40% |
+| `last_source_update` writes | N × `Mapping::insert` | 1 batch write | ~40-50% |
+| Weight lookups (aggregation) | O(N²) linear scan | O(N) indexed | ~50-60% |
+| Cross-contract calls | N calls | N calls (unchanged) | 0% |
+
+> **Note**: Cross-contract calls remain N because Substrate/ink! does not support
+> native multicall batching within a single contract. The primary savings come from
+> eliminating redundant storage reads/writes and the O(N²) position scan.
+
+### Events
+
+When batched collection runs, a `BatchPricesCollected` event is emitted with:
+- `property_id` — the property being valued
+- `sources_attempted` — number of active sources considered
+- `sources_succeeded` — number of sources that returned valid prices
+- `batch_enabled` — always `true` in this path
+
+### Admin Functions
+
+| Function | Description |
+|----------|-------------|
+| `set_batch_aggregation(enabled)` | Enable/disable batched collection mode (admin only) |
+| `is_batch_aggregation_enabled()` | Query current batch mode status |
+
+### Testing
+
+Gas benchmarks are included in the test suite:
+
+```bash
+cargo test -p oracle -- oracle_benchmarks
+```
+
+Benchmarks compare sequential vs batched paths for:
+- `aggregate_prices` with 10 sources (100 iterations)
+- `aggregate_prices` scaling from 2 to 20 sources
+- Packed weight lookup vs direct storage lookup (500 iterations × 10 sources)
+- Full `collect_prices_from_sources` sequential vs batched (20 iterations)
+
 ## Integration with Property Registry
 
 The oracle integrates seamlessly with the PropertyRegistry contract to provide real-time valuations for property transactions, mortgage calculations, and investment decisions.

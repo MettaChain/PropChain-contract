@@ -44,6 +44,18 @@ pub enum BridgeOperationStatus {
     Expired,
 }
 
+/// Multi-hop bridge progress status
+#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub enum MultiHopStatus {
+    InProgress,
+    HopCompleted,
+    Failed,
+}
+
 /// Bridge monitoring information
 #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
 #[cfg_attr(
@@ -56,6 +68,10 @@ pub struct BridgeMonitoringInfo {
     pub source_chain: ChainId,
     pub destination_chain: ChainId,
     pub status: BridgeOperationStatus,
+    pub multi_hop_status: MultiHopStatus,
+    pub route: Vec<ChainId>,
+    pub current_hop: u32,
+    pub total_gas_estimate: u64,
     pub created_at: u64,
     pub expires_at: Option<u64>,
     pub signatures_collected: u8,
@@ -114,6 +130,10 @@ pub struct MultisigBridgeRequest {
     pub created_at: u64,
     pub expires_at: Option<u64>,
     pub status: BridgeOperationStatus,
+    pub multi_hop_status: MultiHopStatus,
+    pub route: Vec<ChainId>,
+    pub current_hop: u32,
+    pub total_gas_estimate: u64,
     pub metadata: PropertyMetadata,
 }
 
@@ -380,15 +400,81 @@ impl SuspiciousActivityConfig {
 }
 
 // =========================================================================
+// Bridge Analytics Dashboard Types (Issue #208)
+// =========================================================================
+
+/// Aggregate bridge analytics returned by get_bridge_analytics.
+#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub struct BridgeAnalytics {
+    pub total_requests: u64,
+    pub total_transactions: u64,
+    pub total_cross_chain_trades: u64,
+    pub active_validators: u32,
+    pub active_operators: u32,
+    pub supported_chains: u32,
+    pub guardian_count: u32,
+}
+
+/// Per-chain volume statistics returned by get_chain_volume_stats.
+#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub struct ChainVolumeStats {
+    pub chain_id: ChainId,
+    pub chain_name: String,
+    pub is_active: bool,
+    pub daily_volume: u128,
+    pub hourly_volume: u128,
+    pub daily_limit: u128,
+}
+
+/// Bridge health status summary returned by get_bridge_health_status.
+#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+pub struct BridgeHealthStatus {
+    pub is_paused: bool,
+    pub new_requests_paused: bool,
+    pub signing_paused: bool,
+    pub execution_paused: bool,
+    pub cross_chain_trades_paused: bool,
+    pub active_validator_count: u32,
+    pub active_operator_count: u32,
+    pub guardian_count: u32,
+}
+
+// =========================================================================
 // Trait Definitions
 // =========================================================================
 
-/// Cross-chain bridge trait for property tokens
+/// Core cross-chain bridge interface for property tokens.
+///
+/// Provides the fundamental operations required to move a property token
+/// between chains: locking on the source chain, minting a representative
+/// token on the destination chain, burning it on return, and unlocking
+/// the original. Operator management methods are also included so
+/// implementations can restrict sensitive calls to authorised relayers.
 pub trait PropertyTokenBridge {
-    /// Error type for bridge operations
+    /// Error type returned by all fallible bridge operations.
     type Error;
 
-    /// Lock a token for bridging to another chain
+    /// Lock `token_id` in the bridge escrow in preparation for a cross-chain transfer.
+    ///
+    /// The token is held by the contract until either [`unlock_token`] is called
+    /// (on cancellation/failure) or the destination chain confirms minting.
+    ///
+    /// # Parameters
+    /// - `token_id` — The property token to lock.
+    /// - `destination_chain` — Identifier of the target chain.
+    /// - `recipient` — Address on the destination chain that will receive the bridged token.
     fn lock_token_for_bridge(
         &mut self,
         token_id: TokenId,
@@ -396,7 +482,16 @@ pub trait PropertyTokenBridge {
         recipient: AccountId,
     ) -> Result<(), Self::Error>;
 
-    /// Mint a bridged token from another chain
+    /// Mint a representative token on this chain for a token that was locked on `source_chain`.
+    ///
+    /// Called by an authorised bridge operator after the source-chain lock is confirmed.
+    /// Returns the newly minted `TokenId` on this chain.
+    ///
+    /// # Parameters
+    /// - `source_chain` — The chain where the original token was locked.
+    /// - `original_token_id` — The token ID on the source chain.
+    /// - `recipient` — Account that will own the minted token.
+    /// - `metadata` — Property metadata to attach to the new token.
     fn mint_bridged_token(
         &mut self,
         source_chain: ChainId,
@@ -405,7 +500,15 @@ pub trait PropertyTokenBridge {
         metadata: PropertyMetadata,
     ) -> Result<TokenId, Self::Error>;
 
-    /// Burn a bridged token when returning to original chain
+    /// Burn a bridged token on this chain to initiate a return transfer to the original chain.
+    ///
+    /// Destroys the representative token and signals the relayer to unlock the
+    /// original token on `destination_chain`.
+    ///
+    /// # Parameters
+    /// - `token_id` — The bridged token to burn.
+    /// - `destination_chain` — The chain where the original token will be unlocked.
+    /// - `recipient` — Address on `destination_chain` that will receive the unlocked token.
     fn burn_bridged_token(
         &mut self,
         token_id: TokenId,
@@ -413,13 +516,21 @@ pub trait PropertyTokenBridge {
         recipient: AccountId,
     ) -> Result<(), Self::Error>;
 
-    /// Unlock a token that was previously locked
+    /// Release a previously locked token back to `recipient`.
+    ///
+    /// Used when a bridge operation is cancelled, expired, or the destination-chain
+    /// leg has completed and the original token can be freed.
     fn unlock_token(&mut self, token_id: TokenId, recipient: AccountId) -> Result<(), Self::Error>;
 
-    /// Get bridge status for a token
+    /// Return the current [`BridgeStatus`] for `token_id`, or `None` if the token
+    /// has never been involved in a bridge operation.
     fn get_bridge_status(&self, token_id: TokenId) -> Option<BridgeStatus>;
 
-    /// Verify bridge transaction hash
+    /// Verify that `transaction_hash` corresponds to a legitimate bridge transaction
+    /// for `token_id` originating from `source_chain`.
+    ///
+    /// Returns `true` if the hash is recorded and matches the stored transaction,
+    /// `false` otherwise.
     fn verify_bridge_transaction(
         &self,
         token_id: TokenId,
@@ -427,25 +538,43 @@ pub trait PropertyTokenBridge {
         source_chain: ChainId,
     ) -> bool;
 
-    /// Add a bridge operator
+    /// Grant bridge operator privileges to `operator`.
+    ///
+    /// Bridge operators are authorised to call state-mutating relayer methods
+    /// such as [`mint_bridged_token`] and [`unlock_token`].
     fn add_bridge_operator(&mut self, operator: AccountId) -> Result<(), Self::Error>;
 
-    /// Remove a bridge operator
+    /// Revoke bridge operator privileges from `operator`.
     fn remove_bridge_operator(&mut self, operator: AccountId) -> Result<(), Self::Error>;
 
-    /// Check if an account is a bridge operator
+    /// Return `true` if `account` currently holds bridge operator privileges.
     fn is_bridge_operator(&self, account: AccountId) -> bool;
 
-    /// Get all bridge operators
+    /// Return the complete list of current bridge operators.
     fn get_bridge_operators(&self) -> Vec<AccountId>;
 }
 
-/// Advanced bridge trait with multi-signature and monitoring
+/// Advanced bridge trait with multi-signature and monitoring capabilities.
+///
+/// Extends the base bridge with multi-party approval flows, on-chain monitoring,
+/// gas estimation, and failure recovery. Implementations must require the caller
+/// to be a registered bridge operator for state-mutating methods.
 pub trait AdvancedBridge {
-    /// Error type for advanced bridge operations
+    /// Error type for advanced bridge operations.
     type Error;
 
-    /// Initiate bridge with multi-signature requirement
+    /// Initiate a bridge transfer that requires multi-signature approval.
+    ///
+    /// Locks `token_id` and creates a pending bridge request that must be
+    /// signed by at least `required_signatures` validators before it can be
+    /// executed. Returns the unique bridge request ID.
+    ///
+    /// # Parameters
+    /// - `token_id` — The property token to bridge.
+    /// - `destination_chain` — Target chain identifier.
+    /// - `recipient` — Address on the destination chain that will receive the token.
+    /// - `required_signatures` — Minimum number of validator signatures needed.
+    /// - `timeout_blocks` — Optional block count after which the request expires.
     fn initiate_bridge_multisig(
         &mut self,
         token_id: TokenId,
@@ -455,33 +584,54 @@ pub trait AdvancedBridge {
         timeout_blocks: Option<u64>,
     ) -> Result<u64, Self::Error>; // Returns bridge request ID
 
-    /// Sign a bridge request
+    /// Submit a validator signature approving or rejecting a pending bridge request.
+    ///
+    /// # Parameters
+    /// - `bridge_request_id` — ID returned by [`initiate_bridge_multisig`].
+    /// - `approve` — `true` to approve, `false` to reject.
     fn sign_bridge_request(
         &mut self,
         bridge_request_id: u64,
         approve: bool,
     ) -> Result<(), Self::Error>;
 
-    /// Execute bridge after collecting required signatures
+    /// Execute a bridge request once the required signature threshold is met.
+    ///
+    /// Finalises the cross-chain transfer: releases the locked token on the
+    /// source chain and triggers minting on the destination chain via the
+    /// registered relayer.
     fn execute_bridge(&mut self, bridge_request_id: u64) -> Result<(), Self::Error>;
 
-    /// Monitor bridge status and handle errors
+    /// Return a monitoring snapshot for the given bridge request.
+    ///
+    /// Returns `None` if no request with the given ID exists.
     fn monitor_bridge_status(&self, bridge_request_id: u64) -> Option<BridgeMonitoringInfo>;
 
-    /// Recover from failed bridge operation
+    /// Attempt to recover a failed or stuck bridge operation.
+    ///
+    /// The caller must be an authorised bridge operator. The behaviour depends
+    /// on `recovery_action` — for example, `RecoveryAction::UnlockToken`
+    /// releases the locked token back to its original owner.
     fn recover_failed_bridge(
         &mut self,
         bridge_request_id: u64,
         recovery_action: RecoveryAction,
     ) -> Result<(), Self::Error>;
 
-    /// Get gas estimation for bridge operation
+    /// Estimate the gas cost (in chain-native units) for bridging `token_id`
+    /// to `destination_chain`.
+    ///
+    /// The estimate accounts for the destination chain's gas multiplier stored
+    /// in [`ChainBridgeInfo`] and the current protocol fee schedule.
     fn estimate_bridge_gas(
         &self,
         token_id: TokenId,
         destination_chain: ChainId,
     ) -> Result<u64, Self::Error>;
 
-    /// Get bridge history for an account
+    /// Return the full bridge transaction history for `account`.
+    ///
+    /// Records are ordered oldest-first. An empty `Vec` is returned when the
+    /// account has no prior bridge activity.
     fn get_bridge_history(&self, account: AccountId) -> Vec<BridgeTransaction>;
 }

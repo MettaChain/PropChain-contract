@@ -36,4 +36,24 @@ pub enum InsuranceError {
     ReinsuranceAgreementNotFound,
     ReinsuranceAgreementExpired,
     ReinsuranceAgreementInactive,
+    // Claim automation errors (#433)
+    TriggerNotFound,
+    TriggerInactive,
+    TriggerAlreadyFired,
+    TriggerConditionNotMet,
+    InvalidPayoutMode,
+    // Parametric policy errors (#433)
+    ParametricPolicyNotFound,
+    ParametricPolicyInactive,
+    ParametricPolicyAlreadyTriggered,
+    // Circuit breaker errors (#494)
+    CircuitBreakerActive,
+    SinglePayoutLimitExceeded,
+    DailyPayoutLimitExceeded,
+    // Admin key rotation errors (#496)
+    KeyRotationCooldown,
+    KeyRotationExpired,
+    NoPendingRotation,
+    RotationUnauthorized,
+    RequestExpired,
 }

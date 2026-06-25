@@ -35,9 +35,38 @@ pub struct EscrowData {
     pub deposited_amount: u128,
     pub status: EscrowStatus,
     pub created_at: u64,
+    pub completed_at: Option<u64>,
     pub release_time_lock: Option<u64>,
     pub participants: Vec<AccountId>,
     pub jurisdiction: Jurisdiction,
+    /// Total amount already released in partial releases
+    pub total_released: u128,
+}
+
+/// Compact escrow summary retained after cleanup.
+#[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+#[derive(ink::storage::traits::StorageLayout)]
+pub struct EscrowSummary {
+    pub id: u64,
+    pub property_id: u64,
+    pub buyer: AccountId,
+    pub seller: AccountId,
+    pub amount: u128,
+    pub status: EscrowStatus,
+    pub completed_at: u64,
+}
+
+/// Compressed audit entry retained after cleanup.
+#[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+#[derive(ink::storage::traits::StorageLayout)]
+pub struct CompressedAuditEntry {
+    pub timestamp: u64,
+    pub actor: AccountId,
+    pub action_code: u8,
+    pub details_hash: Hash,
+    pub details_len: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -160,4 +189,37 @@ pub struct LargeTransferRequest {
     pub expires_at_block: u64,
     /// Current status.
     pub status: LargeTransferStatus,
+}
+
+// ── Escrow Analytics Types (Issue #218) ─────────────────────────────────────
+
+/// Aggregated escrow analytics data for dashboard display.
+#[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+#[derive(ink::storage::traits::StorageLayout)]
+pub struct EscrowAnalytics {
+    /// Total number of escrows created
+    pub total_created: u64,
+    /// Total number of escrows that have been released
+    pub total_released: u64,
+    /// Total number of escrows that have been refunded
+    pub total_refunded: u64,
+    /// Total number of escrows that have been disputed
+    pub total_disputed: u64,
+    /// Total number of escrows currently active
+    pub total_active: u64,
+    /// Total volume of all escrows (sum of amounts)
+    pub total_volume: u128,
+    /// Total volume of released escrows
+    pub total_released_volume: u128,
+    /// Total fees collected across all escrows
+    pub total_fees_collected: u128,
+    /// Average escrow amount
+    pub average_escrow_amount: u128,
+    /// Average dispute resolution time (in blocks)
+    pub average_dispute_resolution_time: u64,
+    /// Total number of disputes that have been resolved
+    pub total_disputes_resolved: u64,
+    /// Number of unique participants (buyers + sellers)
+    pub unique_participants: u64,
 }

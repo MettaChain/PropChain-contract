@@ -27,6 +27,10 @@ pub enum Error {
     ApprovalRequestCancelled,
     /// Transfer amount exceeds the large-transfer threshold and requires multi-step approval
     LargeTransferApprovalRequired,
+    /// Fee rate exceeds maximum allowed
+    FeeRateTooHigh,
+    /// Fee calculation resulted in an invalid amount
+    InvalidFeeAmount,
 }
 
 impl core::fmt::Display for Error {
@@ -134,6 +138,12 @@ impl ContractError for Error {
             }
             Error::LargeTransferApprovalRequired => {
                 "Transfer amount exceeds the large-transfer threshold and requires multi-step approval"
+            }
+            Error::FeeRateTooHigh => {
+                "Fee rate exceeds maximum allowed (1000 bps = 10%)"
+            }
+            Error::InvalidFeeAmount => {
+                "Fee calculation resulted in an invalid amount"
             }
         }
     }

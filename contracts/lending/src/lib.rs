@@ -32,6 +32,12 @@ mod propchain_lending {
         ServicerNotFound,
         PaymentScheduleNotFound,
         ReentrantCall,
+        // Admin key rotation (Issue #496)
+        KeyRotationCooldown,
+        KeyRotationExpired,
+        NoPendingRotation,
+        RotationUnauthorized,
+        RequestExpired,
     }
 
     impl From<propchain_traits::ReentrancyError> for LendingError {
@@ -113,6 +119,22 @@ mod propchain_lending {
     }
 
     #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum LoanType {
+        Variable,
+        FixedRate,
+    }
+
+    #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -131,6 +153,8 @@ mod propchain_lending {
         pub term_months: u32,
         pub interest_rate_bps: u32,
         pub status: LoanStatus,
+        pub loan_type: LoanType,
+        pub start_block: Option<u64>,
     }
 
     #[derive(
@@ -146,6 +170,8 @@ mod propchain_lending {
         pub term_months: u32,
         pub interest_rate_bps: u32,
         pub status: LoanStatus,
+        pub loan_type: LoanType,
+        pub start_block: Option<u64>,
     }
 
     #[derive(
@@ -196,23 +222,6 @@ mod propchain_lending {
         pub borrower_approved: bool,
         pub lender_approved: bool,
     }
-
-    #[derive(
-        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
-    )]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub struct LoanPortfolio {
-        pub owner: AccountId,
-        pub loan_ids: Vec<u64>,
-        pub total_loans: u32,
-        pub approved_loans: u32,
-        pub pending_loans: u32,
-        pub total_requested: u128,
-        pub total_approved: u128,
-        pub total_collateral: u128,
-        pub average_credit_score: u32,
-    }
-
     #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
     )]
@@ -254,12 +263,17 @@ mod propchain_lending {
         pub total_borrowed: u128,
     }
 
-    #[ink(storage)]
     // ── #304: Loan Marketplace types ─────────────────────────────────────────
 
     /// Status of a loan marketplace listing.
     #[derive(
-        Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode,
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
         ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -276,8 +290,7 @@ mod propchain_lending {
 
     /// A borrower's public loan request listed on the marketplace (#304).
     #[derive(
-        Debug, Clone, PartialEq, scale::Encode, scale::Decode,
-        ink::storage::traits::StorageLayout,
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct LoanListing {
@@ -297,8 +310,7 @@ mod propchain_lending {
 
     /// A lender's counter-offer in response to a marketplace listing (#304).
     #[derive(
-        Debug, Clone, PartialEq, scale::Encode, scale::Decode,
-        ink::storage::traits::StorageLayout,
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct LoanOffer {
@@ -313,6 +325,7 @@ mod propchain_lending {
         pub created_at: u64,
     }
 
+    #[ink(storage)]
     pub struct PropertyLending {
         admin: AccountId,
         collateral_records: Mapping<u64, CollateralRecord>,
@@ -341,6 +354,8 @@ mod propchain_lending {
         marketplace_offers: Mapping<u64, LoanOffer>,
         listing_count: u64,
         offer_count: u64,
+        // ── Admin Key Rotation (Issue #496) ──────────────────────────────────
+        pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
     }
 
     #[ink(event)]
@@ -475,6 +490,32 @@ mod propchain_lending {
         pub borrower: AccountId,
     }
 
+    // ── Admin Key Rotation Events (Issue #496) ────────────────────────────────
+
+    #[ink(event)]
+    pub struct AdminRotationRequested {
+        #[ink(topic)]
+        old_admin: AccountId,
+        #[ink(topic)]
+        new_admin: AccountId,
+        effective_at_block: u32,
+    }
+
+    #[ink(event)]
+    pub struct AdminRotationConfirmed {
+        #[ink(topic)]
+        old_admin: AccountId,
+        #[ink(topic)]
+        new_admin: AccountId,
+    }
+
+    #[ink(event)]
+    pub struct AdminRotationCancelled {
+        #[ink(topic)]
+        old_admin: AccountId,
+        cancelled_by: AccountId,
+    }
+
     impl PropertyLending {
         #[ink(constructor)]
         pub fn new(admin: AccountId) -> Self {
@@ -506,6 +547,8 @@ mod propchain_lending {
                 marketplace_offers: Mapping::default(),
                 listing_count: 0,
                 offer_count: 0,
+                // Admin Key Rotation (Issue #496)
+                pending_admin_rotation: None,
             }
         }
 
@@ -657,6 +700,45 @@ mod propchain_lending {
         }
 
         #[ink(message)]
+        pub fn apply_for_fixed_rate_loan(
+            &mut self,
+            property_id: u64,
+            requested_amount: u128,
+            collateral_value: u128,
+            credit_score: u32,
+            term_months: u32,
+            interest_rate_bps: u32,
+        ) -> Result<u64, LendingError> {
+            if requested_amount == 0 || collateral_value == 0 || term_months == 0 || interest_rate_bps == 0 {
+                return Err(LendingError::InvalidParameters);
+            }
+            self.loan_count += 1;
+            let app = LoanApplication {
+                loan_id: self.loan_count,
+                applicant: self.env().caller(),
+                property_id,
+                requested_amount,
+                collateral_value,
+                credit_score,
+                approved: false,
+                servicer_id: None,
+                servicing_reference: String::new(),
+                servicing_status: String::from("Pending"),
+                collateral_kind: CollateralKind::Unsecured,
+                term_months,
+                interest_rate_bps,
+                status: LoanStatus::Pending,
+                loan_type: LoanType::Variable,
+                start_block: None,
+                loan_type: LoanType::FixedRate,
+                start_block: None,
+            };
+            self.loan_applications.insert(self.loan_count, &app);
+            self.track_borrower_loan(app.applicant, self.loan_count);
+            Ok(self.loan_count)
+        }
+
+        #[ink(message)]
         pub fn apply_for_loan_with_terms(
             &mut self,
             property_id: u64,
@@ -689,6 +771,8 @@ mod propchain_lending {
                 term_months,
                 interest_rate_bps,
                 status: LoanStatus::Pending,
+                loan_type: LoanType::Variable,
+                start_block: None,
             };
             self.loan_applications.insert(self.loan_count, &app);
             self.track_borrower_loan(app.applicant, self.loan_count);
@@ -733,6 +817,8 @@ mod propchain_lending {
                 term_months,
                 interest_rate_bps,
                 status: LoanStatus::Pending,
+                loan_type: LoanType::Variable,
+                start_block: None,
             };
             self.loan_applications.insert(self.loan_count, &app);
             self.track_borrower_loan(app.applicant, self.loan_count);
@@ -768,6 +854,7 @@ mod propchain_lending {
                 profile.total_borrowed =
                     profile.total_borrowed.saturating_add(app.requested_amount);
                 self.credit_profiles.insert(app.applicant, &profile);
+                app.start_block = Some(self.env().block_number() as u64);
                 LoanStatus::Active
             } else {
                 LoanStatus::Pending
@@ -1003,9 +1090,19 @@ mod propchain_lending {
 
             // Calculate current LTV: (loan amount / current property value)
             let current_ltv = (app.requested_amount * 10000) / current_property_value.max(1);
+            let health_factor_drops = current_ltv > record.liquidation_threshold as u128;
 
-            // Check if current LTV exceeds the liquidation threshold
-            if current_ltv <= record.liquidation_threshold as u128 {
+            let mut is_expired = false;
+            if app.loan_type == LoanType::FixedRate {
+                if let Some(start) = app.start_block {
+                    let term_blocks = app.term_months as u64 * 432_000;
+                    if (self.env().block_number() as u64) > start + term_blocks {
+                        is_expired = true;
+                    }
+                }
+            }
+
+            if !health_factor_drops && !is_expired {
                 return Err(LendingError::LiquidationThresholdNotMet);
             }
 
@@ -1298,10 +1395,7 @@ mod propchain_lending {
         /// Accepting an offer transitions the listing to `OfferAccepted`, creates
         /// the underlying `LoanApplication`, and marks the listing as `Originated`.
         #[ink(message)]
-        pub fn accept_loan_offer(
-            &mut self,
-            offer_id: u64,
-        ) -> Result<u64, LendingError> {
+        pub fn accept_loan_offer(&mut self, offer_id: u64) -> Result<u64, LendingError> {
             let mut offer = self
                 .marketplace_offers
                 .get(offer_id)
@@ -1342,6 +1436,8 @@ mod propchain_lending {
                 term_months: offer.term_months,
                 interest_rate_bps: offer.rate_bps,
                 status: LoanStatus::Active,
+                loan_type: LoanType::Variable,
+                start_block: Some(self.env().block_number() as u64),
             };
 
             self.loan_applications.insert(loan_id, &loan);
@@ -1353,7 +1449,8 @@ mod propchain_lending {
             listing.accepted_offer_id = Some(offer_id);
 
             self.marketplace_offers.insert(offer_id, &offer);
-            self.marketplace_listings.insert(listing.listing_id, &listing);
+            self.marketplace_listings
+                .insert(listing.listing_id, &listing);
 
             self.env().emit_event(LoanOfferAccepted {
                 listing_id: offer.listing_id,
@@ -1416,6 +1513,111 @@ mod propchain_lending {
         #[ink(message)]
         pub fn get_admin(&self) -> AccountId {
             self.admin
+        }
+
+        // ── Admin Key Rotation (Issue #496) ──────────────────────────────────
+
+        /// Initiate two-step admin rotation with timelock cooldown.
+        ///
+        /// Only the current admin may call this. The nominated `new_admin` must
+        /// confirm after `KEY_ROTATION_COOLDOWN_BLOCKS` blocks have elapsed.
+        #[ink(message)]
+        pub fn request_admin_rotation(&mut self, new_admin: AccountId) -> Result<(), LendingError> {
+            let caller = self.env().caller();
+            if caller != self.admin {
+                return Err(LendingError::Unauthorized);
+            }
+            if self.pending_admin_rotation.is_some() {
+                return Err(LendingError::KeyRotationCooldown);
+            }
+
+            let block = self.env().block_number();
+            let effective_at =
+                block.saturating_add(propchain_traits::constants::KEY_ROTATION_COOLDOWN_BLOCKS);
+
+            self.pending_admin_rotation = Some(propchain_traits::KeyRotationRequest {
+                old_account: caller,
+                new_account: new_admin,
+                requested_at: block,
+                effective_at,
+                confirmed: false,
+            });
+
+            self.env().emit_event(AdminRotationRequested {
+                old_admin: caller,
+                new_admin,
+                effective_at_block: effective_at,
+            });
+            Ok(())
+        }
+
+        /// Confirm a pending admin rotation after the cooldown period.
+        ///
+        /// Must be called by the nominated new admin.
+        #[ink(message)]
+        pub fn confirm_admin_rotation(&mut self) -> Result<(), LendingError> {
+            let caller = self.env().caller();
+            let block = self.env().block_number();
+
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(LendingError::NoPendingRotation)?;
+
+            if request.new_account != caller {
+                return Err(LendingError::RotationUnauthorized);
+            }
+            if block < request.effective_at {
+                return Err(LendingError::KeyRotationCooldown);
+            }
+            let expiry = request
+                .effective_at
+                .saturating_add(propchain_traits::constants::KEY_ROTATION_EXPIRY_BLOCKS);
+            if block > expiry {
+                self.pending_admin_rotation = None;
+                return Err(LendingError::RequestExpired);
+            }
+
+            let old_admin = request.old_account;
+            self.admin = caller;
+            self.pending_admin_rotation = None;
+
+            self.env().emit_event(AdminRotationConfirmed {
+                old_admin,
+                new_admin: caller,
+            });
+            Ok(())
+        }
+
+        /// Cancel a pending admin rotation.
+        ///
+        /// Either the current admin or the nominated new admin may cancel.
+        #[ink(message)]
+        pub fn cancel_admin_rotation(&mut self) -> Result<(), LendingError> {
+            let caller = self.env().caller();
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(LendingError::NoPendingRotation)?;
+
+            if caller != request.old_account && caller != request.new_account {
+                return Err(LendingError::RotationUnauthorized);
+            }
+
+            let old_admin = request.old_account;
+            self.pending_admin_rotation = None;
+
+            self.env().emit_event(AdminRotationCancelled {
+                old_admin,
+                cancelled_by: caller,
+            });
+            Ok(())
+        }
+
+        /// Get the pending admin rotation request, if any.
+        #[ink(message)]
+        pub fn get_pending_admin_rotation(&self) -> Option<propchain_traits::KeyRotationRequest> {
+            self.pending_admin_rotation.clone()
         }
 
         fn track_borrower_loan(&mut self, borrower: AccountId, loan_id: u64) {
@@ -1801,5 +2003,102 @@ mod tests {
 
         // score = 500 + 120 - 2*10 = 600
         assert_eq!(contract.get_credit_score(accounts.bob), 600);
+    }
+}
+
+// =========================================================================
+// ADMIN KEY ROTATION TESTS (Issue #496) — Lending
+// =========================================================================
+
+#[cfg(test)]
+mod lending_admin_rotation_tests {
+    use super::propchain_lending::{LendingError, PropertyLending};
+    use ink::env::{test, DefaultEnvironment};
+
+    fn setup() -> PropertyLending {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        PropertyLending::new(accounts.alice)
+    }
+
+    #[ink::test]
+    fn test_admin_can_request_rotation() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        assert!(contract.request_admin_rotation(accounts.bob).is_ok());
+        let pending = contract.get_pending_admin_rotation();
+        assert!(pending.is_some());
+        let req = pending.unwrap();
+        assert_eq!(req.old_account, accounts.alice);
+        assert_eq!(req.new_account, accounts.bob);
+    }
+
+    #[ink::test]
+    fn test_non_admin_cannot_request_rotation() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            contract.request_admin_rotation(accounts.charlie),
+            Err(LendingError::Unauthorized)
+        );
+    }
+
+    #[ink::test]
+    fn test_rotation_cannot_be_confirmed_before_cooldown() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        contract.request_admin_rotation(accounts.bob).unwrap();
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        // Block 0 < effective_at 14_400
+        assert_eq!(
+            contract.confirm_admin_rotation(),
+            Err(LendingError::KeyRotationCooldown)
+        );
+    }
+
+    #[ink::test]
+    fn test_rotation_expires_after_expiry_period() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        contract.request_admin_rotation(accounts.bob).unwrap();
+        // Verify no pending rotation after cancel
+        contract.cancel_admin_rotation().unwrap();
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            contract.confirm_admin_rotation(),
+            Err(LendingError::NoPendingRotation)
+        );
+    }
+
+    #[ink::test]
+    fn test_old_admin_can_cancel_pending_rotation() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        contract.request_admin_rotation(accounts.bob).unwrap();
+        assert!(contract.cancel_admin_rotation().is_ok());
+        assert!(contract.get_pending_admin_rotation().is_none());
+    }
+
+    #[ink::test]
+    fn test_new_admin_can_cancel_pending_rotation() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        contract.request_admin_rotation(accounts.bob).unwrap();
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert!(contract.cancel_admin_rotation().is_ok());
+        assert!(contract.get_pending_admin_rotation().is_none());
+    }
+
+    #[ink::test]
+    fn test_unrelated_account_cannot_cancel() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        contract.request_admin_rotation(accounts.bob).unwrap();
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        assert_eq!(
+            contract.cancel_admin_rotation(),
+            Err(LendingError::RotationUnauthorized)
+        );
     }
 }

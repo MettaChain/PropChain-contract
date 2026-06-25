@@ -1,5 +1,25 @@
 // Data types for the insurance contract (Issue #101 - extracted from lib.rs)
 // Parametric insurance types added for Issue #249
+// Circuit breaker types added for Issue #494
+// Admin key rotation types added for Issue #496
+
+// =========================================================================
+// CIRCUIT BREAKER TYPES (Issue #494)
+// =========================================================================
+
+/// Configuration parameters for the insurance payout circuit breaker.
+#[derive(
+    Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub struct CircuitBreakerConfig {
+    /// Maximum amount that can be paid out in a single claim (0 = no limit)
+    pub max_single_payout: u128,
+    /// Maximum total payout allowed within one `window_seconds` rolling window per pool
+    pub max_daily_payout: u128,
+    /// Length of the rolling payout-tracking window in seconds (default: 86400 = 1 day)
+    pub window_seconds: u64,
+}
 
 /// The comparison operator used to evaluate oracle data against a trigger threshold.
 #[derive(
@@ -240,6 +260,9 @@ pub struct PremiumCalculation {
     pub pool_utilization_multiplier: u32,
     pub time_multiplier: u32,
     pub discount_multiplier: u32,
+    /// Claim-frequency surcharge multiplier in basis points (10 000 = 1.0×).
+    /// Values above 10 000 indicate a surcharge for high claim frequency.
+    pub claim_freq_multiplier: u32,
     pub annual_premium: u128,
     pub monthly_premium: u128,
     pub deductible: u128,
@@ -257,6 +280,9 @@ pub struct PremiumBreakdown {
     pub pool_adjustment: u128,
     pub time_adjustment: u128,
     pub discount_amount: u128,
+    /// Additional premium added by the rolling-window claim-frequency surcharge.
+    /// Zero when `recent_claims_count` is 0 (baseline, no surcharge).
+    pub claim_freq_adjustment: u128,
 }
 
 #[derive(
@@ -268,6 +294,11 @@ pub struct PremiumModifiers {
     pub claim_free_years: u32,
     pub has_safety_features: bool,
     pub loyalty_years: u32,
+    /// Number of approved claims filed against this property within the
+    /// rolling observation window (typically the last 12 months).
+    /// Used by the premium engine to apply a claim-frequency surcharge.
+    /// Set to `0` for new policyholders or those with no recent claims.
+    pub recent_claims_count: u32,
 }
 
 #[derive(
@@ -356,7 +387,30 @@ pub struct PoolLiquidityProvider {
 // RISK ASSESSMENT MODEL TYPES (Task #254)
 // =========================================================================
 
-/// Property risk factors for comprehensive risk assessment
+/// Bit positions for `PropertyRiskFactors::safety_flags`.
+///
+/// Packing three `bool` fields into a single `u8` reduces the SCALE-encoded
+/// size of every stored `PropertyRiskModel` by 2 bytes and cuts the number of
+/// storage reads needed to inspect all three flags from 3 to 1.
+pub mod safety_flag {
+    pub const SECURITY_SYSTEM: u8 = 0b0000_0001;
+    pub const FIRE_EXTINGUISHER: u8 = 0b0000_0010;
+    pub const ALARM_SYSTEM: u8 = 0b0000_0100;
+}
+
+/// Property risk factors for comprehensive risk assessment.
+///
+/// ### Storage layout change (issue #515)
+/// The three separate `bool` fields `has_security_system`, `has_fire_extinguisher`,
+/// and `has_alarm_system` have been packed into a single `u8 safety_flags` field:
+///
+/// | bit | meaning                |
+/// |-----|------------------------|
+/// |  0  | `has_security_system`  |
+/// |  1  | `has_fire_extinguisher`|
+/// |  2  | `has_alarm_system`     |
+///
+/// Use the [`safety_flag`] constants and the accessor methods below.
 #[derive(
     Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
 )]
@@ -367,12 +421,40 @@ pub struct PropertyRiskFactors {
     pub property_value: u128,
     pub location_code: String,
     pub construction_type: String,
-    pub has_security_system: bool,
-    pub has_fire_extinguisher: bool,
-    pub has_alarm_system: bool,
+    /// Packed safety-feature flags.  See [`safety_flag`] for bit positions.
+    pub safety_flags: u8,
     pub owner_age_years: u32,
     pub years_as_owner: u32,
     pub assessed_at: u64,
+}
+
+impl PropertyRiskFactors {
+    /// Construct `safety_flags` from three individual boolean values.
+    #[inline]
+    pub fn encode_safety_flags(
+        has_security_system: bool,
+        has_fire_extinguisher: bool,
+        has_alarm_system: bool,
+    ) -> u8 {
+        (has_security_system as u8 * safety_flag::SECURITY_SYSTEM)
+            | (has_fire_extinguisher as u8 * safety_flag::FIRE_EXTINGUISHER)
+            | (has_alarm_system as u8 * safety_flag::ALARM_SYSTEM)
+    }
+
+    #[inline]
+    pub fn has_security_system(&self) -> bool {
+        self.safety_flags & safety_flag::SECURITY_SYSTEM != 0
+    }
+
+    #[inline]
+    pub fn has_fire_extinguisher(&self) -> bool {
+        self.safety_flags & safety_flag::FIRE_EXTINGUISHER != 0
+    }
+
+    #[inline]
+    pub fn has_alarm_system(&self) -> bool {
+        self.safety_flags & safety_flag::ALARM_SYSTEM != 0
+    }
 }
 
 /// Comprehensive risk assessment model with detailed scoring
@@ -430,7 +512,17 @@ pub enum FraudIndicator {
     DuplicateClaimPatterns,       // Similar to previous fraud claims
 }
 
-/// Fraud risk assessment for a claim
+/// Treaty type determines how risk is shared with the reinsurer
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    scale::Encode,
+    scale::Decode,
+    ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub enum ReinsuranceTreatyType {
     /// Quota Share: cede a fixed % of every premium and claim
     QuotaShare,
@@ -464,6 +556,10 @@ pub struct FraudRiskAssessment {
 }
 
 /// Historical fraud pattern for detection
+#[derive(
+    Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub struct PremiumCession {
     pub cession_id: u64,
     pub agreement_id: u64,
@@ -489,6 +585,10 @@ pub struct FraudPattern {
 }
 
 /// Statistics for fraud detection and prevention
+#[derive(
+    Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub struct LossRecovery {
     pub recovery_id: u64,
     pub agreement_id: u64,
@@ -511,6 +611,16 @@ pub struct FraudDetectionStats {
     pub false_positive_count: u32,
     pub average_fraud_score: u32,
     pub last_update: u64,
+}
+
+/// Summary statistics for a reinsurance agreement.
+///
+/// Previously missing derives caused compile errors when this type was
+/// returned from an ink! message or stored in a Mapping (fixed bug — see #487).
+#[derive(
+    Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub struct ReinsuranceStats {
     pub agreement_id: u64,
     pub treaty_type: ReinsuranceTreatyType,
@@ -520,4 +630,58 @@ pub struct ReinsuranceStats {
     pub recovery_count: u64,
     /// Net position: recoveries - ceded_premiums (can be negative conceptually, stored as i128)
     pub net_recovery: i128,
+}
+
+/// The oracle metric being monitored by a claim trigger.
+#[derive(
+    Debug, Clone, PartialEq, Eq,
+    scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub enum TriggerMetric {
+    FloodDepthCm,
+    WindSpeedKph,
+    TemperatureCelsius,
+    RainfallMm,
+    EarthquakeMagnitude,
+}
+
+/// Comparison operator for evaluating oracle data against a trigger threshold.
+#[derive(
+    Debug, Clone, PartialEq, Eq,
+    scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub enum TriggerComparator {
+    GreaterOrEqual,
+    LessOrEqual,
+}
+
+/// How the payout amount is calculated when a trigger fires.
+#[derive(
+    Debug, Clone, PartialEq, Eq,
+    scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub enum PayoutMode {
+    Fixed(u128),
+    PercentBps(u32),
+    FullCoverage,
+}
+
+/// An oracle-driven claim trigger stored in contract state.
+#[derive(
+    Debug, Clone, PartialEq,
+    scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub struct ClaimTrigger {
+    pub trigger_id: u64,
+    pub policy_id: u64,
+    pub metric: TriggerMetric,
+    pub threshold: i128,
+    pub comparator: TriggerComparator,
+    pub payout_mode: PayoutMode,
+    pub active: bool,
+    pub fired: bool,
 }

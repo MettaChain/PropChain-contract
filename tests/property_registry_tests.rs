@@ -109,4 +109,66 @@ mod tests {
         let result = contract.transfer_property(property_id, accounts.bob);
         assert!(result.is_err());
     }
+
+    fn make_property_metadata(index: u64) -> PropertyMetadata {
+        PropertyMetadata {
+            location: format!("{} Main St", index),
+            size: 2000 + index,
+            legal_description: format!("Test property {}", index),
+            valuation: 500000 + index as u128,
+            documents_url: format!("https://ipfs.io/test/{}", index),
+        }
+    }
+
+    #[ink::test]
+    fn test_batch_register_properties_success() {
+        let mut contract = setup_contract();
+        let batch_size = contract.get_max_batch_size();
+        let mut batch = Vec::new();
+
+        for i in 1..=batch_size {
+            batch.push(make_property_metadata(i as u64));
+        }
+
+        let result = contract.batch_register_properties(batch);
+        assert!(result.is_ok());
+
+        let property_ids = result.unwrap();
+        assert_eq!(property_ids.len() as u32, batch_size);
+        assert_eq!(contract.property_count(), batch_size as u64);
+
+        let first_property = contract.get_property(property_ids[0]).unwrap();
+        assert_eq!(first_property.metadata.location, "1 Main St");
+        let last_property = contract.get_property(*property_ids.last().unwrap()).unwrap();
+        assert_eq!(last_property.metadata.location, format!("{} Main St", batch_size));
+    }
+
+    #[ink::test]
+    fn test_batch_register_properties_invalid_property_rolls_back() {
+        let mut contract = setup_contract();
+        let mut batch = Vec::new();
+
+        for i in 1..=49 {
+            batch.push(make_property_metadata(i as u64));
+        }
+        batch.push(PropertyMetadata {
+            location: "".to_string(),
+            size: 0,
+            legal_description: "Invalid property".to_string(),
+            valuation: 0,
+            documents_url: "https://ipfs.io/test".to_string(),
+        });
+
+        let result = contract.batch_register_properties(batch);
+        assert!(result.is_err());
+        assert_eq!(contract.property_count(), 0);
+    }
+
+    #[ink::test]
+    fn test_batch_register_properties_empty_batch_errors() {
+        let mut contract = setup_contract();
+        let result = contract.batch_register_properties(Vec::new());
+        assert_eq!(result, Err(Error::ValueOutOfBounds));
+        assert_eq!(contract.property_count(), 0);
+    }
 }

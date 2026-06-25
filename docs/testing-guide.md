@@ -385,6 +385,42 @@ Tests run automatically in CI/CD pipeline:
   run: cargo tarpaulin --out Xml
 ```
 
+## Mutation Testing
+
+### Overview
+Mutation testing automatically inserts bugs (mutants) into the smart contracts to verify if the unit test suite is thorough enough to detect them. We use `cargo-mutants` to perform mutation testing, specifically focusing on critical financial functions in `property-token`.
+
+### Configuration
+A workspace-level configuration is stored in `.cargo/mutants.toml`. This file excludes non-essential targets and defines defaults:
+
+```toml
+# .cargo/mutants.toml
+additional_cargo_args = ["--features", "std"]
+```
+
+### Running Locally
+To run mutation testing on the `property-token` contract:
+
+```bash
+# Ensure cargo-mutants is in your PATH
+cargo mutants -p property-token
+```
+
+To run mutation testing on a specific set of functions (e.g. transfers, dividends, asks):
+
+```bash
+cargo mutants -p property-token -F "transfer_from|place_ask|redeem_shares"
+```
+
+### Interpreting Results
+- **Caught**: A test failed when the mutant was applied. This means the test suite successfully detected the bug.
+- **Missed**: All tests passed even with the mutated code. This indicates a gap in test coverage or assertions.
+- **Goal**: Maintain a missed mutation rate of **<10%** on critical financial functions.
+
+### Nightly CI Integration
+Mutation testing is resource-intensive and is therefore run on a nightly schedule rather than on every pull request. The workflow is configured in `.github/workflows/nightly-mutation-test.yml` and can also be triggered manually via `workflow_dispatch`.
+
+
 ## Troubleshooting
 
 ### Common Issues

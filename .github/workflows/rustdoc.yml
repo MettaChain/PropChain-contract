@@ -1,0 +1,34 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  publish-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rust-docs
+
+      - name: Generate rustdoc
+        run: cargo doc --no-deps --document-private-items --workspace 2>&1 | tail -20 || true
+
+      - name: Add redirect index
+        run: |
+          echo '<meta http-equiv="refresh" content="0; url=propchain_traits/index.html">' \
+            > target/doc/index.html
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./target/doc
+          destination_dir: docs

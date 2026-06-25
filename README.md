@@ -144,6 +144,7 @@ TARGET=wasm32-unknown-unknown
 ### Contract Documentation
 
 - **[📖 Contract API](./docs/contracts.md)** - Complete contract interface documentation
+- **[🔬 API Reference](https://mettachain.github.io/PropChain-contract/docs/propchain_traits/)** - Auto-generated rustdoc from contract trait definitions
 - **[🔗 Integration Guide](./docs/integration.md)** - How to integrate with frontend applications
 - **[🚀 Deployment Guide](./docs/deployment.md)** - Contract deployment best practices
 - **[🏗️ Architecture](./docs/architecture.md)** - Contract design and technical architecture

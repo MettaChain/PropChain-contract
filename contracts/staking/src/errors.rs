@@ -22,6 +22,7 @@ pub enum Error {
     VotingEnded,
     QuorumNotReached,
     TooManyProposals,
+    EarlyWithdrawalPenaltyApplied,
 }
 
 impl core::fmt::Display for Error {
@@ -46,6 +47,7 @@ impl core::fmt::Display for Error {
             Error::VotingEnded => write!(f, "Voting period has ended"),
             Error::QuorumNotReached => write!(f, "Quorum not reached"),
             Error::TooManyProposals => write!(f, "Too many active proposals"),
+            Error::EarlyWithdrawalPenaltyApplied => write!(f, "Early withdrawal penalty applied"),
         }
     }
 }
@@ -72,6 +74,7 @@ impl ContractError for Error {
             Error::VotingEnded => staking_codes::STAKING_VOTING_ENDED,
             Error::QuorumNotReached => staking_codes::STAKING_QUORUM_NOT_REACHED,
             Error::TooManyProposals => staking_codes::STAKING_TOO_MANY_PROPOSALS,
+            Error::EarlyWithdrawalPenaltyApplied => staking_codes::STAKING_LOCK_ACTIVE + 1,
         }
     }
 
@@ -96,6 +99,7 @@ impl ContractError for Error {
             Error::VotingEnded => "Cannot vote after the voting window has closed",
             Error::QuorumNotReached => "Total turnout did not meet the quorum threshold",
             Error::TooManyProposals => "Active proposal limit reached",
+            Error::EarlyWithdrawalPenaltyApplied => "Stake was withdrawn early; a penalty was deducted",
         }
     }
 

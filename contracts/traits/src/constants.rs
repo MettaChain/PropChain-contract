@@ -202,3 +202,8 @@ pub const MAX_PAUSE_DURATION: u64 = 2_592_000;
 
 /// Minimum pause duration in seconds (1 minute).
 pub const MIN_PAUSE_DURATION: u64 = 60;
+/// Default early withdrawal penalty in basis points (10% = 1000 bps).
+pub const DEFAULT_EARLY_WITHDRAWAL_PENALTY_BPS: u128 = 1_000;
+
+/// Maximum early withdrawal penalty allowed (50% = 5000 bps).
+pub const MAX_EARLY_WITHDRAWAL_PENALTY_BPS: u128 = 5_000;

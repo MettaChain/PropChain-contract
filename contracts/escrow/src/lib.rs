@@ -28,6 +28,8 @@ mod propchain_escrow {
     pub struct AdvancedEscrow {
         /// Escrow data mapping
         escrows: Mapping<u64, EscrowData>,
+        /// Compact escrow summaries retained after cleanup
+        escrow_summaries: Mapping<u64, EscrowSummary>,
         /// Escrow counter
         escrow_count: u64,
         /// Multi-signature configurations
@@ -46,6 +48,8 @@ mod propchain_escrow {
         disputes: Mapping<u64, DisputeInfo>,
         /// Audit logs
         audit_logs: Mapping<u64, Vec<AuditEntry>>,
+        /// Compressed audit logs retained after cleanup
+        compressed_audit_logs: Mapping<u64, Vec<CompressedAuditEntry>>,
         /// Admin account
         admin: AccountId,
         /// High-value threshold for mandatory multi-sig
@@ -68,6 +72,10 @@ mod propchain_escrow {
         very_large_transfer_threshold: u128,
         /// Tax compliance contract address
         tax_compliance_contract: Option<AccountId>,
+        /// Escrow fee rate in basis points (e.g. 100 = 1%)
+        fee_rate_bps: u16,
+        /// Fee recipient account
+        fee_recipient: Option<AccountId>,
     }
 
     // Events
@@ -75,6 +83,7 @@ mod propchain_escrow {
     pub struct EscrowCreated {
         #[ink(topic)]
         escrow_id: u64,
+        #[ink(topic)]
         property_id: u64,
         buyer: AccountId,
         seller: AccountId,
@@ -98,11 +107,39 @@ mod propchain_escrow {
     }
 
     #[ink(event)]
+    pub struct FundsPartiallyReleased {
+        #[ink(topic)]
+        escrow_id: u64,
+        amount: u128,
+        recipient: AccountId,
+        remaining: u128,
+    }
+
+    #[ink(event)]
     pub struct FundsRefunded {
         #[ink(topic)]
         escrow_id: u64,
         amount: u128,
         recipient: AccountId,
+    }
+
+    /// Emitted when escrow storage has been cleaned up after completion.
+    #[ink(event)]
+    pub struct EscrowCleanedUp {
+        #[ink(topic)]
+        escrow_id: u64,
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        status: EscrowStatus,
+        #[ink(topic)]
+        cleaned_by: AccountId,
+        event_version: u8,
+        completed_at: u64,
+        storage_saved_bytes: u64,
+        timestamp: u64,
+        block_number: u32,
+        transaction_hash: Hash,
     }
 
     #[ink(event)]
@@ -168,6 +205,32 @@ mod propchain_escrow {
         admin: AccountId,
     }
 
+    #[ink(event)]
+    pub struct FeeCollected {
+        #[ink(topic)]
+        escrow_id: u64,
+        #[ink(topic)]
+        fee_recipient: AccountId,
+        fee_amount: u128,
+        fee_rate_bps: u16,
+    }
+
+    #[ink(event)]
+    pub struct FeeRateUpdated {
+        #[ink(topic)]
+        updated_by: AccountId,
+        old_rate: u16,
+        new_rate: u16,
+    }
+
+    #[ink(event)]
+    pub struct FeeRecipientUpdated {
+        #[ink(topic)]
+        updated_by: AccountId,
+        old_recipient: Option<AccountId>,
+        new_recipient: Option<AccountId>,
+    }
+
     // ── Large-Transfer Multi-Step Approval Events ────────────────────────────
 
     /// Emitted when a large-transfer approval request is created.
@@ -217,12 +280,31 @@ mod propchain_escrow {
         pub cancelled_by: AccountId,
     }
 
+    // ── Rating Events (Issue #216) ───────────────────────────────────────────
+
+    /// Emitted when a participant rates another participant after an escrow.
+    #[ink(event)]
+    pub struct ParticipantRated {
+        #[ink(topic)]
+        escrow_id: u64,
+        #[ink(topic)]
+        rater: AccountId,
+        #[ink(topic)]
+        participant: AccountId,
+        score: u8,
+        rating_id: u64,
+    }
+
     impl AdvancedEscrow {
         /// Constructor
         #[ink(constructor)]
-        pub fn new(min_high_value_threshold: u128, tax_compliance_contract: Option<AccountId>) -> Self {
+        pub fn new(
+            min_high_value_threshold: u128,
+            tax_compliance_contract: Option<AccountId>,
+        ) -> Self {
             Self {
                 escrows: Mapping::default(),
+                escrow_summaries: Mapping::default(),
                 escrow_count: 0,
                 multi_sig_configs: Mapping::default(),
                 signatures: Mapping::default(),
@@ -232,6 +314,7 @@ mod propchain_escrow {
                 condition_counters: Mapping::default(),
                 disputes: Mapping::default(),
                 audit_logs: Mapping::default(),
+                compressed_audit_logs: Mapping::default(),
                 admin: Self::env().caller(),
                 min_high_value_threshold,
                 signer_public_keys: Mapping::default(),
@@ -244,6 +327,8 @@ mod propchain_escrow {
                 large_transfer_threshold: 0,
                 very_large_transfer_threshold: 0,
                 tax_compliance_contract,
+                fee_rate_bps: 0,
+                fee_recipient: None,
             }
         }
 
@@ -284,9 +369,11 @@ mod propchain_escrow {
                 deposited_amount: 0,
                 status: EscrowStatus::Created,
                 created_at: self.env().block_timestamp(),
+                completed_at: None,
                 release_time_lock,
                 participants: participants.clone(),
                 jurisdiction,
+                total_released: 0,
             };
 
             self.escrows.insert(&escrow_id, &escrow_data);
@@ -305,6 +392,24 @@ mod propchain_escrow {
             self.condition_counters.insert(&escrow_id, &0);
             self.audit_logs
                 .insert(&escrow_id, &Vec::<AuditEntry>::new());
+
+            // Track analytics
+            self.analytics.total_created += 1;
+            self.analytics.total_volume = self.analytics.total_volume.saturating_add(amount);
+            self.analytics.total_active += 1;
+            self.analytics.average_escrow_amount =
+                self.analytics.total_volume / self.analytics.total_created as u128;
+            // Track unique participants
+            for participant in &[buyer, seller] {
+                if !self
+                    .analytics_participants
+                    .get(participant)
+                    .unwrap_or(false)
+                {
+                    self.analytics_participants.insert(participant, &true);
+                    self.analytics.unique_participants += 1;
+                }
+            }
 
             // Add audit entry
             self.add_audit_entry(
@@ -452,10 +557,34 @@ mod propchain_escrow {
                         if self.env().transfer(collector, withheld_amount).is_err() {
                             return Err(Error::InsufficientFunds);
                         }
-                        final_transfer_amount = final_transfer_amount.saturating_sub(withheld_amount);
+                        final_transfer_amount =
+                            final_transfer_amount.saturating_sub(withheld_amount);
                     }
                 }
                 // ── End Tax Withholding ──────────────────────────────────────
+
+                // ── Fee Deduction ───────────────────────────────────────────
+                let fee = if self.fee_rate_bps > 0 && self.fee_recipient.is_some() {
+                    let calculated =
+                        final_transfer_amount.saturating_mul(self.fee_rate_bps as u128) / 10_000;
+                    if calculated > 0 {
+                        let recipient = self.fee_recipient.unwrap();
+                        if self.env().transfer(recipient, calculated).is_err() {
+                            return Err(Error::InvalidFeeAmount);
+                        }
+                        self.env().emit_event(FeeCollected {
+                            escrow_id,
+                            fee_recipient: recipient,
+                            fee_amount: calculated,
+                            fee_rate_bps: self.fee_rate_bps,
+                        });
+                    }
+                    calculated
+                } else {
+                    0
+                };
+                final_transfer_amount = final_transfer_amount.saturating_sub(fee);
+                // ── End Fee Deduction ───────────────────────────────────────
 
                 // Transfer remaining funds to seller
                 if self
@@ -469,7 +598,16 @@ mod propchain_escrow {
                 // Update status AFTER transfer
                 let mut updated_escrow = escrow.clone();
                 updated_escrow.status = EscrowStatus::Released;
+                updated_escrow.completed_at = Some(self.env().block_timestamp());
                 self.escrows.insert(&escrow_id, &updated_escrow);
+
+                // Track analytics
+                self.analytics.total_released += 1;
+                self.analytics.total_active = self.analytics.total_active.saturating_sub(1);
+                self.analytics.total_released_volume = self
+                    .analytics
+                    .total_released_volume
+                    .saturating_add(escrow.deposited_amount);
 
                 // Add audit entry
                 self.add_audit_entry(
@@ -483,6 +621,83 @@ mod propchain_escrow {
                     escrow_id,
                     amount: escrow.deposited_amount,
                     recipient: escrow.seller,
+                });
+
+                Ok(())
+            })
+        }
+
+        /// Release a partial amount from escrow to the seller.
+        /// The escrow remains active for any remaining balance.
+        #[ink(message)]
+        pub fn release_funds_partial(&mut self, escrow_id: u64, amount: u128) -> Result<(), Error> {
+            non_reentrant!(self, {
+                let caller = self.env().caller();
+                let mut escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
+
+                if escrow.status != EscrowStatus::Active {
+                    return Err(Error::InvalidStatus);
+                }
+
+                if amount == 0
+                    || amount
+                        > escrow
+                            .deposited_amount
+                            .saturating_sub(escrow.total_released)
+                {
+                    return Err(Error::InsufficientFunds);
+                }
+
+                // Check for active dispute
+                if let Some(dispute) = self.disputes.get(&escrow_id) {
+                    if !dispute.resolved {
+                        return Err(Error::DisputeActive);
+                    }
+                }
+
+                // Check time lock
+                if let Some(time_lock) = escrow.release_time_lock {
+                    if self.env().block_timestamp() < time_lock {
+                        return Err(Error::TimeLockActive);
+                    }
+                }
+
+                // Check multi-sig threshold
+                if !self.check_signature_threshold(escrow_id, ApprovalType::Release)? {
+                    return Err(Error::SignatureThresholdNotMet);
+                }
+
+                // Transfer the partial amount
+                if self.env().transfer(escrow.seller, amount).is_err() {
+                    return Err(Error::InsufficientFunds);
+                }
+
+                escrow.total_released = escrow.total_released.saturating_add(amount);
+
+                // If fully released, mark as Released
+                if escrow.total_released >= escrow.deposited_amount {
+                    escrow.status = EscrowStatus::Released;
+                    escrow.completed_at = Some(self.env().block_timestamp());
+                }
+
+                self.escrows.insert(&escrow_id, &escrow);
+
+                let remaining = escrow
+                    .deposited_amount
+                    .saturating_sub(escrow.total_released);
+
+                self.add_audit_entry(
+                    escrow_id,
+                    caller,
+                    "FundsPartiallyReleased".to_string(),
+                    format!("Amount: {} to seller, remaining: {}", amount, remaining),
+                );
+
+                self.env().emit_event(FundsPartiallyReleased {
+                    escrow_id,
+                    amount,
+                    recipient: escrow.seller,
+                    remaining,
                 });
 
                 Ok(())
@@ -544,7 +759,12 @@ mod propchain_escrow {
                 // Update status AFTER transfer
                 let mut updated_escrow = escrow.clone();
                 updated_escrow.status = EscrowStatus::Refunded;
+                updated_escrow.completed_at = Some(self.env().block_timestamp());
                 self.escrows.insert(&escrow_id, &updated_escrow);
+
+                // Track analytics
+                self.analytics.total_refunded += 1;
+                self.analytics.total_active = self.analytics.total_active.saturating_sub(1);
 
                 // Add audit entry
                 self.add_audit_entry(
@@ -822,7 +1042,10 @@ mod propchain_escrow {
         }
 
         #[ink(message)]
-        pub fn set_tax_compliance_contract(&mut self, contract: Option<AccountId>) -> Result<(), Error> {
+        pub fn set_tax_compliance_contract(
+            &mut self,
+            contract: Option<AccountId>,
+        ) -> Result<(), Error> {
             if self.env().caller() != self.admin {
                 return Err(Error::Unauthorized);
             }
@@ -897,6 +1120,9 @@ mod propchain_escrow {
 
             self.disputes.insert(&escrow_id, &dispute);
 
+            // Track analytics
+            self.analytics.total_disputed += 1;
+
             // Update escrow status
             let mut updated_escrow = escrow;
             updated_escrow.status = EscrowStatus::Disputed;
@@ -930,6 +1156,19 @@ mod propchain_escrow {
             }
 
             let mut dispute = self.disputes.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
+            // Track resolution time (using block_timestamp consistently)
+            let resolution_time = self
+                .env()
+                .block_timestamp()
+                .saturating_sub(dispute.raised_at);
+            let total_resolved = self.analytics.total_disputes_resolved;
+            let old_avg = self.analytics.average_dispute_resolution_time;
+            self.analytics.average_dispute_resolution_time = (old_avg
+                .saturating_mul(total_resolved)
+                .saturating_add(resolution_time))
+                / (total_resolved + 1);
+            self.analytics.total_disputes_resolved += 1;
+
             dispute.resolved = true;
             dispute.resolution = Some(resolution.clone());
             self.disputes.insert(&escrow_id, &dispute);
@@ -937,6 +1176,7 @@ mod propchain_escrow {
             // Update escrow status back to Active
             let mut escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
             escrow.status = EscrowStatus::Active;
+            escrow.completed_at = None;
             self.escrows.insert(&escrow_id, &escrow);
 
             // Add audit entry
@@ -1019,6 +1259,7 @@ mod propchain_escrow {
                 } else {
                     EscrowStatus::Refunded
                 };
+                updated_escrow.completed_at = Some(self.env().block_timestamp());
                 self.escrows.insert(&escrow_id, &updated_escrow);
 
                 // Add audit entry
@@ -1189,7 +1430,8 @@ mod propchain_escrow {
                         if self.env().transfer(collector, withheld_amount).is_err() {
                             return Err(Error::InsufficientFunds);
                         }
-                        final_transfer_amount = final_transfer_amount.saturating_sub(withheld_amount);
+                        final_transfer_amount =
+                            final_transfer_amount.saturating_sub(withheld_amount);
                     }
                 }
                 // ── End Tax Withholding ──────────────────────────────────────
@@ -1211,6 +1453,7 @@ mod propchain_escrow {
                 };
                 let mut updated_escrow = escrow.clone();
                 updated_escrow.status = new_escrow_status;
+                updated_escrow.completed_at = Some(self.env().block_timestamp());
                 self.escrows.insert(&request.escrow_id, &updated_escrow);
 
                 // Mark request as executed
@@ -1350,6 +1593,12 @@ mod propchain_escrow {
             self.escrows.get(&escrow_id)
         }
 
+        /// Get the compact escrow summary for a cleaned-up escrow.
+        #[ink(message)]
+        pub fn get_escrow_summary(&self, escrow_id: u64) -> Option<EscrowSummary> {
+            self.escrow_summaries.get(&escrow_id)
+        }
+
         /// Get documents for escrow
         #[ink(message)]
         pub fn get_documents(&self, escrow_id: u64) -> Vec<DocumentHash> {
@@ -1371,7 +1620,110 @@ mod propchain_escrow {
         /// Get audit trail
         #[ink(message)]
         pub fn get_audit_trail(&self, escrow_id: u64) -> Vec<AuditEntry> {
-            self.audit_logs.get(&escrow_id).unwrap_or_default()
+            if let Some(logs) = self.audit_logs.get(&escrow_id) {
+                logs
+            } else if let Some(compressed_logs) = self.compressed_audit_logs.get(&escrow_id) {
+                compressed_logs
+                    .into_iter()
+                    .map(Self::decompress_audit_entry)
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        }
+
+        /// Cleanup completed escrow storage and retain a compact summary.
+        #[ink(message)]
+        pub fn cleanup_escrow(&mut self, escrow_id: u64) -> Result<(), Error> {
+            let caller = self.env().caller();
+            let escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
+
+            if !matches!(
+                escrow.status,
+                EscrowStatus::Released | EscrowStatus::Refunded
+            ) {
+                return Err(Error::InvalidStatus);
+            }
+
+            if caller != self.admin
+                && caller != escrow.buyer
+                && caller != escrow.seller
+                && !escrow.participants.contains(&caller)
+            {
+                return Err(Error::Unauthorized);
+            }
+
+            let completed_at = escrow.completed_at.ok_or(Error::InvalidStatus)?;
+            let documents = self.documents.get(&escrow_id).unwrap_or_default();
+            let conditions = self.conditions.get(&escrow_id).unwrap_or_default();
+            let audit_logs = self.audit_logs.get(&escrow_id).unwrap_or_default();
+            let multi_sig_config = self.multi_sig_configs.get(&escrow_id);
+
+            let summary = EscrowSummary {
+                id: escrow.id,
+                property_id: escrow.property_id,
+                buyer: escrow.buyer,
+                seller: escrow.seller,
+                amount: escrow.amount,
+                status: escrow.status.clone(),
+                completed_at,
+            };
+
+            let compressed_audit_logs = self.compress_audit_logs(&audit_logs);
+            let detailed_storage_bytes = self.estimate_detailed_storage_bytes(
+                &escrow,
+                &documents,
+                &conditions,
+                multi_sig_config.as_ref(),
+                escrow_id,
+            );
+            let compressed_storage_bytes =
+                self.estimate_compressed_storage_bytes(&summary, &compressed_audit_logs);
+            let storage_saved_bytes =
+                detailed_storage_bytes.saturating_sub(compressed_storage_bytes);
+
+            self.escrow_summaries.insert(&escrow_id, &summary);
+            self.compressed_audit_logs
+                .insert(&escrow_id, &compressed_audit_logs);
+
+            self.escrows.remove(&escrow_id);
+            self.documents.remove(&escrow_id);
+            self.conditions.remove(&escrow_id);
+            self.audit_logs.remove(&escrow_id);
+            self.disputes.remove(&escrow_id);
+            self.multi_sig_configs.remove(&escrow_id);
+            self.escrow_active_large_transfer.remove(&escrow_id);
+            self.condition_counters.remove(&escrow_id);
+
+            for participant in escrow.participants.iter().copied() {
+                self.signatures
+                    .remove(&(escrow_id, ApprovalType::Release, participant));
+                self.signatures
+                    .remove(&(escrow_id, ApprovalType::Refund, participant));
+                self.signatures
+                    .remove(&(escrow_id, ApprovalType::EmergencyOverride, participant));
+            }
+            self.signature_counts
+                .remove(&(escrow_id, ApprovalType::Release));
+            self.signature_counts
+                .remove(&(escrow_id, ApprovalType::Refund));
+            self.signature_counts
+                .remove(&(escrow_id, ApprovalType::EmergencyOverride));
+
+            self.env().emit_event(EscrowCleanedUp {
+                escrow_id,
+                property_id: summary.property_id,
+                status: summary.status.clone(),
+                cleaned_by: caller,
+                event_version: 1,
+                completed_at: summary.completed_at,
+                storage_saved_bytes,
+                timestamp: self.env().block_timestamp(),
+                block_number: self.env().block_number(),
+                transaction_hash: [0u8; 32].into(),
+            });
+
+            Ok(())
         }
 
         /// Get multi-sig configuration
@@ -1400,6 +1752,46 @@ mod propchain_escrow {
 
             // Check if all conditions are met
             Ok(conditions.iter().all(|c| c.met))
+        }
+
+        /// Returns the multi-sig status summary for an escrow:
+        /// (required_signatures, current_signatures_for_release, current_signatures_for_refund, signers)
+        #[ink(message)]
+        pub fn get_multi_sig_status(
+            &self,
+            escrow_id: u64,
+        ) -> Result<(u8, u8, u8, Vec<AccountId>), Error> {
+            let config = self
+                .multi_sig_configs
+                .get(&escrow_id)
+                .ok_or(Error::EscrowNotFound)?;
+            let release_count = self
+                .signature_counts
+                .get(&(escrow_id, ApprovalType::Release))
+                .unwrap_or(0);
+            let refund_count = self
+                .signature_counts
+                .get(&(escrow_id, ApprovalType::Refund))
+                .unwrap_or(0);
+            Ok((
+                config.required_signatures,
+                release_count,
+                refund_count,
+                config.signers.clone(),
+            ))
+        }
+
+        /// Returns whether a specific participant has signed for a given approval type.
+        #[ink(message)]
+        pub fn has_signed(
+            &self,
+            escrow_id: u64,
+            approval_type: ApprovalType,
+            signer: AccountId,
+        ) -> bool {
+            self.signatures
+                .get(&(escrow_id, approval_type, signer))
+                .unwrap_or(false)
         }
 
         /// Set admin (deprecated — prefer request_admin_rotation + confirm_admin_rotation)
@@ -1517,6 +1909,59 @@ mod propchain_escrow {
         #[ink(message)]
         pub fn get_high_value_threshold(&self) -> u128 {
             self.min_high_value_threshold
+        }
+
+        // ── Fee Configuration Messages ──────────────────────────────────────
+
+        /// Set the escrow fee rate (admin only). Rate is in basis points, max 1000 (10%).
+        #[ink(message)]
+        pub fn set_fee_rate(&mut self, rate_bps: u16) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            if rate_bps > 1000 {
+                return Err(Error::FeeRateTooHigh);
+            }
+            let old_rate = self.fee_rate_bps;
+            self.fee_rate_bps = rate_bps;
+            self.env().emit_event(FeeRateUpdated {
+                updated_by: self.env().caller(),
+                old_rate,
+                new_rate: rate_bps,
+            });
+            Ok(())
+        }
+
+        /// Set the fee recipient account (admin only).
+        #[ink(message)]
+        pub fn set_fee_recipient(&mut self, recipient: Option<AccountId>) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            let old_recipient = self.fee_recipient;
+            self.fee_recipient = recipient;
+            self.env().emit_event(FeeRecipientUpdated {
+                updated_by: self.env().caller(),
+                old_recipient,
+                new_recipient: recipient,
+            });
+            Ok(())
+        }
+
+        /// Get the current fee configuration.
+        #[ink(message)]
+        pub fn get_fee_config(&self) -> (u16, Option<AccountId>) {
+            (self.fee_rate_bps, self.fee_recipient)
+        }
+
+        /// Calculate the fee for a given amount using the current fee rate.
+        #[ink(message)]
+        pub fn calculate_fee(&self, amount: u128) -> Result<u128, Error> {
+            if self.fee_rate_bps == 0 || self.fee_recipient.is_none() {
+                return Ok(0);
+            }
+            let fee = amount.saturating_mul(self.fee_rate_bps as u128) / 10_000;
+            Ok(fee)
         }
 
         // Helper functions
@@ -1639,6 +2084,149 @@ mod propchain_escrow {
                 .get(&(escrow_id, approval_type))
                 .unwrap_or(0);
             Ok(count >= config.required_signatures)
+        }
+
+        fn compress_audit_logs(&self, audit_logs: &[AuditEntry]) -> Vec<CompressedAuditEntry> {
+            audit_logs
+                .iter()
+                .map(|entry| CompressedAuditEntry {
+                    timestamp: entry.timestamp,
+                    actor: entry.actor,
+                    action_code: Self::action_code(&entry.action),
+                    details_hash: Self::hash_string(&entry.details),
+                    details_len: entry.details.len() as u32,
+                })
+                .collect()
+        }
+
+        fn decompress_audit_entry(entry: CompressedAuditEntry) -> AuditEntry {
+            AuditEntry {
+                timestamp: entry.timestamp,
+                actor: entry.actor,
+                action: Self::action_label(entry.action_code).to_string(),
+                details: format!("compressed:{}:{:?}", entry.details_len, entry.details_hash),
+            }
+        }
+
+        fn action_code(action: &str) -> u8 {
+            match action {
+                "EscrowCreated" => 1,
+                "FundsDeposited" => 2,
+                "FundsReleased" => 3,
+                "FundsPartiallyReleased" => 4,
+                "FundsRefunded" => 5,
+                "DocumentUploaded" => 6,
+                "DocumentVerified" => 7,
+                "ConditionAdded" => 8,
+                "ConditionMet" => 9,
+                "SignatureAdded" => 10,
+                "DisputeRaised" => 11,
+                "DisputeResolved" => 12,
+                "EmergencyOverride" => 13,
+                "LargeTransferApproved" => 14,
+                "LargeTransferExecuted" => 15,
+                "LargeTransferCancelled" => 16,
+                "AdminRotationRequested" => 17,
+                "AdminRotationCompleted" => 18,
+                _ => 255,
+            }
+        }
+
+        fn action_label(action_code: u8) -> &'static str {
+            match action_code {
+                1 => "EscrowCreated",
+                2 => "FundsDeposited",
+                3 => "FundsReleased",
+                4 => "FundsPartiallyReleased",
+                5 => "FundsRefunded",
+                6 => "DocumentUploaded",
+                7 => "DocumentVerified",
+                8 => "ConditionAdded",
+                9 => "ConditionMet",
+                10 => "SignatureAdded",
+                11 => "DisputeRaised",
+                12 => "DisputeResolved",
+                13 => "EmergencyOverride",
+                14 => "LargeTransferApproved",
+                15 => "LargeTransferExecuted",
+                16 => "LargeTransferCancelled",
+                17 => "AdminRotationRequested",
+                18 => "AdminRotationCompleted",
+                _ => "CompressedAuditEntry",
+            }
+        }
+
+        fn hash_string(value: &str) -> Hash {
+            let mut output = [0u8; 32];
+            let encoded = scale::Encode::encode(&value);
+            ink::env::hash_bytes::<ink::env::hash::Blake2x256>(&encoded, &mut output);
+            output.into()
+        }
+
+        fn estimate_detailed_storage_bytes(
+            &self,
+            escrow: &EscrowData,
+            documents: &[DocumentHash],
+            conditions: &[Condition],
+            multi_sig_config: Option<&MultiSigConfig>,
+            escrow_id: u64,
+        ) -> u64 {
+            let mut total = scale::Encode::encode(escrow).len() as u64;
+            total = total.saturating_add(scale::Encode::encode(documents).len() as u64);
+            total = total.saturating_add(scale::Encode::encode(conditions).len() as u64);
+
+            if let Some(config) = multi_sig_config {
+                total = total.saturating_add(scale::Encode::encode(config).len() as u64);
+
+                let approval_types = [
+                    ApprovalType::Release,
+                    ApprovalType::Refund,
+                    ApprovalType::EmergencyOverride,
+                ];
+                for approval_type in approval_types {
+                    let count = self
+                        .signature_counts
+                        .get(&(escrow_id, approval_type.clone()))
+                        .unwrap_or(0);
+                    total = total.saturating_add(
+                        scale::Encode::encode(&(escrow_id, approval_type.clone(), count)).len()
+                            as u64,
+                    );
+
+                    for signer in &config.signers {
+                        if self
+                            .signatures
+                            .get(&(escrow_id, approval_type.clone(), *signer))
+                            .unwrap_or(false)
+                        {
+                            total = total.saturating_add(
+                                scale::Encode::encode(&(
+                                    escrow_id,
+                                    approval_type.clone(),
+                                    *signer,
+                                    true,
+                                ))
+                                .len() as u64,
+                            );
+                        }
+                    }
+                }
+            }
+
+            total = total.saturating_add(
+                scale::Encode::encode(&self.audit_logs.get(&escrow_id).unwrap_or_default()).len()
+                    as u64,
+            );
+            total
+        }
+
+        fn estimate_compressed_storage_bytes(
+            &self,
+            summary: &EscrowSummary,
+            compressed_audit_logs: &[CompressedAuditEntry],
+        ) -> u64 {
+            scale::Encode::encode(summary).len() as u64
+                + scale::Encode::encode(compressed_audit_logs).len() as u64
         }
 
         /// Add audit entry

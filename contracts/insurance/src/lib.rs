@@ -141,11 +141,21 @@ mod propchain_insurance {
         /// oracle data points submitted
         oracle_data: Mapping<u64, OracleDataPoint>,
         oracle_data_count: u64,
-    }
 
-    // =========================================================================
-    // EVENTS
-    // =========================================================================
+        // ── Circuit Breaker (Issue #494) ──────────────────────────────────────
+        /// When true, all claim payouts are paused until admin resets
+        circuit_breaker_active: bool,
+        /// Circuit breaker configuration (single payout cap, daily pool cap)
+        circuit_breaker_config: CircuitBreakerConfig,
+        /// Rolling window payout totals: pool_id -> amount paid in current window
+        pool_window_payouts: Mapping<u64, u128>,
+        /// Rolling window start timestamps: pool_id -> window_start timestamp
+        pool_window_start: Mapping<u64, u64>,
+
+        // ── Admin Key Rotation (Issue #496) ──────────────────────────────────
+        /// Pending admin key rotation request, if any
+        pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
+    }
 
     #[ink(event)]
     pub struct PolicyCreated {
@@ -398,6 +408,69 @@ mod propchain_insurance {
     }
 
     // =========================================================================
+    // CIRCUIT BREAKER EVENTS (Issue #494)
+    // =========================================================================
+
+    /// Emitted when the circuit breaker trips due to payout limits being hit.
+    #[ink(event)]
+    pub struct CircuitBreakerTripped {
+        #[ink(topic)]
+        pool_id: u64,
+        #[ink(topic)]
+        claim_id: u64,
+        payout_amount: u128,
+        reason: String,
+        timestamp: u64,
+    }
+
+    /// Emitted when an admin resets the circuit breaker.
+    #[ink(event)]
+    pub struct CircuitBreakerReset {
+        reset_by: AccountId,
+        timestamp: u64,
+    }
+
+    /// Emitted when circuit breaker config is updated by admin.
+    #[ink(event)]
+    pub struct CircuitBreakerConfigUpdated {
+        max_single_payout: u128,
+        max_daily_payout: u128,
+        window_seconds: u64,
+        updated_by: AccountId,
+    }
+
+    // =========================================================================
+    // ADMIN KEY ROTATION EVENTS (Issue #496)
+    // =========================================================================
+
+    /// Emitted when a two-step admin rotation is requested.
+    #[ink(event)]
+    pub struct AdminRotationRequested {
+        #[ink(topic)]
+        old_admin: AccountId,
+        #[ink(topic)]
+        new_admin: AccountId,
+        effective_at_block: u32,
+    }
+
+    /// Emitted when an admin rotation is confirmed.
+    #[ink(event)]
+    pub struct AdminRotationConfirmed {
+        #[ink(topic)]
+        old_admin: AccountId,
+        #[ink(topic)]
+        new_admin: AccountId,
+    }
+
+    /// Emitted when a pending admin rotation is cancelled.
+    #[ink(event)]
+    pub struct AdminRotationCancelled {
+        #[ink(topic)]
+        old_admin: AccountId,
+        cancelled_by: AccountId,
+    }
+
+    // =========================================================================
     // IMPLEMENTATION
     // =========================================================================
 
@@ -466,6 +539,17 @@ mod propchain_insurance {
                 holder_parametric_policies: Mapping::default(),
                 oracle_data: Mapping::default(),
                 oracle_data_count: 0,
+                // Circuit Breaker (Issue #494)
+                circuit_breaker_active: false,
+                circuit_breaker_config: CircuitBreakerConfig {
+                    max_single_payout: 0,   // 0 = no single-payout cap (admin sets)
+                    max_daily_payout: 0,    // 0 = no daily cap (admin sets)
+                    window_seconds: 86_400, // 24-hour rolling window
+                },
+                pool_window_payouts: Mapping::default(),
+                pool_window_start: Mapping::default(),
+                // Admin Key Rotation (Issue #496)
+                pending_admin_rotation: None,
             }
         }
 
@@ -630,6 +714,7 @@ mod propchain_insurance {
                     claim_free_years: 0,
                     has_safety_features: false,
                     loyalty_years: 0,
+                    recent_claims_count: 0,
                 },
             )
         }
@@ -661,7 +746,7 @@ mod propchain_insurance {
                 coverage_amount,
                 &coverage_type,
                 &pool,
-                actuarial_model,
+                actuarial_model.as_ref(),
                 &modifiers,
                 duration_seconds,
             );
@@ -2022,6 +2107,194 @@ mod propchain_insurance {
         }
 
         // =====================================================================
+        // CIRCUIT BREAKER ADMIN (Issue #494)
+        // =====================================================================
+
+        /// Configure circuit breaker parameters (admin only).
+        ///
+        /// Set `max_single_payout = 0` and/or `max_daily_payout = 0` to disable
+        /// those individual limits while keeping the other active.
+        #[ink(message)]
+        pub fn set_circuit_breaker_params(
+            &mut self,
+            max_single_payout: u128,
+            max_daily_payout: u128,
+            window_seconds: u64,
+        ) -> Result<(), InsuranceError> {
+            self.ensure_admin()?;
+            if window_seconds == 0 {
+                return Err(InsuranceError::InvalidParameters);
+            }
+            self.circuit_breaker_config = CircuitBreakerConfig {
+                max_single_payout,
+                max_daily_payout,
+                window_seconds,
+            };
+            self.env().emit_event(CircuitBreakerConfigUpdated {
+                max_single_payout,
+                max_daily_payout,
+                window_seconds,
+                updated_by: self.env().caller(),
+            });
+            Ok(())
+        }
+
+        /// Reset the circuit breaker so payouts are accepted again (admin only).
+        ///
+        /// Call this after investigating the cause of the trip.
+        #[ink(message)]
+        pub fn reset_circuit_breaker(&mut self) -> Result<(), InsuranceError> {
+            self.ensure_admin()?;
+            self.circuit_breaker_active = false;
+            let now = self.env().block_timestamp();
+            self.env().emit_event(CircuitBreakerReset {
+                reset_by: self.env().caller(),
+                timestamp: now,
+            });
+            Ok(())
+        }
+
+        /// Returns whether the circuit breaker is currently active.
+        #[ink(message)]
+        pub fn is_circuit_breaker_active(&self) -> bool {
+            self.circuit_breaker_active
+        }
+
+        /// Returns the current circuit breaker configuration.
+        #[ink(message)]
+        pub fn get_circuit_breaker_config(&self) -> CircuitBreakerConfig {
+            self.circuit_breaker_config.clone()
+        }
+
+        /// Returns the rolling window payout total for a given pool.
+        #[ink(message)]
+        pub fn get_pool_window_payout(&self, pool_id: u64) -> u128 {
+            let now = self.env().block_timestamp();
+            let window_start = self.pool_window_start.get(&pool_id).unwrap_or(0);
+            let window_secs = self.circuit_breaker_config.window_seconds;
+            // If window expired, effective total is 0
+            if now.saturating_sub(window_start) >= window_secs {
+                return 0;
+            }
+            self.pool_window_payouts.get(&pool_id).unwrap_or(0)
+        }
+
+        // =====================================================================
+        // ADMIN KEY ROTATION (Issue #496)
+        // =====================================================================
+
+        /// Initiate a two-step admin rotation with a timelock cooldown.
+        ///
+        /// The current admin calls this to nominate `new_admin`. The new admin
+        /// must confirm after `KEY_ROTATION_COOLDOWN_BLOCKS` blocks have elapsed.
+        #[ink(message)]
+        pub fn request_admin_rotation(
+            &mut self,
+            new_admin: AccountId,
+        ) -> Result<(), InsuranceError> {
+            let caller = self.env().caller();
+            if caller != self.admin {
+                return Err(InsuranceError::Unauthorized);
+            }
+            if self.pending_admin_rotation.is_some() {
+                return Err(InsuranceError::KeyRotationCooldown);
+            }
+
+            let block = self.env().block_number();
+            let effective_at = block
+                .saturating_add(propchain_traits::constants::KEY_ROTATION_COOLDOWN_BLOCKS);
+
+            self.pending_admin_rotation = Some(propchain_traits::KeyRotationRequest {
+                old_account: caller,
+                new_account: new_admin,
+                requested_at: block,
+                effective_at,
+                confirmed: false,
+            });
+
+            self.env().emit_event(AdminRotationRequested {
+                old_admin: caller,
+                new_admin,
+                effective_at_block: effective_at,
+            });
+
+            Ok(())
+        }
+
+        /// Confirm a pending admin rotation after the cooldown period.
+        ///
+        /// Must be called by the nominated `new_admin` account.
+        #[ink(message)]
+        pub fn confirm_admin_rotation(&mut self) -> Result<(), InsuranceError> {
+            let caller = self.env().caller();
+            let block = self.env().block_number();
+
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(InsuranceError::NoPendingRotation)?;
+
+            if request.new_account != caller {
+                return Err(InsuranceError::RotationUnauthorized);
+            }
+            if block < request.effective_at {
+                return Err(InsuranceError::KeyRotationCooldown);
+            }
+            let expiry = request
+                .effective_at
+                .saturating_add(propchain_traits::constants::KEY_ROTATION_EXPIRY_BLOCKS);
+            if block > expiry {
+                self.pending_admin_rotation = None;
+                return Err(InsuranceError::RequestExpired);
+            }
+
+            let old_admin = request.old_account;
+            self.admin = caller;
+            self.pending_admin_rotation = None;
+
+            self.env().emit_event(AdminRotationConfirmed {
+                old_admin,
+                new_admin: caller,
+            });
+
+            Ok(())
+        }
+
+        /// Cancel a pending admin rotation.
+        ///
+        /// Either the old admin or the nominated new admin may cancel.
+        #[ink(message)]
+        pub fn cancel_admin_rotation(&mut self) -> Result<(), InsuranceError> {
+            let caller = self.env().caller();
+            let request = self
+                .pending_admin_rotation
+                .as_ref()
+                .ok_or(InsuranceError::NoPendingRotation)?;
+
+            if caller != request.old_account && caller != request.new_account {
+                return Err(InsuranceError::RotationUnauthorized);
+            }
+
+            let old_admin = request.old_account;
+            self.pending_admin_rotation = None;
+
+            self.env().emit_event(AdminRotationCancelled {
+                old_admin,
+                cancelled_by: caller,
+            });
+
+            Ok(())
+        }
+
+        /// Get the pending admin rotation request, if any.
+        #[ink(message)]
+        pub fn get_pending_admin_rotation(
+            &self,
+        ) -> Option<propchain_traits::KeyRotationRequest> {
+            self.pending_admin_rotation.clone()
+        }
+
+        // =====================================================================
         // QUERIES
         // =====================================================================
 
@@ -2207,9 +2480,11 @@ mod propchain_insurance {
                 property_value,
                 location_code: location_code.clone(),
                 construction_type: construction_type.clone(),
-                has_security_system,
-                has_fire_extinguisher,
-                has_alarm_system,
+                safety_flags: PropertyRiskFactors::encode_safety_flags(
+                    has_security_system,
+                    has_fire_extinguisher,
+                    has_alarm_system,
+                ),
                 owner_age_years,
                 years_as_owner,
                 assessed_at: now,
@@ -2353,7 +2628,12 @@ mod propchain_insurance {
             let new_premium_multiplier =
                 risk_model::calculate_premium_multiplier(new_overall_score);
 
-            // Update model
+            // Update model — also repack the safety flags in the stored factors
+            risk_model.property_factors.safety_flags = PropertyRiskFactors::encode_safety_flags(
+                has_security_system,
+                has_fire_extinguisher,
+                has_alarm_system,
+            );
             risk_model.age_risk_score = age_risk_score;
             risk_model.safety_features_score = safety_features_score;
             risk_model.overall_risk_score = new_overall_score;
@@ -2701,13 +2981,76 @@ mod propchain_insurance {
                 return Ok(());
             }
 
+            // ── Circuit Breaker checks (Issue #494) ──────────────────────────
+            if self.circuit_breaker_active {
+                return Err(InsuranceError::CircuitBreakerActive);
+            }
+
+            // Single-payout cap
+            let max_single = self.circuit_breaker_config.max_single_payout;
+            if max_single > 0 && amount > max_single {
+                // Trip breaker and reject
+                self.circuit_breaker_active = true;
+                let now = self.env().block_timestamp();
+                // Determine pool_id for the event
+                let pool_id = self.policies.get(&policy_id)
+                    .map(|p| p.pool_id)
+                    .unwrap_or(0);
+                self.env().emit_event(CircuitBreakerTripped {
+                    pool_id,
+                    claim_id,
+                    payout_amount: amount,
+                    reason: ink::prelude::string::String::from("SinglePayoutLimitExceeded"),
+                    timestamp: now,
+                });
+                return Err(InsuranceError::SinglePayoutLimitExceeded);
+            }
+
             let mut policy = self
                 .policies
                 .get(&policy_id)
                 .ok_or(InsuranceError::PolicyNotFound)?;
+            let pool_id = policy.pool_id;
+
+            // Daily cap: check rolling window per pool
+            let max_daily = self.circuit_breaker_config.max_daily_payout;
+            if max_daily > 0 {
+                let now = self.env().block_timestamp();
+                let window_secs = self.circuit_breaker_config.window_seconds;
+                let window_start = self.pool_window_start.get(&pool_id).unwrap_or(0);
+                let window_total = self.pool_window_payouts.get(&pool_id).unwrap_or(0);
+
+                // Reset window if expired
+                let (effective_total, effective_start) =
+                    if now.saturating_sub(window_start) >= window_secs {
+                        (0u128, now)
+                    } else {
+                        (window_total, window_start)
+                    };
+
+                if effective_total.saturating_add(amount) > max_daily {
+                    // Trip breaker and reject
+                    self.circuit_breaker_active = true;
+                    self.env().emit_event(CircuitBreakerTripped {
+                        pool_id,
+                        claim_id,
+                        payout_amount: amount,
+                        reason: ink::prelude::string::String::from("DailyPayoutLimitExceeded"),
+                        timestamp: now,
+                    });
+                    return Err(InsuranceError::DailyPayoutLimitExceeded);
+                }
+
+                // Update the window totals
+                self.pool_window_start.insert(&pool_id, &effective_start);
+                self.pool_window_payouts
+                    .insert(&pool_id, &effective_total.saturating_add(amount));
+            }
+            // ── End circuit breaker checks ───────────────────────────────────
+
             let mut pool = self
                 .pools
-                .get(&policy.pool_id)
+                .get(&pool_id)
                 .ok_or(InsuranceError::PoolNotFound)?;
 
             // Check if reinsurance is needed

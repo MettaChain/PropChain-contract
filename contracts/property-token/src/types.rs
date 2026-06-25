@@ -360,3 +360,27 @@ pub struct ShareStakeInfo {
     pub lock_period: LockPeriod,
     pub reward_debt: u128,
 }
+
+/// Immutable snapshot of property metadata at a specific version (Issue #557).
+/// Each call to `update_property_metadata` appends a new entry; version numbers
+/// start at 1 and are strictly increasing. Version 0 is reserved for the
+/// initial metadata set at mint time.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    scale::Encode,
+    scale::Decode,
+    ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub struct MetadataVersion {
+    /// 1-based version number; version 0 is the original mint metadata.
+    pub version_number: u32,
+    /// The metadata snapshot at this version.
+    pub metadata: PropertyMetadata,
+    /// Account that triggered the metadata update.
+    pub updated_by: AccountId,
+    /// Block timestamp when this version was recorded.
+    pub updated_at: u64,
+}

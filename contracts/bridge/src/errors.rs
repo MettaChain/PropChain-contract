@@ -25,6 +25,22 @@ pub enum Error {
     OperationPaused,
     /// Caller is not a registered guardian (and not the admin).
     NotGuardian,
+    /// Bridge execution requires travel rule data that has not been submitted.
+    TravelRuleDataRequired,
+    /// Travel rule data for this request has already been submitted.
+    TravelRuleDataAlreadySubmitted,
+    /// Caller is not an emergency signer.
+    NotEmergencySigner,
+    /// Emergency request has already been executed.
+    EmergencyRequestAlreadyExecuted,
+    /// Emergency request has expired.
+    EmergencyRequestExpired,
+    /// Asset is already frozen.
+    AssetAlreadyFrozen,
+    /// Asset is not frozen.
+    AssetNotFrozen,
+    /// Insufficient emergency signatures.
+    InsufficientEmergencySignatures,
 }
 
 impl core::fmt::Display for Error {
@@ -48,6 +64,14 @@ impl core::fmt::Display for Error {
             Error::InvalidStatusTransition => write!(f, "Invalid cross-chain status transition"),
             Error::OperationPaused => write!(f, "Operation is currently paused"),
             Error::NotGuardian => write!(f, "Caller is not a guardian"),
+            Error::TravelRuleDataRequired => write!(f, "Travel rule data required before bridge execution"),
+            Error::TravelRuleDataAlreadySubmitted => write!(f, "Travel rule data already submitted for this request"),
+            Error::NotEmergencySigner => write!(f, "Caller is not an emergency signer"),
+            Error::EmergencyRequestAlreadyExecuted => write!(f, "Emergency request has already been executed"),
+            Error::EmergencyRequestExpired => write!(f, "Emergency request has expired"),
+            Error::AssetAlreadyFrozen => write!(f, "Asset is already frozen"),
+            Error::AssetNotFrozen => write!(f, "Asset is not frozen"),
+            Error::InsufficientEmergencySignatures => write!(f, "Insufficient emergency signatures"),
         }
     }
 }
@@ -73,6 +97,14 @@ impl ContractError for Error {
             Error::InvalidStatusTransition => bridge_codes::BRIDGE_INVALID_STATUS_TRANSITION,
             Error::OperationPaused => bridge_codes::BRIDGE_OPERATION_PAUSED,
             Error::NotGuardian => bridge_codes::BRIDGE_NOT_GUARDIAN,
+            Error::TravelRuleDataRequired => bridge_codes::BRIDGE_TRAVEL_RULE_DATA_REQUIRED,
+            Error::TravelRuleDataAlreadySubmitted => bridge_codes::BRIDGE_TRAVEL_RULE_DATA_ALREADY_SUBMITTED,
+            Error::NotEmergencySigner => bridge_codes::BRIDGE_UNAUTHORIZED,
+            Error::EmergencyRequestAlreadyExecuted => bridge_codes::BRIDGE_INVALID_REQUEST,
+            Error::EmergencyRequestExpired => bridge_codes::BRIDGE_REQUEST_EXPIRED,
+            Error::AssetAlreadyFrozen => bridge_codes::BRIDGE_INVALID_REQUEST,
+            Error::AssetNotFrozen => bridge_codes::BRIDGE_INVALID_REQUEST,
+            Error::InsufficientEmergencySignatures => bridge_codes::BRIDGE_INSUFFICIENT_SIGNATURES,
         }
     }
 
@@ -107,6 +139,30 @@ impl ContractError for Error {
             }
             Error::NotGuardian => {
                 "The caller is not registered as a guardian and is not the admin"
+            }
+            Error::TravelRuleDataRequired => {
+                "FATF travel rule data must be submitted before this bridge request can be executed"
+            }
+            Error::TravelRuleDataAlreadySubmitted => {
+                "Travel rule data has already been submitted for this bridge request"
+            }
+            Error::NotEmergencySigner => {
+                "The caller is not registered as an emergency signer"
+            }
+            Error::EmergencyRequestAlreadyExecuted => {
+                "The emergency multi-sig request has already been executed"
+            }
+            Error::EmergencyRequestExpired => {
+                "The emergency multi-sig request has expired"
+            }
+            Error::AssetAlreadyFrozen => {
+                "The asset is already frozen"
+            }
+            Error::AssetNotFrozen => {
+                "The asset is not frozen"
+            }
+            Error::InsufficientEmergencySignatures => {
+                "Not enough emergency signatures collected for the operation"
             }
         }
     }

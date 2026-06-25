@@ -105,7 +105,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/contracts", get(crate::api::list_contracts))
         .route("/version", get(crate::api::api_version))
         .with_state(api_state.clone())
-        .layer(axum::middleware::from_fn(crate::api::set_api_version_header));
+        .layer(axum::middleware::from_fn(
+            crate::api::set_api_version_header,
+        ));
 
     let rest_router = Router::new()
         .route("/health", get(health))

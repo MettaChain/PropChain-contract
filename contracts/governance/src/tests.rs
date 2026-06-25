@@ -199,4 +199,88 @@ mod tests {
         assert_eq!(proposal.status, ProposalStatus::Cancelled);
         assert_eq!(gov.get_active_proposal_count(), 0);
     }
+
+    #[ink::test]
+    fn emergency_proposal_succeeds_without_timelock() {
+        let mut gov = create_governance();
+        let accounts = default_accounts();
+
+        // Create emergency proposal
+        set_caller(accounts.alice);
+        let id = gov.create_emergency_proposal(dummy_hash(), GovernanceAction::ModifyProperty, None)
+            .unwrap();
+
+        let proposal = gov.get_proposal(id).unwrap();
+        assert_eq!(proposal.is_emergency, true);
+        assert_eq!(proposal.threshold, 3); // Unanimous: all 3 signers
+
+        // Vote on proposal
+        gov.vote(id, true).unwrap();
+        
+        set_caller(accounts.bob);
+        gov.vote(id, true).unwrap();
+
+        set_caller(accounts.charlie);
+        gov.vote(id, true).unwrap();
+
+        // Once approved, emergency proposals bypass timelock and can be executed immediately!
+        let proposal = gov.get_proposal(id).unwrap();
+        assert_eq!(proposal.status, ProposalStatus::Approved);
+        assert_eq!(
+            proposal.timelock_until,
+            ink::env::block_number::<ink::env::DefaultEnvironment>() as u64
+        );
+
+        // Execute immediately
+        gov.execute_proposal(id).unwrap();
+        let proposal = gov.get_proposal(id).unwrap();
+        assert_eq!(proposal.status, ProposalStatus::Executed);
+    }
+
+    #[ink::test]
+    fn governance_analytics_and_participation_rates() {
+        let mut gov = create_governance();
+        let accounts = default_accounts();
+
+        // 1. Check initial empty analytics
+        let stats = gov.get_analytics();
+        assert_eq!(stats.total_proposals, 0);
+        assert_eq!(stats.executed_proposals, 0);
+        assert_eq!(stats.avg_participation_bps, 0);
+
+        // 2. Create and execute proposal
+        set_caller(accounts.alice);
+        gov.create_proposal(dummy_hash(), GovernanceAction::ModifyProperty, None)
+            .unwrap();
+
+        // Bob and Charlie vote (2 out of 3 signers vote) -> 66% (6666 bps)
+        set_caller(accounts.bob);
+        gov.vote(0, true).unwrap();
+        set_caller(accounts.charlie);
+        gov.vote(0, true).unwrap();
+
+        // Timelock and execute
+        advance_block(11);
+        set_caller(accounts.alice);
+        gov.execute_proposal(0).unwrap();
+
+        // 3. Create another proposal that gets rejected
+        let id2 = gov.create_proposal(dummy_hash(), GovernanceAction::SaleApproval, None).unwrap();
+        // Alice votes against, Bob votes against -> 2 out of 3 vote (66.6%)
+        set_caller(accounts.alice);
+        gov.vote(id2, false).unwrap();
+        set_caller(accounts.bob);
+        gov.vote(id2, false).unwrap();
+
+        let stats = gov.get_analytics();
+        assert_eq!(stats.total_proposals, 2);
+        assert_eq!(stats.executed_proposals, 1);
+        assert_eq!(stats.rejected_proposals, 1);
+        // Average participation rate: (6666 + 6666) / 2 = 6666 bps
+        assert_eq!(stats.avg_participation_bps, 6666);
+
+        // Proposal participation rate query
+        assert_eq!(gov.get_proposal_participation(0).unwrap(), 6666);
+    }
 }
+

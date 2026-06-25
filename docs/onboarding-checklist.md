@@ -23,6 +23,7 @@ Welcome to the PropChain development team! Use this checklist to set up your env
 
 - [ ] **Deploy to Local Node**: Follow the deployment guide in [DEVELOPMENT.md](../DEVELOPMENT.md) to deploy the `PropertyToken` contract to a local dev node.
 - [ ] **Interact with Contracts**: Use the `polkadot-js/api` or `subxt` to call a simple method like `register_property`.
+- [ ] **Try the Contract Playground**: Run `./scripts/playground.sh` for an interactive menu that walks you through the five most common calls (register a property, create an escrow, stake tokens, vote on a proposal, create an insurance policy) without having to hand-write `cargo-contract` commands. It reads addresses from your local deployment, so deploy first. See `./scripts/playground.sh --help` for details.
 - [ ] **Debug a Transaction**: Use the local node logs to trace a contract call.
 
 ## Contributing
@@ -31,6 +32,17 @@ Welcome to the PropChain development team! Use this checklist to set up your env
 - [ ] **Setup Pre-commit Hooks**: Follow the instructions in [DEVELOPMENT.md](../DEVELOPMENT.md#pre-commit-hooks).
 - [ ] **Create a Feature Branch**: Always work on a separate branch for your changes.
 - [ ] **Follow ADRs**: Check existing [Architecture Decision Records](adr/) before making major design choices.
+
+## Docker Test Environment
+
+A pre-built Docker environment is available for running PropChain contract tests without a local Rust/Substrate setup.
+
+- [ ] **Start the test environment**: Run `./scripts/start-test-env.sh` from the repo root. This brings up a `substrate-contracts-node` (dev mode), an IPFS node, and a Subsquid indexer.
+- [ ] **Substrate RPC**: WebSocket at `ws://localhost:9944`, HTTP at `http://localhost:9933`
+- [ ] **IPFS API**: `http://localhost:5001`
+- [ ] **Stop the environment**: `docker compose -f docker-compose.test.yml down`
+
+The test compose file is `docker-compose.test.yml`; the node image is built from `Dockerfile.test-node`.
 
 ## Getting Help
 

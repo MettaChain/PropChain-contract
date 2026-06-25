@@ -52,6 +52,12 @@ pub mod propchain_identity {
         CrossChainVerificationFailed,
         /// Identity has been revoked
         IdentityRevoked,
+        /// Requested resource not found
+        NotFound,
+        /// Operation blocked by active timelock
+        TimelockActive,
+        /// Resource already exists or operation already performed
+        AlreadyExists,
     }
 
     /// Audit trail entry for identity operations
@@ -78,6 +84,52 @@ pub mod propchain_identity {
         pub revoked_by: AccountId,
         pub reason: String,
         pub revoked_at: u64,
+    }
+
+    /// GDPR data export structure containing all personal data for an account
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct PersonalDataExport {
+        pub identity: Option<Identity>,
+        pub reputation: Option<ReputationMetrics>,
+        pub verification_history: Vec<VerificationHistoryEntry>,
+        pub audit_entries: Vec<AuditEntry>,
+        pub kyc_tier: Option<KycTier>,
+    }
+
+    /// Single verification history entry for data export
+    #[derive(
+        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct VerificationHistoryEntry {
+        pub verifier: AccountId,
+        pub verification_level: VerificationLevel,
+        pub verified_at: u64,
+    }
+
+    /// Status of a GDPR data deletion request
+    #[derive(
+        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum DataDeletionStatus {
+        None,
+        Requested,
+        Completed,
+    }
+
+    /// GDPR data deletion request with cooldown tracking
+    #[derive(
+        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct DataDeletionRequest {
+        pub requested_at: u64,
+        pub cooldown_ends_at: u64,
+        pub status: DataDeletionStatus,
     }
 
     /// Decentralized Identifier (DID) document structure
@@ -224,11 +276,11 @@ pub mod propchain_identity {
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum KycTier {
-        Tier0Unverified, // No KYC, basic access only
-        Tier1Basic,      // Basic identity verification
-        Tier2Standard,   // Standard KYC with document verification
-        Tier3Enhanced,   // Enhanced due diligence
-        Tier4Premium,    // Premium verification with full background check
+        Tier0Unverified,  // No KYC, basic access only
+        Tier1Basic,       // Basic identity verification
+        Tier2Standard,    // Standard KYC with document verification
+        Tier3Enhanced,    // Enhanced due diligence
+        Tier4Premium,     // Premium verification with full background check
         Tier0_Unverified, // No KYC, basic access only
         Tier1_Basic,      // Basic identity verification
         Tier2_Standard,   // Standard KYC with document verification
@@ -405,6 +457,12 @@ pub mod propchain_identity {
         kyc_tier_privileges: Mapping<KycTier, KycTierPrivileges>,
         /// User's current KYC tier
         user_kyc_tiers: Mapping<AccountId, KycTier>,
+        /// Hash of the current privacy policy document
+        privacy_policy_hash: [u8; 32],
+        /// GDPR data deletion requests with cooldown
+        data_deletion_requests: Mapping<AccountId, DataDeletionRequest>,
+        /// Cooldown period in blocks before data can be deleted
+        deletion_cooldown_blocks: u32,
     }
 
     /// Events
@@ -542,6 +600,31 @@ pub mod propchain_identity {
         timestamp: u64,
     }
 
+    /// Emitted when a GDPR data export is requested
+    #[ink(event)]
+    pub struct DataExportRequested {
+        #[ink(topic)]
+        account: AccountId,
+        timestamp: u64,
+    }
+
+    /// Emitted when a GDPR data deletion is requested
+    #[ink(event)]
+    pub struct DataDeletionRequested {
+        #[ink(topic)]
+        account: AccountId,
+        cooldown_ends_at: u64,
+        timestamp: u64,
+    }
+
+    /// Emitted when GDPR data deletion is completed
+    #[ink(event)]
+    pub struct DataDeletionCompleted {
+        #[ink(topic)]
+        account: AccountId,
+        timestamp: u64,
+    }
+
     impl Default for IdentityRegistry {
         fn default() -> Self {
             Self {
@@ -567,6 +650,9 @@ pub mod propchain_identity {
                 provider_request_count: 0,
                 kyc_tier_privileges: Mapping::default(),
                 user_kyc_tiers: Mapping::default(),
+                privacy_policy_hash: [0u8; 32],
+                data_deletion_requests: Mapping::default(),
+                deletion_cooldown_blocks: 100,
             }
         }
     }
@@ -605,6 +691,9 @@ pub mod propchain_identity {
                 provider_request_count: 0,
                 kyc_tier_privileges: Mapping::default(),
                 user_kyc_tiers: Mapping::default(),
+                privacy_policy_hash: [0u8; 32],
+                data_deletion_requests: Mapping::default(),
+                deletion_cooldown_blocks: 100,
             };
 
             // Initialize default KYC tier privileges
@@ -1702,11 +1791,19 @@ pub mod propchain_identity {
 
                     // Map KYC tier to verification level
                     identity.verification_level = match request.requested_tier {
-                        KycTier::Tier0Unverified => VerificationLevel::None,
-                        KycTier::Tier1Basic => VerificationLevel::Basic,
-                        KycTier::Tier2Standard => VerificationLevel::Standard,
-                        KycTier::Tier3Enhanced => VerificationLevel::Enhanced,
-                        KycTier::Tier4Premium => VerificationLevel::Premium,
+                        KycTier::Tier0_Unverified | KycTier::Tier0Unverified => {
+                            VerificationLevel::None
+                        }
+                        KycTier::Tier1_Basic | KycTier::Tier1Basic => VerificationLevel::Basic,
+                        KycTier::Tier2_Standard | KycTier::Tier2Standard => {
+                            VerificationLevel::Standard
+                        }
+                        KycTier::Tier3_Enhanced | KycTier::Tier3Enhanced => {
+                            VerificationLevel::Enhanced
+                        }
+                        KycTier::Tier4_Premium | KycTier::Tier4Premium => {
+                            VerificationLevel::Premium
+                        }
                     };
 
                     identity.is_verified = true;
@@ -1783,6 +1880,139 @@ pub mod propchain_identity {
             }
 
             Ok(privileges.can_trade)
+        }
+
+        // ===== GDPR Compliance - Issue #526 =====
+
+        /// Export all personal data associated with the caller.
+        #[ink(message)]
+        pub fn export_personal_data(&self) -> Result<PersonalDataExport, IdentityError> {
+            let caller = self.env().caller();
+            let identity = self.identities.get(caller);
+            let reputation = self.reputation_metrics.get(caller);
+
+            // Build verification history from audit trail
+            let mut verification_history: Vec<VerificationHistoryEntry> = Vec::new();
+            let audit_count = self.account_audit_count.get(caller).unwrap_or(0);
+            let start = if audit_count > 20 { audit_count - 20 } else { 0 };
+            for i in start..audit_count {
+                if let Some(entry_id) = self.account_audit_index.get((caller, i)) {
+                    if let Some(entry) = self.audit_trail.get(entry_id) {
+                        if entry.action == "identity_verified" {
+                            verification_history.push(VerificationHistoryEntry {
+                                verifier: entry.performed_by,
+                                verification_level: VerificationLevel::Basic,
+                                verified_at: entry.timestamp,
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Get recent audit entries
+            let mut audit_entries: Vec<AuditEntry> = Vec::new();
+            let limit = audit_count.min(50);
+            for i in 0..limit {
+                if let Some(entry_id) = self.account_audit_index.get((caller, i)) {
+                    if let Some(entry) = self.audit_trail.get(entry_id) {
+                        audit_entries.push(entry);
+                    }
+                }
+            }
+
+            let kyc_tier = self.user_kyc_tiers.get(caller);
+
+            self.env().emit_event(DataExportRequested {
+                account: caller,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(PersonalDataExport {
+                identity,
+                reputation,
+                verification_history,
+                audit_entries,
+                kyc_tier,
+            })
+        }
+
+        /// Request deletion of personal data. Initiates a cooldown period.
+        #[ink(message)]
+        pub fn request_data_deletion(&mut self) -> Result<(), IdentityError> {
+            let caller = self.env().caller();
+            let now = self.env().block_timestamp();
+            let cooldown = self.deletion_cooldown_blocks as u64 * 6000;
+            let deletion = DataDeletionRequest {
+                requested_at: now,
+                cooldown_ends_at: now.saturating_add(cooldown),
+                status: DataDeletionStatus::Requested,
+            };
+            self.data_deletion_requests.insert(&caller, &deletion);
+
+            self.env().emit_event(DataDeletionRequested {
+                account: caller,
+                cooldown_ends_at: deletion.cooldown_ends_at,
+                timestamp: now,
+            });
+            Ok(())
+        }
+
+        /// Confirm data deletion after cooldown has passed.
+        /// Removes PII (identity, reputation, KYC tier) but preserves anonymized audit entries.
+        #[ink(message)]
+        pub fn confirm_data_deletion(&mut self) -> Result<(), IdentityError> {
+            let caller = self.env().caller();
+            let now = self.env().block_timestamp();
+            let request = self
+                .data_deletion_requests
+                .get(caller)
+                .ok_or(IdentityError::NotFound)?;
+
+            if request.status != DataDeletionStatus::Requested {
+                return Err(IdentityError::AlreadyExists);
+            }
+            if now < request.cooldown_ends_at {
+                return Err(IdentityError::TimelockActive);
+            }
+
+            // Remove PII data
+            self.identities.remove(caller);
+            self.reputation_metrics.remove(caller);
+            self.user_kyc_tiers.remove(caller);
+
+            // Update deletion request status
+            let mut updated = request;
+            updated.status = DataDeletionStatus::Completed;
+            self.data_deletion_requests.insert(&caller, &updated);
+
+            self.env().emit_event(DataDeletionCompleted {
+                account: caller,
+                timestamp: now,
+            });
+            Ok(())
+        }
+
+        /// Admin: set the privacy policy document hash.
+        #[ink(message)]
+        pub fn set_privacy_policy_hash(&mut self, hash: [u8; 32]) -> Result<(), IdentityError> {
+            if self.env().caller() != self.admin {
+                return Err(IdentityError::Unauthorized);
+            }
+            self.privacy_policy_hash = hash;
+            Ok(())
+        }
+
+        /// Query: get the privacy policy document hash.
+        #[ink(message)]
+        pub fn get_privacy_policy_hash(&self) -> [u8; 32] {
+            self.privacy_policy_hash
+        }
+
+        /// Query: get deletion request status for caller.
+        #[ink(message)]
+        pub fn get_data_deletion_status(&self) -> Option<DataDeletionRequest> {
+            let caller = self.env().caller();
+            self.data_deletion_requests.get(caller)
         }
     }
 
@@ -2037,6 +2267,87 @@ pub mod propchain_identity {
                 .check_tier_privileges(accounts.dave, 1_000_000_000_000_000_000)
                 .unwrap();
             assert!(!unverified_can_trade);
+        }
+
+        #[ink::test]
+        fn test_data_export_returns_identity_data() {
+            let mut reg = default_registry();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            reg.create_identity(
+                "did:test:export1".into(),
+                vec![1u8; 32],
+                "Ed25519".into(),
+                None,
+                make_privacy(),
+            )
+            .unwrap();
+
+            let export = reg.export_personal_data().unwrap();
+            assert!(export.identity.is_some());
+            assert_eq!(export.identity.as_ref().unwrap().account_id, accounts.alice);
+            assert!(export.reputation.is_some());
+            assert!(export.kyc_tier.is_some());
+            assert!(export.verification_history.is_empty());
+        }
+
+        #[ink::test]
+        fn test_data_deletion_flow() {
+            let mut reg = default_registry();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            reg.create_identity(
+                "did:test:deletion1".into(),
+                vec![1u8; 32],
+                "Ed25519".into(),
+                None,
+                make_privacy(),
+            )
+            .unwrap();
+
+            // Request deletion
+            reg.request_data_deletion().unwrap();
+
+            // Cannot confirm before cooldown
+            assert_eq!(
+                reg.confirm_data_deletion(),
+                Err(IdentityError::TimelockActive)
+            );
+
+            // Advance time past cooldown (100 blocks * 6000ms = 600000ms, so 600 blocks at 1000ms each)
+            for _ in 0..1000 {
+                ink::env::test::advance_block::<ink::env::DefaultEnvironment>();
+            }
+
+            // Confirm deletion after cooldown
+            reg.confirm_data_deletion().unwrap();
+
+            // Verify PII data is removed
+            assert!(reg.get_identity(accounts.alice).is_none());
+            assert!(reg.get_reputation_metrics(accounts.alice).is_none());
+            assert!(reg.get_user_kyc_tier(accounts.alice).is_none());
+
+            // Verify deletion status
+            let status = reg.get_data_deletion_status().unwrap();
+            assert_eq!(status.status, DataDeletionStatus::Completed);
+        }
+
+        #[ink::test]
+        fn test_set_privacy_policy_hash_admin_only() {
+            let mut reg = default_registry();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            // Admin can set hash
+            let hash = [0x42u8; 32];
+            assert_eq!(reg.set_privacy_policy_hash(hash), Ok(()));
+            assert_eq!(reg.get_privacy_policy_hash(), hash);
+
+            // Non-admin cannot set hash
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            assert_eq!(
+                reg.set_privacy_policy_hash([0x00u8; 32]),
+                Err(IdentityError::Unauthorized)
+            );
         }
     }
 }
