@@ -20,6 +20,7 @@ propchain-contracts = { path = "../lib", default-features = false }
 
 [dev-dependencies]
 ink_e2e = "5.0.0"
+proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 
 [lib]
 name = "propchain_escrow"

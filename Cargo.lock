@@ -5876,6 +5876,7 @@ dependencies = [
  "parity-scale-codec",
  "propchain-contracts",
  "propchain-traits",
+ "proptest",
  "scale-info",
 ]
 
