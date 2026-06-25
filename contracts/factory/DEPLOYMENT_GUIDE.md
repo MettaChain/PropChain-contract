@@ -177,6 +177,30 @@ fn generate_deterministic_salt(params: &[u8]) -> [u8; 32] {
 }
 ```
 
+## Pre-computing Contract Addresses
+
+A key advantage of deterministic deployments is the ability to pre-compute a contract's address without actually deploying it. This is useful for counter-factual reasoning, setting up off-chain systems, and more.
+
+The address is determined by the factory's address, the salt, and the code hash of the contract being deployed. You can compute the address off-chain using a similar hashing function to the one used in the factory.
+
+```rust
+use ink::env::hash::{Blake2x256, HashOutput};
+
+fn pre_compute_address(
+    factory_address: &AccountId,
+    code_hash: &Hash,
+    salt: &[u8; 32],
+) -> AccountId {
+    let mut output = <Blake2x256 as HashOutput>::Type::default();
+    let mut input = Vec::new();
+    input.extend_from_slice(factory_address.as_ref());
+    input.extend_from_slice(salt);
+    input.extend_from_slice(code_hash.as_ref());
+    ink::env::hash_bytes::<Blake2x256>(&input, &mut output);
+    AccountId::from(output)
+}
+```
+
 ## Upgrading Contracts
 
 To deploy a new version:
