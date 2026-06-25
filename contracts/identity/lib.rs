@@ -721,6 +721,49 @@ pub mod propchain_identity {
             registry
         }
 
+        /// Revokes an identity
+        #[ink(message)]
+        pub fn revoke_identity(
+            &mut self,
+            account: AccountId,
+            reason: RevocationReason,
+        ) -> Result<(), IdentityError> {
+            let caller = self.env().caller();
+
+            // Check if caller is authorized
+            if !self.authorized_verifiers.contains(&caller) && caller != self.admin {
+                return Err(IdentityError::Unauthorized);
+            }
+
+            // Check if identity exists
+            let mut identity = self.identities.get(&account).ok_or(IdentityError::IdentityNotFound)?;
+
+            // Update identity status
+            identity.is_verified = false;
+            identity.verification_level = VerificationLevel::None;
+            self.identities.insert(&account, &identity);
+
+            // Create revocation record
+            let revocation_record = RevocationRecord {
+                account,
+                revoked_by: caller,
+                reason,
+                revoked_at: self.env().block_timestamp(),
+            };
+
+            self.revocations.insert(&account, &revocation_record);
+
+            // Emit event
+            self.env().emit_event(IdentityRevoked {
+                account,
+                revoked_by: caller,
+                reason: format!("{:?}", reason),
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
         /// Create a new identity with DID
         #[ink(message)]
         pub fn create_identity(
