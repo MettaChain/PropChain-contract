@@ -395,6 +395,7 @@ mod propchain_escrow {
             participants: Vec<AccountId>,
             required_signatures: u8,
             release_time_lock: Option<u64>,
+            deadline: u64,
             jurisdiction: Jurisdiction,
         ) -> Result<u64, Error> {
             self.when_not_paused()?;
@@ -424,6 +425,7 @@ mod propchain_escrow {
                 created_at: self.env().block_timestamp(),
                 completed_at: None,
                 release_time_lock,
+                deadline,
                 participants: participants.clone(),
                 jurisdiction,
                 total_released: 0,
@@ -520,6 +522,47 @@ mod propchain_escrow {
                 escrow_id,
                 amount: transferred,
                 depositor: caller,
+            });
+
+            Ok(())
+        }
+
+        /// Refund expired escrows when no dispute was opened
+        #[ink(message)]
+        pub fn refund_if_expired(&mut self, escrow_id: u64) -> Result<(), Error> {
+            let mut escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
+
+            // Check if the escrow has expired
+            if self.env().block_timestamp() < escrow.deadline {
+                return Err(Error::TimeLockActive);
+            }
+
+            // Check if the escrow is in the correct state
+            if escrow.status != EscrowStatus::Active {
+                return Err(Error::InvalidStatus);
+            }
+
+            // Check if a dispute is active
+            if let Some(dispute) = self.disputes.get(&escrow_id) {
+                if !dispute.resolved {
+                    return Err(Error::DisputeActive);
+                }
+            }
+
+            // Refund the funds to the buyer
+            if self.env().transfer(escrow.buyer, escrow.deposited_amount).is_err() {
+                return Err(Error::InsufficientFunds);
+            }
+
+            // Update the escrow status
+            escrow.status = EscrowStatus::Refunded;
+            self.escrows.insert(&escrow_id, &escrow);
+
+            // Emit an event
+            self.env().emit_event(FundsRefunded {
+                escrow_id,
+                amount: escrow.deposited_amount,
+                recipient: escrow.buyer,
             });
 
             Ok(())

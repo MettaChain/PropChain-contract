@@ -37,6 +37,7 @@ pub struct EscrowData {
     pub created_at: u64,
     pub completed_at: Option<u64>,
     pub release_time_lock: Option<u64>,
+    pub deadline: u64,
     pub participants: Vec<AccountId>,
     pub jurisdiction: Jurisdiction,
     /// Total amount already released in partial releases
