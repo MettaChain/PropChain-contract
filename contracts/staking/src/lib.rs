@@ -298,6 +298,7 @@ mod staking {
                 governance_power: Mapping::default(),
                 staker_list: Vec::new(),
                 reentrancy_guard: propchain_traits::ReentrancyGuard::new(),
+                slashing_coordinator: None,
                 proposal_counter: 0,
                 active_proposal_count: 0,
                 param_proposals: Mapping::default(),
