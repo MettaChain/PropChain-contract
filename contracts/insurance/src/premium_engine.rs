@@ -1,11 +1,26 @@
 // Dynamic premium calculation engine based on risk assessment
 // Implements actuarial pricing with real-time adjustments
+// Claim-frequency adjustment added (rolling-window surcharge)
 
 use crate::{
     ActuarialModel, CoverageType, PremiumCalculation, PremiumModifiers, RiskAssessment, RiskPool,
 };
 
-/// Dynamic premium calculation with comprehensive risk factors
+/// Dynamic premium calculation with comprehensive risk factors.
+///
+/// Steps:
+///  1. Base rate (actuarial model or coverage-type default)
+///  2. Risk multiplier (weighted location / construction / age / claims-history scores)
+///  3. Coverage-type multiplier
+///  4. Pool-utilization multiplier
+///  5. Time-based multiplier
+///  6. Discount multiplier (multi-policy, claim-free, safety, loyalty)
+///  7. **Claim-frequency multiplier** (rolling-window surcharge — new)
+///
+/// The claim-frequency step uses `modifiers.recent_claims_count`, which the
+/// caller populates with the number of approved claims filed against the
+/// property within the rolling observation window (default: 12 months).
+/// Defaults match the table in `DYNAMIC_PREMIUM_CALCULATION.md`.
 pub fn calculate_dynamic_premium(
     risk_assessment: &RiskAssessment,
     coverage_amount: u128,
@@ -33,8 +48,13 @@ pub fn calculate_dynamic_premium(
     // Step 6: Calculate discounts
     let discount_multiplier = calculate_discount_multiplier(modifiers);
 
-    // Step 7: Calculate final premium
-    // Formula: coverage * base_rate * risk_mult * coverage_mult * pool_mult * time_mult * discount_mult
+    // Step 7: Rolling-window claim-frequency surcharge
+    // recent_claims_count = number of approved claims in the observation window
+    let claim_freq_multiplier =
+        calculate_claim_frequency_multiplier(modifiers.recent_claims_count);
+
+    // Formula: coverage × base_rate × risk × coverage × pool × time × discount × claim_freq
+    // All multipliers are in basis points (10 000 = 1.0×), divisor accounts for all 7 factors.
     let annual_premium = coverage_amount
         .saturating_mul(base_rate as u128)
         .saturating_mul(risk_multiplier as u128)
@@ -42,6 +62,7 @@ pub fn calculate_dynamic_premium(
         .saturating_mul(pool_utilization_multiplier as u128)
         .saturating_mul(time_multiplier as u128)
         .saturating_mul(discount_multiplier as u128)
+        .saturating_mul(claim_freq_multiplier as u128)
         / PREMIUM_CALCULATION_DIVISOR;
 
     // Prorate for policy duration
@@ -61,6 +82,7 @@ pub fn calculate_dynamic_premium(
         pool_utilization_multiplier,
         time_multiplier,
         discount_multiplier,
+        claim_freq_multiplier,
         annual_premium: duration_premium,
         monthly_premium,
         deductible,
@@ -100,6 +122,16 @@ pub fn calculate_dynamic_premium(
                 pool_utilization_multiplier,
                 time_multiplier,
                 discount_multiplier,
+            ),
+            claim_freq_adjustment: calculate_claim_freq_adjustment_amount(
+                coverage_amount,
+                base_rate,
+                risk_multiplier,
+                coverage_multiplier,
+                pool_utilization_multiplier,
+                time_multiplier,
+                discount_multiplier,
+                claim_freq_multiplier,
             ),
         },
     }
@@ -220,6 +252,30 @@ fn calculate_time_multiplier(duration_seconds: u64) -> u32 {
         7_776_001..=15_552_000 => 95,  // 3-6 months - slight discount
         15_552_001..=31_536_000 => 90, // 6-12 months - good discount
         _ => 85,                       // > 1 year - best discount
+    }
+}
+
+/// Rolling-window claim-frequency surcharge multiplier.
+///
+/// Uses the number of approved claims filed within the rolling observation
+/// window (typically 12 months) stored in `PremiumModifiers::recent_claims_count`.
+///
+/// | Claims in window | Multiplier | Basis points |
+/// |-----------------|------------|-------------|
+/// | 0               | 1.00×      | 10 000       | (no surcharge — baseline)
+/// | 1               | 1.10×      | 11 000       |
+/// | 2               | 1.25×      | 12 500       |
+/// | 3               | 1.50×      | 15 000       |
+/// | 4               | 1.75×      | 17 500       |
+/// | 5+              | 2.00×      | 20 000       | (high-frequency cap)
+fn calculate_claim_frequency_multiplier(recent_claims_count: u32) -> u32 {
+    match recent_claims_count {
+        0 => 10_000,  // 1.00× — no surcharge
+        1 => 11_000,  // 1.10×
+        2 => 12_500,  // 1.25×
+        3 => 15_000,  // 1.50×
+        4 => 17_500,  // 1.75×
+        _ => 20_000,  // 2.00× — high-frequency cap (5+ claims)
     }
 }
 
@@ -397,9 +453,44 @@ fn calculate_discount_amount(
     premium_before_discount.saturating_sub(final_premium)
 }
 
+/// Calculate the claim-frequency surcharge amount for the breakdown.
+///
+/// This is the additional cost the claim-frequency multiplier adds on top of
+/// the already-discounted premium (i.e. it is always additive / non-negative).
+fn calculate_claim_freq_adjustment_amount(
+    coverage: u128,
+    base_rate: u32,
+    risk_multiplier: u32,
+    coverage_multiplier: u32,
+    pool_multiplier: u32,
+    time_multiplier: u32,
+    discount_multiplier: u32,
+    claim_freq_multiplier: u32,
+) -> u128 {
+    // Premium after discount, before claim-frequency step
+    let pre_freq = coverage
+        .saturating_mul(base_rate as u128)
+        .saturating_mul(risk_multiplier as u128)
+        .saturating_mul(coverage_multiplier as u128)
+        .saturating_mul(pool_multiplier as u128)
+        .saturating_mul(time_multiplier as u128)
+        .saturating_mul(discount_multiplier as u128)
+        / PREMIUM_CALCULATION_DIVISOR;
+
+    let post_freq = pre_freq
+        .saturating_mul(claim_freq_multiplier as u128)
+        / BASIS_POINTS_DENOMINATOR;
+
+    post_freq.saturating_sub(pre_freq)
+}
+
 // Constants
 const BASIS_POINTS_DENOMINATOR: u128 = 10_000;
 const SECONDS_PER_YEAR: u128 = 31_536_000; // 365 * 24 * 60 * 60
-const PREMIUM_CALCULATION_DIVISOR: u128 = 1_000_000_000_000_000_000; // 10^18 for 5 multipliers
-const PREMIUM_CALCULATION_DIVISOR_LARGE: u128 = 10_000_000_000_000_000_000_000; // 10^22 for 6 multipliers
-const PREMIUM_CALCULATION_DIVISOR_5MULT: u128 = 1_000_000_000_000_000_000_000; // 10^21 for discount calc
+/// Divisor for the 7-factor chain: base_rate × risk × coverage × pool × time × discount × claim_freq
+/// All 7 multipliers are in basis points (10 000 = 1.0×), so each divides by 10 000.
+/// 10 000^6 = 10^24; but base_rate uses a different scale (it's in raw basis points ÷ 10 000 once),
+/// so the combined divisor keeps the same structure as before with an extra ×10 000 for claim_freq.
+const PREMIUM_CALCULATION_DIVISOR: u128 = 10_000_000_000_000_000_000_000_000; // 10^25 for 7 factors
+const PREMIUM_CALCULATION_DIVISOR_LARGE: u128 = 10_000_000_000_000_000_000_000; // 10^22 for 6 multipliers (breakdown helpers)
+const PREMIUM_CALCULATION_DIVISOR_5MULT: u128 = 1_000_000_000_000_000_000_000; // 10^21 for discount calc (5 factors before discount)

@@ -260,6 +260,9 @@ pub struct PremiumCalculation {
     pub pool_utilization_multiplier: u32,
     pub time_multiplier: u32,
     pub discount_multiplier: u32,
+    /// Claim-frequency surcharge multiplier in basis points (10 000 = 1.0×).
+    /// Values above 10 000 indicate a surcharge for high claim frequency.
+    pub claim_freq_multiplier: u32,
     pub annual_premium: u128,
     pub monthly_premium: u128,
     pub deductible: u128,
@@ -277,6 +280,9 @@ pub struct PremiumBreakdown {
     pub pool_adjustment: u128,
     pub time_adjustment: u128,
     pub discount_amount: u128,
+    /// Additional premium added by the rolling-window claim-frequency surcharge.
+    /// Zero when `recent_claims_count` is 0 (baseline, no surcharge).
+    pub claim_freq_adjustment: u128,
 }
 
 #[derive(
@@ -288,6 +294,11 @@ pub struct PremiumModifiers {
     pub claim_free_years: u32,
     pub has_safety_features: bool,
     pub loyalty_years: u32,
+    /// Number of approved claims filed against this property within the
+    /// rolling observation window (typically the last 12 months).
+    /// Used by the premium engine to apply a claim-frequency surcharge.
+    /// Set to `0` for new policyholders or those with no recent claims.
+    pub recent_claims_count: u32,
 }
 
 #[derive(
@@ -501,7 +512,17 @@ pub enum FraudIndicator {
     DuplicateClaimPatterns,       // Similar to previous fraud claims
 }
 
-/// Fraud risk assessment for a claim
+/// Treaty type determines how risk is shared with the reinsurer
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    scale::Encode,
+    scale::Decode,
+    ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub enum ReinsuranceTreatyType {
     /// Quota Share: cede a fixed % of every premium and claim
     QuotaShare,
@@ -535,6 +556,10 @@ pub struct FraudRiskAssessment {
 }
 
 /// Historical fraud pattern for detection
+#[derive(
+    Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub struct PremiumCession {
     pub cession_id: u64,
     pub agreement_id: u64,
@@ -560,6 +585,10 @@ pub struct FraudPattern {
 }
 
 /// Statistics for fraud detection and prevention
+#[derive(
+    Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub struct LossRecovery {
     pub recovery_id: u64,
     pub agreement_id: u64,
