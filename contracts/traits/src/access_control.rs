@@ -17,6 +17,7 @@ pub enum Role {
     Verifier,
     PauseGuardian,
     Manager,
+    EscrowAdmin,
 }
 
 #[allow(clippy::cast_possible_truncation)]

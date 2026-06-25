@@ -60,6 +60,8 @@ mod propchain_escrow {
         pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
         /// Reentrancy protection guard
         reentrancy_guard: ReentrancyGuard,
+        /// Access control
+        access_control: AccessControl,
         /// Pending large-transfer approval requests: request_id -> LargeTransferRequest
         large_transfer_requests: Mapping<u64, LargeTransferRequest>,
         /// Counter for large-transfer request IDs
@@ -224,6 +226,18 @@ mod propchain_escrow {
     }
 
     #[ink(event)]
+    pub struct Paused {
+        #[ink(topic)]
+        account: AccountId,
+    }
+
+    #[ink(event)]
+    pub struct Unpaused {
+        #[ink(topic)]
+        account: AccountId,
+    }
+
+    #[ink(event)]
     pub struct FeeRecipientUpdated {
         #[ink(topic)]
         updated_by: AccountId,
@@ -302,6 +316,8 @@ mod propchain_escrow {
             min_high_value_threshold: u128,
             tax_compliance_contract: Option<AccountId>,
         ) -> Self {
+			let mut access_control = AccessControl::default();
+			access_control.bootstrap(Self::env().caller());
             Self {
                 escrows: Mapping::default(),
                 escrow_summaries: Mapping::default(),
@@ -320,6 +336,7 @@ mod propchain_escrow {
                 signer_public_keys: Mapping::default(),
                 pending_admin_rotation: None,
                 reentrancy_guard: ReentrancyGuard::new(),
+				access_control,
                 large_transfer_requests: Mapping::default(),
                 large_transfer_request_count: 0,
                 escrow_active_large_transfer: Mapping::default(),
@@ -329,7 +346,42 @@ mod propchain_escrow {
                 tax_compliance_contract,
                 fee_rate_bps: 0,
                 fee_recipient: None,
+				paused: false,
             }
+        }
+
+        /// Returns true if the contract is paused, and false otherwise.
+        #[ink(message)]
+        pub fn paused(&self) -> bool {
+            self.paused
+        }
+
+        /// Pauses the contract.
+        ///
+        /// Can only be called by the admin.
+        #[ink(message)]
+        pub fn pause(&mut self) -> Result<(), Error> {
+            self.access_control
+                .ensure_has_role(self.env().caller(), Role::EscrowAdmin)?;
+            self.paused = true;
+            self.env().emit_event(Paused {
+                account: self.env().caller(),
+            });
+            Ok(())
+        }
+
+        /// Unpauses the contract.
+        ///
+        /// Can only be called by the admin.
+        #[ink(message)]
+        pub fn unpause(&mut self) -> Result<(), Error> {
+            self.access_control
+                .ensure_has_role(self.env().caller(), Role::EscrowAdmin)?;
+            self.paused = false;
+            self.env().emit_event(Unpaused {
+                account: self.env().caller(),
+            });
+            Ok(())
         }
 
         /// Create a new escrow with advanced features
@@ -345,6 +397,7 @@ mod propchain_escrow {
             release_time_lock: Option<u64>,
             jurisdiction: Jurisdiction,
         ) -> Result<u64, Error> {
+            self.when_not_paused()?;
             let caller = self.env().caller();
 
             // Validate configuration
@@ -482,6 +535,7 @@ mod propchain_escrow {
         /// finalise the transfer.
         #[ink(message)]
         pub fn release_funds(&mut self, escrow_id: u64) -> Result<(), Error> {
+            self.when_not_paused()?;
             non_reentrant!(self, {
                 let caller = self.env().caller();
                 let escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
@@ -627,7 +681,15 @@ mod propchain_escrow {
             })
         }
 
-        /// Release a partial amount from escrow to the seller.
+        /// Returns `Ok` if the contract is not paused, and `Err(Error::Paused)` otherwise.
+        fn when_not_paused(&self) -> Result<(), Error> {
+            if self.paused {
+                Err(Error::Paused)
+            } else {
+                Ok(())
+            }
+        }
+    }     /// Release a partial amount from escrow to the seller.
         /// The escrow remains active for any remaining balance.
         #[ink(message)]
         pub fn release_funds_partial(&mut self, escrow_id: u64, amount: u128) -> Result<(), Error> {
@@ -1093,7 +1155,8 @@ mod propchain_escrow {
 
         /// Raise a dispute
         #[ink(message)]
-        pub fn raise_dispute(&mut self, escrow_id: u64, reason: String) -> Result<(), Error> {
+        pub fn dispute(&mut self, escrow_id: u64, reason: String) -> Result<(), Error> {
+            self.when_not_paused()?;
             let caller = self.env().caller();
             let escrow = self.escrows.get(&escrow_id).ok_or(Error::EscrowNotFound)?;
 

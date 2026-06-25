@@ -31,6 +31,8 @@ pub enum Error {
     FeeRateTooHigh,
     /// Fee calculation resulted in an invalid amount
     InvalidFeeAmount,
+    /// Contract is paused
+    Paused,
 }
 
 impl core::fmt::Display for Error {
