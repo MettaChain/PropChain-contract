@@ -733,6 +733,9 @@ pub mod property_token {
             to: AccountId,
             id: TokenId,
         ) -> Result<(), Error> {
+            if to == AccountId::from([0x0; 32]) {
+                return Err(Error::InvalidRecipient);
+            }
             let owner = self.owner_of(id).ok_or(Error::TokenNotFound)?;
             if owner != from {
                 return Err(Error::NotOwner);
