@@ -20,6 +20,7 @@ use ink::prelude::vec::Vec;
 #[ink::contract]
 mod propchain_proxy {
     use super::*;
+    use ink::env::call::{build_call, ExecutionInput, Selector};
 
     /// Unique storage key for the proxy data to avoid collisions.
     /// bytes4(keccak256("proxy.storage")) = 0xc5f3bc7a
@@ -287,7 +288,26 @@ mod propchain_proxy {
         #[ink(message, payable, selector = "_")]
         pub fn _fallback(&mut self) {
             let selector = self.env().transferred_value();
-            // TODO: Implement the logic to delegate the call to the appropriate facet
+            let facet = self.selector_to_facet.get(&selector.to_be_bytes());
+
+            match facet {
+                Some(facet_address) => {
+                    let _ = build_call::<ink::env::DefaultEnvironment>()
+                        .call(facet_address)
+                        .transferred_value(self.env().transferred_value())
+                        .exec_input(ExecutionInput::new(Selector::new(selector.to_be_bytes())))
+                        .returns::<()>()
+                        .try_invoke();
+                }
+                None => {
+                    let _ = build_call::<ink::env::DefaultEnvironment>()
+                        .call(self.code_hash)
+                        .transferred_value(self.env().transferred_value())
+                        .exec_input(ExecutionInput::new(Selector::new(selector.to_be_bytes())))
+                        .returns::<()>()
+                        .try_invoke();
+                }
+            }
         }
 
         // ====================================================================
@@ -769,19 +789,83 @@ mod propchain_proxy {
 
         /// Adds a new facet and its functions to the diamond
         fn add_facet(&mut self, facet_address: AccountId, selectors: Vec<[u8; 4]>) -> Result<(), Error> {
-            // TODO: Implement the logic to add a new facet
+            if facet_address == AccountId::from([0x0; 32]) {
+                return Err(Error::InvalidFacetAddress);
+            }
+            if self.facet_addresses.contains(&facet_address) {
+                return Err(Error::FacetAlreadyExists);
+            }
+
+            for selector in &selectors {
+                if self.selector_to_facet.get(selector).is_some() {
+                    return Err(Error::SelectorAlreadyExists);
+                }
+            }
+
+            for selector in &selectors {
+                self.selector_to_facet.insert(selector, &facet_address);
+            }
+
+            self.facet_addresses.push(facet_address);
+            self.facet_selectors.insert(facet_address, &selectors);
+
             Ok(())
         }
 
         /// Replaces an existing facet with a new one
         fn replace_facet(&mut self, facet_address: AccountId, selectors: Vec<[u8; 4]>) -> Result<(), Error> {
-            // TODO: Implement the logic to replace an existing facet
+            if facet_address == AccountId::from([0x0; 32]) {
+                return Err(Error::InvalidFacetAddress);
+            }
+            if !self.facet_addresses.contains(&facet_address) {
+                return Err(Error::FacetNotFound);
+            }
+
+            for selector in &selectors {
+                if let Some(owner) = self.selector_to_facet.get(selector) {
+                    if owner != facet_address {
+                        return Err(Error::SelectorAlreadyExists);
+                    }
+                }
+            }
+
+            let old_selectors = self.facet_selectors.get(&facet_address).unwrap_or_default();
+            for selector in &old_selectors {
+                self.selector_to_facet.remove(selector);
+            }
+
+            for selector in &selectors {
+                self.selector_to_facet.insert(selector, &facet_address);
+            }
+
+            self.facet_selectors.insert(facet_address, &selectors);
+
             Ok(())
         }
 
         /// Removes a facet and its functions from the diamond
         fn remove_facet(&mut self, facet_address: AccountId, selectors: Vec<[u8; 4]>) -> Result<(), Error> {
-            // TODO: Implement the logic to remove a facet
+            if facet_address == AccountId::from([0x0; 32]) {
+                return Err(Error::InvalidFacetAddress);
+            }
+            if !self.facet_addresses.contains(&facet_address) {
+                return Err(Error::FacetNotFound);
+            }
+
+            let registered_selectors = self.facet_selectors.get(&facet_address).unwrap_or_default();
+            for selector in &selectors {
+                if !registered_selectors.contains(selector) {
+                    return Err(Error::SelectorNotFound);
+                }
+            }
+
+            for selector in &selectors {
+                self.selector_to_facet.remove(selector);
+            }
+
+            self.facet_addresses.retain(|&addr| addr != facet_address);
+            self.facet_selectors.remove(&facet_address);
+
             Ok(())
         }
     }
