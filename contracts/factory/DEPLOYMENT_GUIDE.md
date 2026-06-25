@@ -70,9 +70,11 @@ let address = factory.deploy_contract(config, "1.0.0".to_string())?;
 ```rust
 use propchain_factory::builder::DeploymentBuilder;
 
+let salt = generate_deterministic_salt(&encoded_params);
+
 let (config, version) = DeploymentBuilder::new()
     .contract_type(ContractType::Escrow)
-    .salt(generate_salt())
+    .salt(salt)
     .init_params(encoded_params)
     .version("1.0.0".to_string())
     .build()?;
