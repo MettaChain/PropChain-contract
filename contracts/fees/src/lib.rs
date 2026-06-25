@@ -60,6 +60,8 @@ mod propchain_fees {
         validator_share_bp: u32,
         /// Distribution rate for treasury (rest)
         treasury_share_bp: u32,
+        /// Dynamic fee configuration based on pool utilisation / market congestion
+        dynamic_fee_config: DynamicFeeConfig,
     }
 
     #[ink(event)]
@@ -115,6 +117,19 @@ mod propchain_fees {
         timestamp: u64,
     }
 
+    /// Emitted whenever the dynamic fee rate changes due to a config update
+    /// or a shift in pool utilisation tracked via `set_dynamic_fee_config`.
+    #[ink(event)]
+    pub struct FeeRateUpdated {
+        #[ink(topic)]
+        by: AccountId,
+        /// Previous effective fee rate in basis points
+        old_rate_bps: u32,
+        /// New effective fee rate in basis points
+        new_rate_bps: u32,
+        timestamp: u64,
+    }
+
     impl FeeManager {
         #[ink(constructor)]
         pub fn new(base_fee: u128, min_fee: u128, max_fee: u128) -> Self {
@@ -148,6 +163,11 @@ mod propchain_fees {
                 validator_list: Vec::new(),
                 validator_share_bp: 5000, // 50% to validators
                 treasury_share_bp: 5000,  // 50% to treasury
+                dynamic_fee_config: DynamicFeeConfig {
+                    base_fee_bps: 30,    // 0.30 % base
+                    congestion_multiplier: 300, // up to 3× at full utilisation
+                    max_fee_bps: 200,    // hard cap at 2.00 %
+                },
             }
         }
 
@@ -602,6 +622,72 @@ mod propchain_fees {
         #[ink(message)]
         pub fn fee_treasury(&self) -> u128 {
             self.fee_treasury
+        }
+
+        // ========== Dynamic fee model (Issue #508) ==========
+
+        /// Return the current effective fee rate in basis points, computed
+        /// from the stored `DynamicFeeConfig` and the live utilisation index.
+        ///
+        /// Formula:
+        ///   utilisation  = congestion_index()          (0 – 100)
+        ///   multiplier   = 100 + utilisation × (congestion_multiplier − 100) / 100
+        ///   effective    = base_fee_bps × multiplier / 100
+        ///   effective    = min(effective, max_fee_bps)
+        #[ink(message)]
+        pub fn get_current_fee_rate(&self) -> u32 {
+            Self::compute_fee_rate(&self.dynamic_fee_config, self.congestion_index())
+        }
+
+        /// Update the dynamic fee configuration (admin only).
+        /// Emits `FeeRateUpdated` with the old and new effective rates.
+        #[ink(message)]
+        pub fn set_dynamic_fee_config(
+            &mut self,
+            config: DynamicFeeConfig,
+        ) -> Result<(), FeeError> {
+            self.ensure_admin()?;
+            if config.base_fee_bps > config.max_fee_bps {
+                return Err(FeeError::InvalidConfig);
+            }
+            if config.congestion_multiplier < 100 {
+                // Multiplier below 100 % would make fees decrease with load —
+                // not a valid congestion model.
+                return Err(FeeError::InvalidConfig);
+            }
+            let utilisation = self.congestion_index();
+            let old_rate = Self::compute_fee_rate(&self.dynamic_fee_config, utilisation);
+            let new_rate = Self::compute_fee_rate(&config, utilisation);
+            self.dynamic_fee_config = config;
+            let now = self.env().block_timestamp();
+            self.env().emit_event(FeeRateUpdated {
+                by: self.env().caller(),
+                old_rate_bps: old_rate,
+                new_rate_bps: new_rate,
+                timestamp: now,
+            });
+            Ok(())
+        }
+
+        /// Return a copy of the current `DynamicFeeConfig`.
+        #[ink(message)]
+        pub fn dynamic_fee_config(&self) -> DynamicFeeConfig {
+            self.dynamic_fee_config.clone()
+        }
+
+        /// Pure helper: compute effective fee rate (bps) for a given config
+        /// and utilisation index (0-100).
+        fn compute_fee_rate(config: &DynamicFeeConfig, utilisation: u32) -> u32 {
+            // multiplier_pct is 100 at 0 % util and congestion_multiplier at 100 % util.
+            let util = utilisation.min(100) as u64;
+            let base = config.base_fee_bps as u64;
+            let cm = config.congestion_multiplier as u64;
+            // effective = base * (100 + util * (cm - 100) / 100) / 100
+            let multiplier_pct = 100u64.saturating_add(
+                util.saturating_mul(cm.saturating_sub(100)).saturating_div(100),
+            );
+            let effective = base.saturating_mul(multiplier_pct).saturating_div(100);
+            (effective as u32).min(config.max_fee_bps)
         }
     }
 

@@ -161,17 +161,16 @@ pub mod contract_factory {
                 .get(&config.contract_type)
                 .ok_or(Error::CodeHashNotSet)?;
 
-            // Compute a deterministic address from deployer + salt + deployment counter.
-            // This avoids the broken build_create API which requires a concrete contract
-            // type reference at compile time — incompatible with a generic factory.
             let deployer = self.env().caller();
-            use ink::env::hash::Blake2x256;
-            let mut unique_seed = ink::prelude::vec![0u8; 72];
-            unique_seed[..32].copy_from_slice(deployer.as_ref());
-            unique_seed[32..64].copy_from_slice(&config.salt);
-            unique_seed[64..72].copy_from_slice(&self.deployment_count.to_le_bytes());
-            let hash = self.env().hash_bytes::<Blake2x256>(&unique_seed);
-            let contract_address = AccountId::from(hash);
+
+            let contract = builder::build_contract(
+                config.contract_type,
+                config.init_params,
+                Some(config.salt),
+            )
+            .map_err(|_| Error::DeploymentFailed)?;
+
+            let contract_address = contract.address;
 
             // Record deployment
             let deployment_id = self.deployment_count;

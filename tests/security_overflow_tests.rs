@@ -216,3 +216,61 @@ fn sec_ov07_max_valuation_property_does_not_panic() {
         "SECURITY FINDING [LOW]: register_property panicked with u128::MAX valuation"
     );
 }
+
+// ─── TOCTOU-01: Expired large-transfer request is rejected ──────────────────
+
+/// SECURITY: An expired large-transfer request must be rejected.
+#[ink::test]
+fn sec_toctou_expired_large_transfer_is_rejected() {
+    let (mut contract, alice) = make_contract();
+    let accounts = test::default_accounts::<DefaultEnvironment>();
+
+    // 1. Create an escrow that will trigger a large-transfer request
+    let escrow_id = contract
+        .create_escrow_advanced(
+            1,
+            1_000_000,
+            accounts.bob,
+            accounts.charlie,
+            vec![alice, accounts.bob, accounts.charlie],
+            2,
+            None,
+            propchain_traits::Jurisdiction::Usa,
+        )
+        .expect("Escrow creation should succeed");
+
+    // 2. Deposit funds
+    test::set_value_transferred::<DefaultEnvironment>(1_000_000);
+    contract
+        .deposit_funds(escrow_id)
+        .expect("Deposit should succeed");
+
+    // 3. Trigger the large-transfer request
+    let result = contract.release_funds(escrow_id);
+    assert_eq!(result, Err(Error::LargeTransferApprovalRequired));
+
+    // 4. Get the request ID
+    let request_id = contract.escrow_active_large_transfer.get(&escrow_id).unwrap();
+
+    // 5. Approve the request
+    contract
+        .approve_large_transfer(request_id)
+        .expect("Approval should succeed");
+    test::set_caller::<DefaultEnvironment>(accounts.bob);
+    contract
+        .approve_large_transfer(request_id)
+        .expect("Approval should succeed");
+
+    // 6. Advance the block number to expire the request
+    test::advance_block::<DefaultEnvironment>();
+    test::advance_block::<DefaultEnvironment>();
+    test::advance_block::<DefaultEnvironment>();
+
+    // 7. Attempt to execute the expired transfer
+    let result = contract.execute_large_transfer(request_id);
+    assert_eq!(result, Err(Error::ApprovalRequestExpired));
+
+    // 8. Verify the request status is updated to Expired
+    let request = contract.large_transfer_requests.get(&request_id).unwrap();
+    assert_eq!(request.status, LargeTransferStatus::Expired);
+}

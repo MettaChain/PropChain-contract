@@ -1,0 +1,12 @@
+FROM paritytech/substrate-contracts-node:latest
+
+LABEL maintainer="PropChain Team"
+LABEL description="Pre-configured Substrate node for PropChain contract testing"
+
+# Pre-fund test accounts and configure the node
+COPY scripts/deploy-contracts.sh /usr/local/bin/deploy-contracts.sh
+RUN chmod +x /usr/local/bin/deploy-contracts.sh
+
+EXPOSE 9944 9933 30333
+
+CMD ["substrate-contracts-node", "--dev", "--rpc-external", "--rpc-cors=all"]

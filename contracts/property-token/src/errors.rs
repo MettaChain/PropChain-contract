@@ -9,6 +9,8 @@ pub enum Error {
     TokenNotFound,
     /// Caller is not authorized
     Unauthorized,
+    /// Recipient is invalid
+    InvalidRecipient,
     // Property-specific errors
     /// Property does not exist
     PropertyNotFound,

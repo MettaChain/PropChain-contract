@@ -45,7 +45,11 @@ impl OracleReputation {
         rec.correct * 100 / rec.submissions
     }
 
-    pub fn weight(&self, oracle: AccountId) -> u32 {
-        self.score(oracle) * self.accuracy(oracle) / 100
+    pub fn weight(&self, oracle: AccountId, total_weight: u32) -> u32 {
+        let raw_weight = self.score(oracle) * self.accuracy(oracle) / 100;
+        if total_weight == 0 {
+            return 0;
+        }
+        (raw_weight as u64 * 1000 / total_weight as u64) as u32
     }
 }

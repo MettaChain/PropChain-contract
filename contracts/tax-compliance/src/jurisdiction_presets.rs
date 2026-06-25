@@ -1,4 +1,3 @@
-use crate::{Jurisdiction, JurisdictionProfile, ReportingFrequency, TaxRule};
 
 /// US Federal tax rule configuration
 /// - Property tax rate: ~3% (varies by state)
@@ -15,6 +14,8 @@ pub fn us_federal_rule() -> TaxRule {
         penalty_basis_points: 500, // 5% penalty
         requires_reporting: true,
         requires_legal_documents: true,
+        withholding_rate_basis_points: 0,
+        tax_collector: [0x00; 32].into(),
         active: true,
     }
 }
@@ -49,6 +50,8 @@ pub fn eu_standard_rule() -> TaxRule {
         penalty_basis_points: 400, // 4% penalty
         requires_reporting: true,
         requires_legal_documents: true,
+        withholding_rate_basis_points: 0,
+        tax_collector: [0x00; 32].into(),
         active: true,
     }
 }
@@ -84,6 +87,8 @@ pub fn asia_standard_rule() -> TaxRule {
         penalty_basis_points: 600, // 6% penalty (stricter enforcement)
         requires_reporting: true,
         requires_legal_documents: true,
+        withholding_rate_basis_points: 0,
+        tax_collector: [0x00; 32].into(),
         active: true,
     }
 }

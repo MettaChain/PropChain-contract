@@ -256,6 +256,7 @@ mod staking {
         governance_power: Mapping<AccountId, u128>,
         staker_list: Vec<AccountId>,
         reentrancy_guard: propchain_traits::ReentrancyGuard,
+        slashing_coordinator: Option<AccountId>,
         // ----- Parameter governance -----
         proposal_counter: u64,
         active_proposal_count: u32,
@@ -297,6 +298,7 @@ mod staking {
                 governance_power: Mapping::default(),
                 staker_list: Vec::new(),
                 reentrancy_guard: propchain_traits::ReentrancyGuard::new(),
+                slashing_coordinator: None,
                 proposal_counter: 0,
                 active_proposal_count: 0,
                 param_proposals: Mapping::default(),
@@ -1319,11 +1321,19 @@ mod staking {
             Ok(())
         }
 
+        /// Sets the slashing coordinator contract address.
+        #[ink(message)]
+        pub fn set_slashing_coordinator(&mut self, coordinator: AccountId) -> Result<(), Error> {
+            self.ensure_admin()?;
+            self.slashing_coordinator = Some(coordinator);
+            Ok(())
+        }
+
         /// Admin-only: slash a validator and propagate to all delegators.
         #[ink(message)]
         pub fn slash_validator(&mut self, validator: AccountId) -> Result<(), Error> {
             propchain_traits::non_reentrant!(self, {
-                self.ensure_admin()?;
+                self.ensure_slashing_coordinator()?;
                 if !self.validators.contains(validator) {
                     return Err(Error::ValidatorNotFound);
                 }

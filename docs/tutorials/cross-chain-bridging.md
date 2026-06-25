@@ -75,6 +75,29 @@ If a bridge request expires or fails, the token can be recovered on the source c
 bridge.recover_failed_bridge(request_id, RecoveryAction::UnlockToken)?;
 ```
 
+## 7. FATF Travel Rule Compliance
+
+For cross-border transfers exceeding the jurisdiction threshold, FATF travel rule data must be submitted before execution.
+
+```rust
+// Submit travel rule data before executing bridge
+let travel_data = TravelRuleData {
+    originator_name: b"Alice Smith".to_vec(),
+    originator_account: alice_account,
+    beneficiary_name: b"Bob Jones".to_vec(),
+    beneficiary_account: bob_account,
+    transfer_amount: 1_000_000,
+    data_hash: sha256(off_chain_data), // actual data stored off-chain
+    submitted_at: 0, // set by contract
+};
+bridge.submit_travel_rule_data(request_id, travel_data)?;
+
+// Now bridge execution will succeed
+bridge.execute_bridge(request_id)?;
+```
+
+See [FATF Travel Rule](https://www.fatf-gafi.org/recommendations/r16.html) for compliance details.
+
 ## Best Practices
 
 - Always check `is_bridge_operator` if you are implementing an operator service.

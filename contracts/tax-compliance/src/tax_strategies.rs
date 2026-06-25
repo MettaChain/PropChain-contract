@@ -1,9 +1,5 @@
 /// Tax Optimization Strategies Module
 /// Provides suggestions for tax-efficient transaction structuring
-use crate::{
-    Balance, JurisdictionProfile, PropertyAssessment, TaxRecord, TaxRule, Timestamp,
-    BASIS_POINTS_DENOMINATOR,
-};
 
 /// Different transaction structuring strategies for tax efficiency
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -207,7 +203,7 @@ pub(crate) fn calculate_timing_strategy(
 
     let penalty_avoidance = record
         .map(|r| {
-            if r.status != crate::TaxStatus::Paid {
+            if r.status != TaxStatus::Paid {
                 (r.tax_due * rule.penalty_basis_points as Balance) / BASIS_POINTS_DENOMINATOR
             } else {
                 0
@@ -455,7 +451,7 @@ mod tests {
             fixed_charge: 1_000,
             exemption_amount: 50_000,
             payment_due_period: 30 * 24 * 60 * 60 * 1000,
-            reporting_frequency: crate::ReportingFrequency::Annual,
+            reporting_frequency: ReportingFrequency::Annual,
             penalty_basis_points: 500,
             requires_reporting: false,
             requires_legal_documents: false,
@@ -487,7 +483,7 @@ mod tests {
             fixed_charge: 1_000,
             exemption_amount: 50_000,
             payment_due_period: 30 * 24 * 60 * 60 * 1000,
-            reporting_frequency: crate::ReportingFrequency::Annual,
+            reporting_frequency: ReportingFrequency::Annual,
             penalty_basis_points: 500,
             requires_reporting: false,
             requires_legal_documents: false,
@@ -599,7 +595,7 @@ mod tests {
             fixed_charge: 1_000,
             exemption_amount: 50_000,
             payment_due_period: 30 * 24 * 60 * 60 * 1000,
-            reporting_frequency: crate::ReportingFrequency::Annual,
+            reporting_frequency: ReportingFrequency::Annual,
             penalty_basis_points: 500,
             requires_reporting: false,
             requires_legal_documents: false,
