@@ -22,8 +22,15 @@ mod propchain_oracle {
     };
 
     /// Property Valuation Oracle storage
-    #[ink(storage)]
-    pub struct PropertyValuationOracle {
+    pub enum AggregationMode {
+    SimpleMedian,
+    WeightedMedian,
+    TrimmedMean,
+}
+
+#[ink(storage)]
+pub struct PropertyValuationOracle {
+    aggregation_mode: AggregationMode,
         /// Admin account
         admin: AccountId,
         access_control: AccessControl,
@@ -526,9 +533,20 @@ mod propchain_oracle {
             &self,
             property_id: u64,
         ) -> Result<PropertyValuation, OracleError> {
-            self.property_valuations
-                .get(&property_id)
-                .ok_or(OracleError::PropertyNotFound)
+            let aggregated_valuation = match self.aggregation_mode {
+    AggregationMode::SimpleMedian => {
+        let mut values: Vec<u128> = self.property_valuations.values().collect();
+        aggregation::simple_median(&mut values)
+    }
+    AggregationMode::WeightedMedian => {
+        let mut values: Vec<(u128, u32)> = self.property_valuations.iter().map(|(id, val)| (val, self.source_reputations.get(id).unwrap_or(0))).collect();
+        aggregation::weighted_median(&values)
+    }
+    AggregationMode::TrimmedMean => {
+        let mut values: Vec<u128> = self.property_valuations.values().collect();
+        aggregation::trimmed_mean(&mut values, 10)
+    }
+};
         }
 
         /// Get property valuation with confidence metrics
