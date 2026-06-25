@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pages: write
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -19,16 +21,14 @@ jobs:
           components: rust-docs
 
       - name: Generate rustdoc
-        run: cargo doc --no-deps --document-private-items --workspace 2>&1 | tail -20 || true
+        run: cargo doc --workspace --no-deps
 
       - name: Add redirect index
         run: |
-          echo '<meta http-equiv="refresh" content="0; url=propchain_traits/index.html">' \
-            > target/doc/index.html
+          echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0; url=propchain_contracts/index.html"></head><body>Redirecting to docs...</body></html>' > target/doc/index.html
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./target/doc
-          destination_dir: docs
