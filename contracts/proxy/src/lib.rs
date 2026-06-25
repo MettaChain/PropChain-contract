@@ -310,6 +310,90 @@ mod propchain_proxy {
             }
         }
 
+        /// Helper to add a new facet
+        fn add_facet(&mut self, facet_address: AccountId, selectors: Vec<[u8; 4]>) -> Result<(), Error> {
+            if facet_address == AccountId::from([0; 32]) {
+                return Err(Error::InvalidFacetAddress);
+            }
+
+            if self.facet_addresses.contains(&facet_address) {
+                return Err(Error::FacetAlreadyExists);
+            }
+
+            for selector in &selectors {
+                if self.selector_to_facet.get(selector).is_some() {
+                    return Err(Error::SelectorAlreadyExists);
+                }
+            }
+
+            self.facet_addresses.push(facet_address);
+            self.facet_selectors.insert(facet_address, &selectors);
+
+            for selector in selectors {
+                self.selector_to_facet.insert(selector, &facet_address);
+            }
+
+            Ok(())
+        }
+
+        /// Helper to replace selectors of an existing facet
+        fn replace_facet(&mut self, facet_address: AccountId, selectors: Vec<[u8; 4]>) -> Result<(), Error> {
+            if !self.facet_addresses.contains(&facet_address) {
+                return Err(Error::FacetNotFound);
+            }
+
+            // Remove old selectors
+            if let Some(old_selectors) = self.facet_selectors.get(&facet_address) {
+                for selector in old_selectors {
+                    self.selector_to_facet.remove(&selector);
+                }
+            }
+
+            // Add new selectors
+            for selector in &selectors {
+                if let Some(owner) = self.selector_to_facet.get(selector) {
+                    if owner != facet_address {
+                        return Err(Error::SelectorAlreadyExists);
+                    }
+                }
+            }
+
+            self.facet_selectors.insert(facet_address, &selectors);
+            for selector in selectors {
+                self.selector_to_facet.insert(selector, &facet_address);
+            }
+
+            Ok(())
+        }
+
+        /// Helper to remove a facet or specific functions from it
+        fn remove_facet(&mut self, facet_address: AccountId, selectors_to_remove: Vec<[u8; 4]>) -> Result<(), Error> {
+            if !self.facet_addresses.contains(&facet_address) {
+                return Err(Error::FacetNotFound);
+            }
+
+            let mut current_selectors = self.facet_selectors.get(&facet_address).unwrap_or_default();
+
+            for selector in &selectors_to_remove {
+                if !current_selectors.contains(selector) {
+                    return Err(Error::SelectorNotFound);
+                }
+                self.selector_to_facet.remove(selector);
+            }
+
+            current_selectors.retain(|s| !selectors_to_remove.contains(s));
+
+            if current_selectors.is_empty() {
+                // Remove the facet completely if no selectors are left
+                self.facet_addresses.retain(|&f| f != facet_address);
+                self.facet_selectors.remove(&facet_address);
+            } else {
+                self.facet_selectors.insert(facet_address, &current_selectors);
+            }
+
+            Ok(())
+        }
+
         // ====================================================================
         // UPGRADE GOVERNANCE
         // ====================================================================
