@@ -55,3 +55,37 @@ pub enum MigrationState {
     Completed,
     RolledBack,
 }
+
+/// Action to be taken on a facet
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    scale::Encode,
+    scale::Decode,
+    ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub enum FacetCutAction {
+    Add,
+    Replace,
+    Remove,
+}
+
+/// A single facet cut operation
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    scale::Encode,
+    scale::Decode,
+    ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub struct FacetCut {
+    pub facet_address: AccountId,
+    pub action: FacetCutAction,
+    pub selectors: Vec<[u8; 4]>,
+}
