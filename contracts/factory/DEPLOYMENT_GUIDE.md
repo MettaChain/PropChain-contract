@@ -126,9 +126,11 @@ let template = EscrowTemplate {
     fee_percentage: 250, // 2.5%
 };
 
+let salt = generate_deterministic_salt(&template.encode_params());
+
 let config = DeploymentConfig {
     contract_type: ContractType::Escrow,
-    salt: [2u8; 32],
+    salt,
     init_params: template.encode_params(),
 };
 
@@ -143,9 +145,11 @@ let template = OracleTemplate {
     update_interval: 3600, // 1 hour
 };
 
+let salt = generate_deterministic_salt(&template.encode_params());
+
 let config = DeploymentConfig {
     contract_type: ContractType::Oracle,
-    salt: [3u8; 32],
+    salt,
     init_params: template.encode_params(),
 };
 
