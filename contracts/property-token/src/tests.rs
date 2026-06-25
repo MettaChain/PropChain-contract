@@ -198,6 +198,17 @@ mod erc721_conformance {
         );
     }
 
+    #[ink::test]
+    fn conformance_transfer_to_zero_address_fails() {
+        let (mut contract, token_id) = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let zero_address = AccountId::from([0x0; 32]);
+        let result = contract.transfer_from(accounts.alice, zero_address, token_id);
+        assert_eq!(result, Err(Error::InvalidRecipient));
+    }
+
     // ── safeTransferFrom ────────────────────────────────────────────────────
     #[ink::test]
     fn conformance_safe_transfer_from_owner() {
@@ -1645,4 +1656,3 @@ mod operator_management_tests {
         assert!(!contract.is_approved_for_all(accounts.alice, accounts.bob));
     }
 }
-
