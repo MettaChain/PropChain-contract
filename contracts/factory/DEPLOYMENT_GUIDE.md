@@ -107,9 +107,11 @@ let template = PropertyTokenTemplate {
     symbol: "LAT".to_string(),
 };
 
+let salt = generate_deterministic_salt(&template.encode_params());
+
 let config = DeploymentConfig {
     contract_type: ContractType::PropertyToken,
-    salt: [1u8; 32],
+    salt,
     init_params: template.encode_params(),
 };
 
