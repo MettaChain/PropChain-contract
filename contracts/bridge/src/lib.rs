@@ -2095,4 +2095,286 @@ mod bridge {
         }
         flags
     }
+
+    // ── TASK 2: Emergency pause unit tests ──────────────────────────────
+    #[cfg(test)]
+    mod pause_tests {
+        use super::*;
+        use ink::env::{test, DefaultEnvironment};
+
+        fn setup_bridge() -> PropertyBridge {
+            // alice (default caller) becomes admin + first operator + first validator.
+            PropertyBridge::new(vec![1, 2, 3], 2, 5, 100, 500_000)
+        }
+
+        fn metadata() -> PropertyMetadata {
+            PropertyMetadata {
+                location: String::from("Pause Test"),
+                size: 100,
+                legal_description: String::from("P"),
+                valuation: 10_000,
+                documents_url: String::from("ipfs://pause"),
+            }
+        }
+
+        #[ink::test]
+        fn admin_can_emergency_pause_and_unpause_with_audit() {
+            let mut bridge = setup_bridge();
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+            bridge
+                .emergency_pause(
+                    PauseFlags::all(),
+                    PauseReason::ManualAdmin,
+                    Some(String::from("drill")),
+                )
+                .expect("admin can pause");
+
+            let flags = bridge.get_pause_flags();
+            assert!(flags.all_operations && flags.new_requests && flags.signing);
+            assert!(bridge.is_operation_paused(BridgeOperation::NewRequest));
+            assert!(bridge.is_operation_paused(BridgeOperation::Signing));
+            assert!(bridge.is_operation_paused(BridgeOperation::Execution));
+            assert!(bridge.is_operation_paused(BridgeOperation::CrossChainTrade));
+
+            // Audit log captured exactly one pause entry.
+            let audit = bridge.get_pause_audit_log();
+            assert_eq!(audit.len(), 1);
+            assert!(audit[0].paused);
+            assert_eq!(audit[0].reason, PauseReason::ManualAdmin);
+
+            bridge
+                .emergency_unpause(PauseFlags::all())
+                .expect("admin can unpause");
+            assert!(!bridge.is_operation_paused(BridgeOperation::NewRequest));
+
+            let audit = bridge.get_pause_audit_log();
+            assert_eq!(audit.len(), 2);
+            assert!(!audit[1].paused);
+        }
+
+        #[ink::test]
+        fn guardian_can_pause_but_not_unpause() {
+            let mut bridge = setup_bridge();
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+            // Admin promotes Bob to guardian.
+            bridge.add_guardian(accounts.bob).expect("admin adds guardian");
+            assert!(bridge.is_guardian(accounts.bob));
+
+            // Guardian Bob can trigger an emergency pause.
+            test::set_caller::<DefaultEnvironment>(accounts.bob);
+            bridge
+                .emergency_pause(
+                    PauseFlags::all(),
+                    PauseReason::GuardianTrigger,
+                    Some(String::from("hot wallet drained")),
+                )
+                .expect("guardian can pause");
+            assert!(bridge.get_pause_flags().all_operations);
+
+            // But Bob cannot unpause — only admin may.
+            let err = bridge
+                .emergency_unpause(PauseFlags::all())
+                .unwrap_err();
+            assert_eq!(err, Error::Unauthorized);
+        }
+
+        #[ink::test]
+        fn non_guardian_non_admin_cannot_pause() {
+            let mut bridge = setup_bridge();
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+
+            test::set_caller::<DefaultEnvironment>(accounts.charlie);
+            let err = bridge
+                .emergency_pause(PauseFlags::all(), PauseReason::ManualAdmin, None)
+                .unwrap_err();
+            assert_eq!(err, Error::NotGuardian);
+        }
+
+        #[ink::test]
+        fn signing_pause_blocks_only_signing() {
+            let mut bridge = setup_bridge();
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+            bridge.add_validator(accounts.alice).expect("add validator");
+
+            // Pause only signing.
+            let mut flags = PauseFlags::none();
+            flags.signing = true;
+            bridge
+                .emergency_pause(flags, PauseReason::Custom, None)
+                .expect("pause signing");
+
+            // New requests still allowed.
+            let req = bridge
+                .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata())
+                .expect("new requests not paused");
+
+            // Signing blocked.
+            let err = bridge.sign_bridge_request(req, true).unwrap_err();
+            assert_eq!(err, Error::OperationPaused);
+        }
+
+        #[ink::test]
+        fn cross_chain_trade_pause_blocks_register_only() {
+            let mut bridge = setup_bridge();
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+            let mut flags = PauseFlags::none();
+            flags.cross_chain_trades = true;
+            bridge
+                .emergency_pause(flags, PauseReason::Custom, None)
+                .expect("pause cct");
+
+            // Cross-chain trade registration must fail.
+            let err = bridge
+                .register_cross_chain_trade(1, None, 2, accounts.bob, 1_000, 950)
+                .unwrap_err();
+            assert_eq!(err, Error::OperationPaused);
+
+            // But initiating a bridge request still works.
+            bridge
+                .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata())
+                .expect("new requests still allowed");
+        }
+
+        #[ink::test]
+        fn auto_pause_on_request_burst() {
+            let mut bridge = setup_bridge();
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+            // Tighten the threshold so we can trigger it cheaply.
+            let mut cfg = bridge.get_suspicious_config();
+            cfg.max_requests_per_block_per_account = 2;
+            bridge
+                .update_suspicious_config(cfg)
+                .expect("admin updates suspicious config");
+
+            // First request: ok.
+            bridge
+                .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata())
+                .expect("first request");
+            // Second request in same block: hits threshold → auto-pause + reject.
+            let err = bridge
+                .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata())
+                .unwrap_err();
+            assert_eq!(err, Error::OperationPaused);
+            assert!(bridge.get_pause_flags().new_requests);
+        }
+
+        #[ink::test]
+        fn auto_pause_on_chain_volume_spike() {
+            let mut bridge = setup_bridge();
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+            let mut cfg = bridge.get_suspicious_config();
+            cfg.max_volume_per_hour_per_chain = 5_000;
+            bridge
+                .update_suspicious_config(cfg)
+                .expect("admin updates suspicious config");
+
+            // Single trade exceeding the per-hour cap auto-pauses.
+            let err = bridge
+                .register_cross_chain_trade(1, None, 2, accounts.bob, 10_000, 9_000)
+                .unwrap_err();
+            assert_eq!(err, Error::OperationPaused);
+            assert!(bridge.get_pause_flags().cross_chain_trades);
+        }
+
+        #[ink::test]
+        fn auto_pause_on_failed_signature_surge() {
+            let mut bridge = setup_bridge();
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+            bridge.add_validator(accounts.alice).expect("add v0");
+            bridge.add_validator(accounts.bob).expect("add v1");
+            bridge.add_validator(accounts.charlie).expect("add v2");
+
+            let mut cfg = bridge.get_suspicious_config();
+            cfg.max_failed_signatures_per_hour = 2;
+            bridge
+                .update_suspicious_config(cfg)
+                .expect("admin updates suspicious config");
+
+            // Create three independent requests so each rejection is fresh.
+            let r1 = bridge
+                .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata())
+                .expect("r1");
+            let r2 = bridge
+                .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata())
+                .expect("r2");
+
+            // Two negative votes from different validators trip the surge.
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+            bridge.sign_bridge_request(r1, false).expect("reject 1");
+            test::set_caller::<DefaultEnvironment>(accounts.bob);
+            bridge.sign_bridge_request(r2, false).expect("reject 2");
+
+            assert!(bridge.get_pause_flags().signing);
+            // Subsequent signing attempts are blocked.
+            test::set_caller::<DefaultEnvironment>(accounts.charlie);
+            let err = bridge.sign_bridge_request(r1, true).unwrap_err();
+            assert_eq!(err, Error::OperationPaused);
+        }
+
+        #[ink::test]
+        fn report_suspicious_activity_emits_and_can_pause() {
+            let mut bridge = setup_bridge();
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+            bridge.add_guardian(accounts.bob).expect("add guardian");
+
+            test::set_caller::<DefaultEnvironment>(accounts.bob);
+            bridge
+                .report_suspicious_activity(
+                    PauseReason::Custom,
+                    accounts.charlie,
+                    None,
+                    42,
+                    1,
+                    Some(String::from("manual signal")),
+                )
+                .expect("guardian reports & pauses");
+            assert!(bridge.get_pause_flags().all_operations);
+        }
+
+        #[ink::test]
+        fn legacy_set_emergency_pause_integrates_with_audit() {
+            let mut bridge = setup_bridge();
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+            bridge.set_emergency_pause(true).expect("legacy pause");
+            assert!(bridge.get_pause_flags().all_operations);
+            assert_eq!(bridge.get_pause_audit_log().len(), 1);
+
+            bridge.set_emergency_pause(false).expect("legacy unpause");
+            assert!(!bridge.get_pause_flags().all_operations);
+            assert_eq!(bridge.get_pause_audit_log().len(), 2);
+        }
+
+        #[ink::test]
+        fn audit_log_is_bounded() {
+            let mut bridge = setup_bridge();
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+            // Toggle pause/unpause many times to overflow the audit log cap.
+            for _ in 0..(PAUSE_AUDIT_LOG_LIMIT + 5) {
+                bridge
+                    .emergency_pause(PauseFlags::all(), PauseReason::ManualAdmin, None)
+                    .expect("pause");
+                bridge
+                    .emergency_unpause(PauseFlags::all())
+                    .expect("unpause");
+            }
+            assert_eq!(bridge.get_pause_audit_log().len(), PAUSE_AUDIT_LOG_LIMIT);
+        }
+    }
 }
