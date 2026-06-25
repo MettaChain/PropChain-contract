@@ -714,6 +714,7 @@ mod propchain_insurance {
                     claim_free_years: 0,
                     has_safety_features: false,
                     loyalty_years: 0,
+                    recent_claims_count: 0,
                 },
             )
         }

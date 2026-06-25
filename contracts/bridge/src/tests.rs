@@ -38,6 +38,341 @@ mod tests {
     }
 
     #[ink::test]
+    fn test_emergency_multi_sig_pause_bridge() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        // Add emergency signers
+        bridge
+            .add_emergency_signer(accounts.bob)
+            .expect("add emergency signer");
+        bridge
+            .add_emergency_signer(accounts.charlie)
+            .expect("add emergency signer");
+
+        // Set threshold to 2
+        bridge
+            .set_emergency_threshold(2)
+            .expect("set emergency threshold");
+
+        // Propose pause bridge as bob
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let pause_flags = propchain_traits::PauseFlags {
+            all_operations: true,
+            new_requests: true,
+            signing: false,
+            execution: false,
+            cross_chain_trades: false,
+        };
+        let request_id = bridge
+            .propose_pause_bridge(
+                pause_flags,
+                propchain_traits::PauseReason::ManualAdmin,
+                Some(String::from("Test pause")),
+                Some(100),
+            )
+            .expect("propose pause bridge");
+
+        // Sign as charlie
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        bridge
+            .sign_emergency_request(request_id)
+            .expect("sign emergency request");
+
+        // Execute as bob
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .execute_emergency_request(request_id)
+            .expect("execute emergency request");
+
+        // Verify bridge is paused
+        let flags = bridge.get_pause_flags();
+        assert!(flags.all_operations);
+        assert!(flags.new_requests);
+    }
+
+    #[ink::test]
+    fn test_emergency_multi_sig_freeze_asset() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        // Add emergency signers
+        bridge
+            .add_emergency_signer(accounts.bob)
+            .expect("add emergency signer");
+        bridge
+            .add_emergency_signer(accounts.charlie)
+            .expect("add emergency signer");
+
+        // Set threshold to 2
+        bridge
+            .set_emergency_threshold(2)
+            .expect("set emergency threshold");
+
+        // Propose freeze asset as bob
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let asset_address = AccountId::from([1u8; 32]);
+        let request_id = bridge
+            .propose_freeze_asset(
+                asset_address,
+                String::from("Suspicious activity detected"),
+                true,
+                Some(100),
+            )
+            .expect("propose freeze asset");
+
+        // Sign as charlie
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        bridge
+            .sign_emergency_request(request_id)
+            .expect("sign emergency request");
+
+        // Execute as bob
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .execute_emergency_request(request_id)
+            .expect("execute emergency request");
+
+        // Verify asset is frozen
+        assert!(bridge.is_asset_frozen(asset_address));
+
+        // Unfreeze as admin
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge
+            .unfreeze_asset(asset_address)
+            .expect("unfreeze asset");
+
+        // Verify asset is not frozen
+        assert!(!bridge.is_asset_frozen(asset_address));
+    }
+
+    #[ink::test]
+    fn test_asset_freeze_blocks_bridge_initiation() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        // Add emergency signers and set threshold
+        bridge
+            .add_emergency_signer(accounts.bob)
+            .expect("add emergency signer");
+        bridge
+            .add_emergency_signer(accounts.charlie)
+            .expect("add emergency signer");
+        bridge
+            .set_emergency_threshold(2)
+            .expect("set emergency threshold");
+
+        // Freeze asset token_id = 1
+        let token_id = 1;
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let request_id = bridge
+            .propose_freeze_asset(
+                AccountId::from([1u8; 32]), // Using token_id as account for simplicity
+                String::from("Test freeze"),
+                true,
+                Some(100),
+            )
+            .expect("propose freeze asset");
+
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        bridge
+            .sign_emergency_request(request_id)
+            .expect("sign emergency request");
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .execute_emergency_request(request_id)
+            .expect("execute emergency request");
+
+        // Try to initiate bridge with frozen asset - should fail
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let metadata = PropertyMetadata {
+            location: String::from("Test Property"),
+            size: 1000,
+            legal_description: String::from("Test"),
+            valuation: 100000,
+            documents_url: String::from("ipfs://test"),
+        };
+
+        let result = bridge.initiate_bridge_multisig(
+            AccountId::from([1u8; 32]), // Frozen asset
+            2,
+            accounts.bob,
+            2,
+            Some(50),
+            metadata,
+        );
+        assert!(result.is_err());
+    }
+
+    #[ink::test]
+    fn test_batch_verification_configuration() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        // Get default configuration
+        let (window_size, window_duration) = bridge.get_batch_config();
+        assert_eq!(window_size, 10);
+        assert_eq!(window_duration, 300);
+
+        // Update configuration
+        bridge
+            .configure_batch_verification(20, 600)
+            .expect("configure batch verification");
+
+        let (new_window_size, new_window_duration) = bridge.get_batch_config();
+        assert_eq!(new_window_size, 20);
+        assert_eq!(new_window_duration, 600);
+    }
+
+    #[ink::test]
+    fn test_batch_verification_window_creation() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        // Add validator and operator for bridge execution
+        bridge
+            .add_validator(accounts.alice)
+            .expect("add validator");
+        bridge
+            .add_validator(accounts.bob)
+            .expect("add validator");
+
+        // Execute a bridge transaction to create a batch window
+        let metadata = PropertyMetadata {
+            location: String::from("Test Property"),
+            size: 1000,
+            legal_description: String::from("Test"),
+            valuation: 100000,
+            documents_url: String::from("ipfs://test"),
+        };
+
+        let request_id = bridge
+            .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata)
+            .expect("initiate bridge");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("sign");
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("sign");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge
+            .execute_bridge(request_id)
+            .expect("execute bridge");
+
+        // Get transaction hash from bridge history
+        let history = bridge.get_bridge_history(accounts.alice);
+        assert!(!history.is_empty());
+        let transaction_hash = history[0].transaction_hash;
+
+        // Check that transaction is in a batch
+        let batch_info = bridge.get_transaction_batch(transaction_hash);
+        assert!(batch_info.is_some());
+        let (source_chain, window_id) = batch_info.unwrap();
+        assert_eq!(source_chain, 1); // Default source chain
+    }
+
+    #[ink::test]
+    fn test_batch_merkle_root_submission_and_verification() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        // Add validator and operator
+        bridge
+            .add_validator(accounts.alice)
+            .expect("add validator");
+        bridge
+            .add_validator(accounts.bob)
+            .expect("add validator");
+
+        // Execute a bridge transaction
+        let metadata = PropertyMetadata {
+            location: String::from("Test Property"),
+            size: 1000,
+            legal_description: String::from("Test"),
+            valuation: 100000,
+            documents_url: String::from("ipfs://test"),
+        };
+
+        let request_id = bridge
+            .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata)
+            .expect("initiate bridge");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("sign");
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("sign");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge
+            .execute_bridge(request_id)
+            .expect("execute bridge");
+
+        // Get transaction hash and batch info
+        let history = bridge.get_bridge_history(accounts.alice);
+        let transaction_hash = history[0].transaction_hash;
+        let batch_info = bridge.get_transaction_batch(transaction_hash).unwrap();
+
+        // Submit batch Merkle root
+        let merkle_root = Hash::from([1u8; 32]);
+        bridge
+            .submit_batch_merkle_root(batch_info.0, batch_info.1, merkle_root)
+            .expect("submit batch merkle root");
+
+        // Verify batch Merkle root
+        bridge
+            .verify_batch_merkle_root(batch_info.0, batch_info.1, merkle_root)
+            .expect("verify batch merkle root");
+
+        // Check that transaction is now verified
+        assert!(bridge.verify_bridge_transaction(transaction_hash, batch_info.0));
+
+        // Get batch window信息
+        let window_info = bridge.get_batch_window_info(batch_info.0, batch_info.1);
+        assert!(window_info.is_some());
+        let (stored_root, transactions) = window_info.unwrap();
+        assert_eq!(stored_root, merkle_root);
+        assert!(transactions.contains(&transaction_hash));
+    }
+
+    #[ink::test]
+    fn test_batch_verification_unauthorized() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+
+        // Try to configure batch verification as non-admin
+        let result = bridge.configure_batch_verification(20, 600);
+        assert!(result.is_err());
+
+        // Try to submit batch Merkle root as non-admin/non-operator
+        let merkle_root = Hash::from([1u8; 32]);
+        let result = bridge.submit_batch_merkle_root(1, 1, merkle_root);
+        assert!(result.is_err());
+
+        // Try to verify batch Merkle root as non-admin/non-operator
+        let result = bridge.verify_batch_merkle_root(1, 1, merkle_root);
+        assert!(result.is_err());
+    }
+
+    #[ink::test]
     fn test_initiate_multi_hop_bridge_two_hops() {
         let mut bridge = setup_bridge();
         let accounts = test::default_accounts::<DefaultEnvironment>();
