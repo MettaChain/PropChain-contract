@@ -215,9 +215,11 @@ pub mod propchain_identity {
         pub guardians: Vec<AccountId>, // Trusted guardians for recovery
         pub threshold: u8,             // Number of guardians required for recovery
         pub recovery_period: u64,      // Recovery period in blocks
+        pub timelock_period: u64,      // Timelock period in blocks
         pub last_recovery_attempt: Option<u64>,
         pub is_recovery_active: bool,
         pub recovery_approvals: Vec<AccountId>,
+        pub recovery_completion_timestamp: Option<u64>,
     }
 
     /// Privacy settings for identity verification
