@@ -426,6 +426,7 @@ pub mod propchain_identity {
         Approved,
         Rejected,
         Expired,
+        Revoked,
     }
 
     /// Main identity registry contract
