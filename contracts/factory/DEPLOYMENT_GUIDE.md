@@ -54,9 +54,11 @@ let template = PropertyTokenTemplate {
     symbol: "PROP".to_string(),
 };
 
+let salt = generate_deterministic_salt(&template.encode_params());
+
 let config = DeploymentConfig {
     contract_type: ContractType::PropertyToken,
-    salt: generate_salt(),
+    salt,
     init_params: template.encode_params(),
 };
 
@@ -146,20 +148,21 @@ let config = DeploymentConfig {
 let oracle_address = factory.deploy_contract(config, "1.0.0".to_string())?;
 ```
 
-## Salt Generation
+## Deterministic Deployments with CREATE2
 
-Generate unique salts to avoid address collisions:
+The factory now supports CREATE2-style deterministic deployments. This means that the same contract configuration will always be deployed to the same address, regardless of the network or the deployer. This is achieved by using a salt that is based on the contract's initialization parameters.
+
+### Salt Generation for Deterministic Addresses
+
+To generate a deterministic address, you should use a salt that is derived from the contract's initialization parameters. This ensures that any change in the configuration will result in a different address.
 
 ```rust
 use ink::env::hash::{Blake2x256, HashOutput};
 
-fn generate_salt() -> [u8; 32] {
+fn generate_deterministic_salt(params: &[u8]) -> [u8; 32] {
     let mut output = <Blake2x256 as HashOutput>::Type::default();
     ink::env::hash_bytes::<Blake2x256>(
-        &[
-            &ink::env::block_timestamp().to_le_bytes()[..],
-            &ink::env::caller().as_ref()[..],
-        ].concat(),
+        params,
         &mut output,
     );
     output
