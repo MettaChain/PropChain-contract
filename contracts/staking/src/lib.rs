@@ -256,6 +256,7 @@ mod staking {
         governance_power: Mapping<AccountId, u128>,
         staker_list: Vec<AccountId>,
         reentrancy_guard: propchain_traits::ReentrancyGuard,
+        slashing_coordinator: Option<AccountId>,
         // ----- Parameter governance -----
         proposal_counter: u64,
         active_proposal_count: u32,
