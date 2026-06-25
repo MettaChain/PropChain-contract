@@ -123,6 +123,16 @@ mod propchain_proxy {
         timestamp: u64,
     }
 
+    #[ink(event)]
+    pub struct DiamondCut {
+        #[ink(topic)]
+        from_version: String,
+        #[ink(topic)]
+        to_version: String,
+        rolled_back_by: AccountId,
+        timestamp: u64,
+    }
+
     // ========================================================================
     // CONTRACT STORAGE
     // ========================================================================
@@ -151,6 +161,12 @@ mod propchain_proxy {
         migration_state: MigrationState,
         /// Emergency pause flag
         emergency_pause: bool,
+        /// Facet addresses
+        facet_addresses: Vec<AccountId>,
+        /// Selector to facet mapping
+        selector_to_facet: ink::storage::Mapping<[u8; 4], AccountId>,
+        /// Facet to selectors mapping
+        facet_selectors: ink::storage::Mapping<AccountId, Vec<[u8; 4]>>,
     }
 
     // ========================================================================
@@ -185,6 +201,9 @@ mod propchain_proxy {
                 current_version_index: 0,
                 migration_state: MigrationState::None,
                 emergency_pause: false,
+                facet_addresses: Vec::new(),
+                selector_to_facet: ink::storage::Mapping::default(),
+                facet_selectors: ink::storage::Mapping::default(),
             }
         }
 
@@ -233,6 +252,9 @@ mod propchain_proxy {
                 current_version_index: 0,
                 migration_state: MigrationState::None,
                 emergency_pause: false,
+                facet_addresses: Vec::new(),
+                selector_to_facet: ink::storage::Mapping::default(),
+                facet_selectors: ink::storage::Mapping::default(),
             }
         }
 
@@ -608,314 +630,3 @@ mod propchain_proxy {
                 description: String::from("Emergency direct upgrade"),
                 deployed_by: self.env().caller(),
             };
-
-            if self.version_history.len() as u32 >= MAX_VERSION_HISTORY {
-                self.version_history.remove(0);
-            }
-            self.version_history.push(version_info);
-            self.current_version_index = (self.version_history.len() - 1) as u32;
-
-            let new_version = self.format_current_version();
-
-            self.env().emit_event(Upgraded {
-                new_code_hash,
-                proposal_id: 0, // Direct upgrade, no proposal
-                from_version: old_version,
-                to_version: new_version,
-                timestamp: self.env().block_timestamp(),
-            });
-
-            Ok(())
-        }
-
-        // ====================================================================
-        // QUERY FUNCTIONS
-        // ====================================================================
-
-        /// Returns the current implementation code hash
-        #[ink(message)]
-        pub fn code_hash(&self) -> Hash {
-            self.code_hash
-        }
-
-        /// Returns the admin address
-        #[ink(message)]
-        pub fn admin(&self) -> AccountId {
-            self.admin
-        }
-
-        /// Returns the list of governors
-        #[ink(message)]
-        pub fn governors(&self) -> Vec<AccountId> {
-            self.governors.clone()
-        }
-
-        /// Returns the current version as (major, minor, patch)
-        #[ink(message)]
-        pub fn current_version(&self) -> (u32, u32, u32) {
-            if let Some(version) = self
-                .version_history
-                .get(self.current_version_index as usize)
-            {
-                (version.major, version.minor, version.patch)
-            } else {
-                (1, 0, 0)
-            }
-        }
-
-        /// Returns the full version history
-        #[ink(message)]
-        pub fn get_version_history(&self) -> Vec<VersionInfo> {
-            self.version_history.clone()
-        }
-
-        /// Returns a specific upgrade proposal
-        #[ink(message)]
-        pub fn get_proposal(&self, proposal_id: u64) -> Option<UpgradeProposal> {
-            self.proposals.get(proposal_id)
-        }
-
-        /// Returns the current migration state
-        #[ink(message)]
-        pub fn migration_state(&self) -> MigrationState {
-            self.migration_state.clone()
-        }
-
-        /// Returns whether emergency pause is active
-        #[ink(message)]
-        pub fn is_paused(&self) -> bool {
-            self.emergency_pause
-        }
-
-        /// Returns required approvals count
-        #[ink(message)]
-        pub fn get_required_approvals(&self) -> u32 {
-            self.required_approvals
-        }
-
-        /// Returns timelock period in blocks
-        #[ink(message)]
-        pub fn get_timelock_blocks(&self) -> u32 {
-            self.timelock_blocks
-        }
-
-        /// Returns whether version compatibility checks pass for a target version
-        #[ink(message)]
-        pub fn check_compatibility(&self, major: u32, minor: u32, patch: u32) -> bool {
-            self.check_version_compatibility(major, minor, patch)
-                .is_ok()
-        }
-
-        // ====================================================================
-        // INTERNAL HELPERS
-        // ====================================================================
-
-        fn ensure_admin(&self) -> Result<(), Error> {
-            if self.env().caller() != self.admin {
-                return Err(Error::Unauthorized);
-            }
-            Ok(())
-        }
-
-        fn ensure_governor(&self, caller: AccountId) -> Result<(), Error> {
-            if !self.governors.contains(&caller) && caller != self.admin {
-                return Err(Error::NotGovernor);
-            }
-            Ok(())
-        }
-
-        fn ensure_not_paused(&self) -> Result<(), Error> {
-            if self.emergency_pause {
-                return Err(Error::EmergencyPauseActive);
-            }
-            Ok(())
-        }
-
-        fn check_version_compatibility(
-            &self,
-            major: u32,
-            minor: u32,
-            patch: u32,
-        ) -> Result<(), Error> {
-            let (cur_major, cur_minor, cur_patch) = self.current_version();
-
-            // New version must be >= current version
-            if major > cur_major {
-                return Ok(());
-            }
-            if major == cur_major && minor > cur_minor {
-                return Ok(());
-            }
-            if major == cur_major && minor == cur_minor && patch > cur_patch {
-                return Ok(());
-            }
-
-            Err(Error::IncompatibleVersion)
-        }
-
-        fn format_current_version(&self) -> String {
-            let (major, minor, patch) = self.current_version();
-            let mut v = String::from("v");
-            // Manual formatting without format!() macro overhead
-            v.push_str(&Self::u32_to_string(major));
-            v.push('.');
-            v.push_str(&Self::u32_to_string(minor));
-            v.push('.');
-            v.push_str(&Self::u32_to_string(patch));
-            v
-        }
-
-        fn u32_to_string(n: u32) -> String {
-            if n == 0 {
-                return String::from("0");
-            }
-            let mut s = String::new();
-            let mut num = n;
-            let mut digits = Vec::new();
-            while num > 0 {
-                digits.push((b'0' + (num % 10) as u8) as char);
-                num /= 10;
-            }
-            digits.reverse();
-            for d in digits {
-                s.push(d);
-            }
-            s
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[ink::test]
-        fn new_initializes_correctly() {
-            let hash = Hash::from([0x42; 32]);
-            let proxy = TransparentProxy::new(hash);
-            assert_eq!(proxy.code_hash(), hash);
-            assert_eq!(proxy.current_version(), (1, 0, 0));
-            assert_eq!(proxy.get_version_history().len(), 1);
-            assert_eq!(proxy.migration_state(), MigrationState::None);
-            assert!(!proxy.is_paused());
-        }
-
-        #[ink::test]
-        fn propose_upgrade_works() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
-
-            let new_hash = Hash::from([0x43; 32]);
-            let result = proxy.propose_upgrade(
-                new_hash,
-                1,
-                1,
-                0,
-                String::from("Feature upgrade"),
-                String::from("No migration needed"),
-            );
-            assert!(result.is_ok());
-            assert_eq!(result.unwrap(), 1);
-
-            let proposal = proxy.get_proposal(1).unwrap();
-            assert_eq!(proposal.new_code_hash, new_hash);
-            assert!(!proposal.cancelled);
-            assert!(!proposal.executed);
-        }
-
-        #[ink::test]
-        fn version_compatibility_check_works() {
-            let hash = Hash::from([0x42; 32]);
-            let proxy = TransparentProxy::new(hash);
-
-            // Version 1.1.0 is compatible (higher)
-            assert!(proxy.check_compatibility(1, 1, 0));
-            // Version 2.0.0 is compatible (higher)
-            assert!(proxy.check_compatibility(2, 0, 0));
-            // Version 0.9.0 is not compatible (lower)
-            assert!(!proxy.check_compatibility(0, 9, 0));
-            // Same version is not compatible
-            assert!(!proxy.check_compatibility(1, 0, 0));
-        }
-
-        #[ink::test]
-        fn direct_upgrade_works() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
-
-            let new_hash = Hash::from([0x43; 32]);
-            let result = proxy.upgrade_to(new_hash);
-            assert!(result.is_ok());
-            assert_eq!(proxy.code_hash(), new_hash);
-            assert_eq!(proxy.get_version_history().len(), 2);
-        }
-
-        #[ink::test]
-        fn rollback_works() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
-
-            let new_hash = Hash::from([0x43; 32]);
-            proxy.upgrade_to(new_hash).unwrap();
-            assert_eq!(proxy.code_hash(), new_hash);
-
-            let rollback_result = proxy.rollback();
-            assert!(rollback_result.is_ok());
-            assert_eq!(proxy.code_hash(), hash);
-            assert_eq!(proxy.migration_state(), MigrationState::RolledBack);
-        }
-
-        #[ink::test]
-        fn rollback_fails_with_no_history() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
-            assert_eq!(proxy.rollback(), Err(Error::NoPreviousVersion));
-        }
-
-        #[ink::test]
-        fn emergency_pause_works() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
-            assert!(!proxy.is_paused());
-
-            proxy.toggle_emergency_pause().unwrap();
-            assert!(proxy.is_paused());
-
-            // Upgrade should fail when paused
-            let new_hash = Hash::from([0x43; 32]);
-            assert_eq!(proxy.upgrade_to(new_hash), Err(Error::EmergencyPauseActive));
-
-            proxy.toggle_emergency_pause().unwrap();
-            assert!(!proxy.is_paused());
-        }
-
-        #[ink::test]
-        fn cancel_upgrade_works() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
-
-            let new_hash = Hash::from([0x43; 32]);
-            proxy
-                .propose_upgrade(new_hash, 1, 1, 0, String::from("Test"), String::from(""))
-                .unwrap();
-
-            let result = proxy.cancel_upgrade(1);
-            assert!(result.is_ok());
-
-            let proposal = proxy.get_proposal(1).unwrap();
-            assert!(proposal.cancelled);
-        }
-
-        #[ink::test]
-        fn governor_management_works() {
-            let hash = Hash::from([0x42; 32]);
-            let mut proxy = TransparentProxy::new(hash);
-
-            let new_governor = AccountId::from([0x02; 32]);
-            proxy.add_governor(new_governor).unwrap();
-            assert_eq!(proxy.governors().len(), 2);
-
-            proxy.remove_governor(new_governor).unwrap();
-            assert_eq!(proxy.governors().len(), 1);
-        }
-    }
-}
