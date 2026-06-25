@@ -2413,5 +2413,107 @@ pub mod propchain_identity {
                 Err(IdentityError::Unauthorized)
             );
         }
+        /// Initiates the recovery process for an identity
+        #[ink(message)]
+        pub fn initiate_recovery(&mut self) -> Result<(), IdentityError> {
+            let caller = self.env().caller();
+            let mut identity = self.identities.get(&caller).ok_or(IdentityError::IdentityNotFound)?;
+
+            if identity.social_recovery.is_recovery_active {
+                return Err(IdentityError::RecoveryInProgress);
+            }
+
+            identity.social_recovery.is_recovery_active = true;
+            identity.social_recovery.last_recovery_attempt = Some(self.env().block_timestamp());
+            self.identities.insert(&caller, &identity);
+
+            self.env().emit_event(RecoveryInitiated {
+                account: caller,
+                initiator: caller,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Contributes to the recovery of an identity
+        #[ink(message)]
+        pub fn contribute_to_recovery(
+            &mut self,
+            account_to_recover: AccountId,
+        ) -> Result<(), IdentityError> {
+            let caller = self.env().caller();
+            let mut identity = self.identities.get(&account_to_recover).ok_or(IdentityError::IdentityNotFound)?;
+
+            if !identity.social_recovery.is_recovery_active {
+                return Err(IdentityError::RecoveryNotActive);
+            }
+
+            if !identity.social_recovery.guardians.contains(&caller) {
+                return Err(IdentityError::Unauthorized);
+            }
+
+            if identity.social_recovery.recovery_approvals.contains(&caller) {
+                return Err(IdentityError::AlreadyExists);
+            }
+
+            identity.social_recovery.recovery_approvals.push(caller);
+
+            if identity.social_recovery.recovery_approvals.len() as u8 >= identity.social_recovery.threshold {
+                identity.social_recovery.recovery_completion_timestamp = Some(self.env().block_timestamp() + identity.social_recovery.timelock_period);
+            }
+
+            self.identities.insert(&account_to_recover, &identity);
+
+            Ok(())
+        }
+
+        /// Completes the recovery of an identity
+        #[ink(message)]
+        pub fn complete_recovery(
+            &mut self,
+            old_account: AccountId,
+            new_account: AccountId,
+        ) -> Result<(), IdentityError> {
+            let mut identity = self.identities.get(&old_account).ok_or(IdentityError::IdentityNotFound)?;
+
+            if !identity.social_recovery.is_recovery_active {
+                return Err(IdentityError::RecoveryNotActive);
+            }
+
+            if identity.social_recovery.recovery_approvals.len() as u8
+                < identity.social_recovery.threshold
+            {
+                return Err(IdentityError::RecoveryThresholdNotMet);
+            }
+
+            if let Some(completion_timestamp) = identity.social_recovery.recovery_completion_timestamp {
+                if self.env().block_timestamp() < completion_timestamp {
+                    return Err(IdentityError::TimelockActive);
+                }
+            } else {
+                return Err(IdentityError::RecoveryThresholdNotMet);
+            }
+
+            // Transfer identity to new account
+            self.identities.remove(&old_account);
+            identity.account_id = new_account;
+            self.identities.insert(&new_account, &identity);
+
+            // Reset recovery state
+            let mut identity = self.identities.get(&new_account).unwrap();
+            identity.social_recovery.is_recovery_active = false;
+            identity.social_recovery.recovery_approvals.clear();
+            identity.social_recovery.recovery_completion_timestamp = None;
+            self.identities.insert(&new_account, &identity);
+
+            self.env().emit_event(RecoveryCompleted {
+                account: old_account,
+                new_account,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
     }
 }
