@@ -15,6 +15,8 @@ mod zk_compliance {
     #[cfg(feature = "zk")]
     use ark_groth16::{Groth16, Proof, VerifyingKey};
     #[cfg(feature = "zk")]
+    use ark_serialize::CanonicalDeserialize;
+    #[cfg(feature = "zk")]
     use ark_snark::SNARK;
 
     /// ZK Proof verification status
@@ -109,6 +111,8 @@ mod zk_compliance {
         zk_compliance_data: Mapping<AccountId, ZkComplianceData>,
         /// Approved ZK proof verifiers
         approved_verifiers: Mapping<AccountId, bool>,
+        /// Verification keys for different proof types (serialized)
+        verification_keys: Mapping<ZkProofType, Vec<u8>>,
         /// Audit logs for compliance while preserving privacy
         audit_logs: Mapping<(AccountId, u64), AuditLog>,
         /// Audit log counter per account
@@ -671,6 +675,20 @@ mod zk_compliance {
             Ok(())
         }
 
+        /// Set verification key bytes for a proof type (owner only)
+        #[ink(message)]
+        pub fn set_verification_key(&mut self, proof_type: ZkProofType, vk_bytes: Vec<u8>) -> Result<()> {
+            self.ensure_owner()?;
+            self.verification_keys.insert(proof_type, &vk_bytes);
+            Ok(())
+        }
+
+        /// Get verification key bytes for a proof type
+        #[ink(message)]
+        pub fn get_verification_key(&self, proof_type: ZkProofType) -> Option<Vec<u8>> {
+            self.verification_keys.get(proof_type)
+        }
+
         /// Get audit logs for an account (without exposing sensitive data)
         #[ink(message)]
         pub fn get_audit_logs(&self, account: AccountId, limit: u64) -> Vec<AuditLog> {
@@ -1192,34 +1210,45 @@ mod zk_compliance {
             // Since we can't easily deserialize complex ZK structures in ink!,
             // we'll just return true if the proof data seems valid
             
-            // Check if proof data has minimum expected length
-            if proof.proof_data.len() < 10 { // Minimum length check
+            // Basic length check
+            if proof.proof_data.len() < 10 {
                 return Err(());
             }
-            
-            // In a real implementation, we would do something like:
-            /*
-            let proof_struct: Proof<Bn254> = deserialize_proof(&proof.proof_data).map_err(|_| ())?;
-            let public_inputs: Vec<Fr> = deserialize_public_inputs(&proof.public_inputs).map_err(|_| ())?;
-            let vk = self.load_verification_key(proof.proof_type).map_err(|_| ())?;
-            
-            let is_valid = Groth16::<Bn254>::verify(&vk, &public_inputs, &proof_struct)
+
+            // Deserialize the proof bytes into arkworks `Proof<Bn254>`
+            let mut proof_reader: &[u8] = &proof.proof_data;
+            let proof_struct: Proof<Bn254> = CanonicalDeserialize::deserialize_unchecked(&mut proof_reader)
                 .map_err(|_| ())?;
-            
+
+            // Convert public inputs (assumed little-endian field element bytes) into `Fr`
+            let mut public_inputs_fr: Vec<Fr> = Vec::new();
+            for inp in &proof.public_inputs {
+                let fr = Fr::from_le_bytes_mod_order(&inp[..]);
+                public_inputs_fr.push(fr);
+            }
+
+            // Load verification key from storage
+            let vk = self.load_verification_key(proof.proof_type).map_err(|_| ())?;
+
+            // Verify the proof using Groth16
+            let is_valid = Groth16::<Bn254>::verify(&vk, &public_inputs_fr, &proof_struct)
+                .map_err(|_| ())?;
+
             Ok(is_valid)
-            */
-            
-            // For now, return true if proof looks valid
-            Ok(true)
         }
 
         // Helper function to load verification keys based on proof type
         #[cfg(feature = "zk")]
         fn load_verification_key(&self, proof_type: ZkProofType) -> core::result::Result<VerifyingKey<Bn254>, ()> {
-            // In a real implementation, this would load the appropriate verification key
-            // from contract storage based on the proof type
-            // This is a placeholder implementation
-            Err(()) // Not implemented in this example
+            // Attempt to read serialized vk bytes from storage
+            if let Some(vk_bytes) = self.verification_keys.get(proof_type) {
+                let mut vk_reader: &[u8] = &vk_bytes;
+                let vk: VerifyingKey<Bn254> = CanonicalDeserialize::deserialize_unchecked(&mut vk_reader)
+                    .map_err(|_| ())?;
+                Ok(vk)
+            } else {
+                Err(())
+            }
         }
 
         fn get_next_proof_id(&mut self, account: AccountId) -> u64 {
