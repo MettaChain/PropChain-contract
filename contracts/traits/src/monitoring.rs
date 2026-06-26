@@ -111,6 +111,7 @@ pub enum MonitoringError {
     InvalidThreshold,
     SubscriberLimitReached,
     SubscriberNotFound,
+    HealthCheckFailed,
 }
 
 impl fmt::Display for MonitoringError {
@@ -123,6 +124,7 @@ impl fmt::Display for MonitoringError {
                 write!(f, "Maximum subscriber limit reached")
             }
             MonitoringError::SubscriberNotFound => write!(f, "Subscriber not found"),
+            MonitoringError::HealthCheckFailed => write!(f, "Health check endpoint failed"),
         }
     }
 }
@@ -139,6 +141,7 @@ impl ContractError for MonitoringError {
             MonitoringError::SubscriberNotFound => {
                 monitoring_codes::MONITORING_SUBSCRIBER_NOT_FOUND
             }
+            MonitoringError::HealthCheckFailed => monitoring_codes::MONITORING_HEALTH_CHECK_FAILED,
         }
     }
 
@@ -153,6 +156,7 @@ impl ContractError for MonitoringError {
                 "Cannot add more subscribers, maximum limit reached"
             }
             MonitoringError::SubscriberNotFound => "The subscriber account is not registered",
+            MonitoringError::HealthCheckFailed => "Failed to retrieve health status from contract",
         }
     }
 
@@ -167,6 +171,7 @@ impl ContractError for MonitoringError {
             MonitoringError::InvalidThreshold => "monitoring.invalid_threshold",
             MonitoringError::SubscriberLimitReached => "monitoring.subscriber_limit_reached",
             MonitoringError::SubscriberNotFound => "monitoring.subscriber_not_found",
+            MonitoringError::HealthCheckFailed => "monitoring.health_check_failed",
         }
     }
 }
@@ -206,3 +211,32 @@ pub trait MonitoringSystem {
     #[ink(message)]
     fn get_metrics_snapshot(&self, slot: u64) -> Option<MetricsSnapshot>;
 }
+
+/// On-chain health report from a contract.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+#[cfg_attr(feature = "std", derive(TypeInfo, ink::storage::traits::StorageLayout))]
+pub struct HealthReport {
+    /// The name or identifier of the contract reporting health
+    pub contract_name: ink::prelude::string::String,
+    /// Overall health status of the contract
+    pub status: HealthStatus,
+    /// Timestamp when this report was generated
+    pub reported_at: u64,
+    /// Number of operations processed by the contract
+    pub total_operations: u64,
+    /// Number of operations that resulted in errors
+    pub error_count: u64,
+    /// Error rate in basis points (10_000 = 100%)
+    pub error_rate_bips: u32,
+    /// Whether the contract is accepting new calls
+    pub is_accepting_calls: bool,
+}
+
+/// Trait for contracts to expose health-check endpoints.
+#[ink::trait_definition]
+pub trait HealthEndpoint {
+    /// Return the current health status of this contract.
+    #[ink(message)]
+    fn health(&self) -> HealthReport;
+}
+

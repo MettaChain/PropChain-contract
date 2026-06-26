@@ -44,7 +44,37 @@ A pre-built Docker environment is available for running PropChain contract tests
 
 The test compose file is `docker-compose.test.yml`; the node image is built from `Dockerfile.test-node`.
 
+## Finding Your First Issue
+
+- [ ] **Browse Good First Issues**: Go to [GitHub Issues](https://github.com/MettaChain/PropChain-contract/issues?q=is%3Aopen+label%3A%22good+first+issue%22) and filter by the `good first issue` label.
+- [ ] **Understand Complexity Labels**: Issues are tagged `Trivial Complexity`, `Medium Complexity`, or `High Complexity`. Start with `Trivial` or `good first issue` tagged issues.
+- [ ] **Claim an Issue**: Leave a comment on the issue saying you'd like to work on it. Wait for a maintainer to assign it to you before starting.
+- [ ] **Read Related Code**: Before writing any code, read the files the issue references. Use `grep` or the code search in GitHub to find relevant functions.
+
+## Submitting Your First Pull Request
+
+- [ ] **Sync Your Fork**: Before starting, run `git pull origin main` to ensure your branch is up to date.
+- [ ] **Create a Feature Branch**: Branch naming convention is `<type>/<short-description>` (e.g., `fix/escrow-state-check`, `docs/update-faq`).
+- [ ] **Make Focused Changes**: Keep PRs small and focused on a single issue. Avoid mixing unrelated changes.
+- [ ] **Run Tests Before Pushing**: Always run `cargo test` locally. The CI will also run tests, but catching failures early saves time.
+- [ ] **Write a Clear PR Description**: Include:
+  - What the PR does
+  - Which issue it closes (use `Closes #<issue-number>`)
+  - How to test the changes
+- [ ] **Respond to Review Feedback**: Maintainers may request changes. Push new commits to the same branch—do not open a new PR.
+- [ ] **Squash Only If Asked**: Do not squash commits unless a reviewer explicitly asks you to.
+
+## Code Standards
+
+- [ ] **Rust Formatting**: Run `cargo fmt` before committing. The CI enforces `rustfmt` style.
+- [ ] **Linting**: Run `cargo clippy -- -D warnings` and resolve all warnings before submitting.
+- [ ] **Documentation**: All public functions must have `///` doc comments. Update existing docs if your change affects them.
+- [ ] **Error Codes**: If you add a new error variant with a numeric code, assign it from the correct range in `contracts/traits/src/errors.rs` and update `docs/ERROR_CODES.md`.
+- [ ] **ADRs**: For significant design decisions, add an ADR in `docs/adr/` following the template in `0001-record-architecture-decisions.md`.
+
 ## Getting Help
 
 - [ ] **Review FAQ**: Check the [Troubleshooting/FAQ](troubleshooting-faq.md) for common issues.
 - [ ] **Join the Dev Channel**: Reach out to the team on our designated discord/slack channel for support.
+- [ ] **Ask in the Issue**: If you're stuck on a specific issue, ask questions directly in the GitHub issue thread. Maintainers actively monitor open issues.
+- [ ] **Check Architecture Docs**: The `docs/adr/` directory explains *why* the system is designed the way it is—read relevant ADRs before proposing architectural changes.

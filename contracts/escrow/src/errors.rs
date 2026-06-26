@@ -57,6 +57,8 @@ impl core::fmt::Display for Error {
             Error::ApprovalRequestAlreadyExecuted => write!(f, "Large-transfer approval request already executed"),
             Error::ApprovalRequestCancelled => write!(f, "Large-transfer approval request was cancelled"),
             Error::LargeTransferApprovalRequired => write!(f, "Transfer requires multi-step approval due to large amount"),
+            Error::FeeRateTooHigh => write!(f, "Fee rate exceeds maximum allowed (1000 bps = 10%)"),
+            Error::InvalidFeeAmount => write!(f, "Fee calculation resulted in an invalid amount"),
         }
     }
 }
@@ -108,6 +110,12 @@ impl ContractError for Error {
             }
             Error::LargeTransferApprovalRequired => {
                 propchain_traits::errors::escrow_codes::LARGE_TRANSFER_APPROVAL_REQUIRED
+            }
+            Error::FeeRateTooHigh => {
+                propchain_traits::errors::escrow_codes::FEE_RATE_TOO_HIGH
+            }
+            Error::InvalidFeeAmount => {
+                propchain_traits::errors::escrow_codes::INVALID_FEE_AMOUNT
             }
         }
     }

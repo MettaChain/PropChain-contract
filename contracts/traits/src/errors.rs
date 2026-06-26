@@ -457,6 +457,7 @@ pub mod monitoring_codes {
     pub const MONITORING_INVALID_THRESHOLD: u32 = 10003;
     pub const MONITORING_SUBSCRIBER_LIMIT_REACHED: u32 = 10004;
     pub const MONITORING_SUBSCRIBER_NOT_FOUND: u32 = 10005;
+    pub const MONITORING_HEALTH_CHECK_FAILED: u32 = 10006;
 }
 
 /// EventBus error codes (11000-11999)

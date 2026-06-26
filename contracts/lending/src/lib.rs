@@ -1620,6 +1620,23 @@ mod propchain_lending {
             self.pending_admin_rotation.clone()
         }
 
+        /// Return the current health status of this contract.
+        #[ink(message)]
+        pub fn health(&self) -> propchain_traits::monitoring::HealthReport {
+            let total_operations = self.loan_count.saturating_add(self.pool_count);
+            let error_rate_bips = 0u32; // Lending contract doesn't track error rate directly
+
+            propchain_traits::monitoring::HealthReport {
+                contract_name: String::from("lending"),
+                status: propchain_traits::monitoring::HealthStatus::Healthy,
+                reported_at: self.env().block_timestamp(),
+                total_operations,
+                error_count: 0,
+                error_rate_bips,
+                is_accepting_calls: true,
+            }
+        }
+
         fn track_borrower_loan(&mut self, borrower: AccountId, loan_id: u64) {
             let mut loan_ids = self.borrower_loans.get(borrower).unwrap_or_default();
             loan_ids.push(loan_id);

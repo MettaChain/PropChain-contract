@@ -6,6 +6,10 @@ use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
 use propchain_traits::ComplianceChecker;
 use propchain_traits::*;
 
+mod jurisdiction_presets;
+mod tax_engine;
+mod tax_strategies;
+
 #[ink::contract]
 mod tax_compliance {
     use super::*;
@@ -512,17 +516,17 @@ mod tax_compliance {
         verified: bool,
     }
 
-#[ink(event)]
-pub struct ComplianceRegistrySyncRequested {
-    #[ink(topic)]
-    property_id: u64,
-    #[ink(topic)]
-    jurisdiction_code: u32,
-    reporting_period: u64,
-    outstanding_tax: Balance,
-    legal_documents_verified: bool,
-    reporting_submitted: bool,
-}
+    #[ink(event)]
+    pub struct ComplianceRegistrySyncRequested {
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        jurisdiction_code: u32,
+        reporting_period: u64,
+        outstanding_tax: Balance,
+        legal_documents_verified: bool,
+        reporting_submitted: bool,
+    }
 
 #[ink(event)]
 pub struct ComplianceCacheHit {
@@ -545,28 +549,28 @@ pub enum DeadlineAlertLevel {
     Urgent,
 }
 
-#[ink(event)]
-pub struct TaxDeadlineApproaching {
-    #[ink(topic)]
-    property_id: u64,
-    #[ink(topic)]
-    jurisdiction_code: u32,
-    reporting_period: u64,
-    due_at: Timestamp,
-    days_remaining: u16,
-    alert_level: DeadlineAlertLevel,
-}
+    #[ink(event)]
+    pub struct TaxDeadlineApproaching {
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        jurisdiction_code: u32,
+        reporting_period: u64,
+        due_at: Timestamp,
+        days_remaining: u16,
+        alert_level: DeadlineAlertLevel,
+    }
 
-#[ink(event)]
-pub struct TaxDeadlineNotification {
-    #[ink(topic)]
-    property_id: u64,
-    #[ink(topic)]
-    jurisdiction_code: u32,
-    reporting_period: u64,
-    due_at: Timestamp,
-    days_remaining: u16,
-}
+    #[ink(event)]
+    pub struct TaxDeadlineNotification {
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        jurisdiction_code: u32,
+        reporting_period: u64,
+        due_at: Timestamp,
+        days_remaining: u16,
+    }
 
     #[ink(event)]
     pub struct TaxDocumentUploaded {
@@ -762,7 +766,8 @@ pub struct TaxDeadlineNotification {
             profile: JurisdictionProfile,
         ) -> Result<()> {
             self.ensure_admin()?;
-            self.jurisdiction_profiles.insert(jurisdiction.code, &profile);
+            self.jurisdiction_profiles
+                .insert(jurisdiction.code, &profile);
             self.log_audit(
                 0,
                 jurisdiction.code,
@@ -924,7 +929,11 @@ pub struct TaxDeadlineNotification {
                 // Emit tax deadline notification if approaching
                 if let Some(days) = days_until_due(now, record.due_at) {
                     if days <= 30 {
-                        let alert_level = if days <= 7 { DeadlineAlertLevel::Urgent } else { DeadlineAlertLevel::Approaching };
+                        let alert_level = if days <= 7 {
+                            DeadlineAlertLevel::Urgent
+                        } else {
+                            DeadlineAlertLevel::Approaching
+                        };
                         self.env().emit_event(TaxDeadlineApproaching {
                             property_id,
                             jurisdiction_code: jurisdiction.code,
@@ -1150,7 +1159,11 @@ pub struct TaxDeadlineNotification {
                 if let Some(record) = record {
                     if let Some(days) = days_until_due(now, record.due_at) {
                         if days <= 30 {
-                            let alert_level = if days <= 7 { DeadlineAlertLevel::Urgent } else { DeadlineAlertLevel::Approaching };
+                            let alert_level = if days <= 7 {
+                                DeadlineAlertLevel::Urgent
+                            } else {
+                                DeadlineAlertLevel::Approaching
+                            };
                             self.env().emit_event(TaxDeadlineApproaching {
                                 property_id,
                                 jurisdiction_code: jurisdiction.code,
@@ -1245,6 +1258,7 @@ pub struct TaxDeadlineNotification {
             self.compliance_cache_ttl = ttl_ms;
             Ok(())
         }
+
 
         /// Query compliance status across multiple jurisdictions for a property.
         /// Returns a snapshot per jurisdiction with outstanding tax, reporting
@@ -1396,7 +1410,10 @@ pub struct TaxDeadlineNotification {
         }
 
         #[ink(message)]
-        pub fn get_jurisdiction_profile(&self, jurisdiction_code: u32) -> Option<JurisdictionProfile> {
+        pub fn get_jurisdiction_profile(
+            &self,
+            jurisdiction_code: u32,
+        ) -> Option<JurisdictionProfile> {
             self.jurisdiction_profiles.get(jurisdiction_code)
         }
 
@@ -1463,9 +1480,9 @@ pub struct TaxDeadlineNotification {
             let current_taxable_value = self.taxable_value(&rule, &assessment);
             let mut opportunities = Vec::new();
 
-            if let Some(record) = self
-                .tax_records
-                .get((property_id, jurisdiction.code, reporting_period))
+            if let Some(record) =
+                self.tax_records
+                    .get((property_id, jurisdiction.code, reporting_period))
             {
                 let previous_base_due = self
                     .base_tax_due(record.taxable_value, rule.rate_basis_points)
@@ -1492,10 +1509,9 @@ pub struct TaxDeadlineNotification {
 
             let exemption_threshold = assessment.assessed_value / 20;
             if assessment.exemption_override < exemption_threshold {
-                let revised_taxable_value = assessment.assessed_value.saturating_sub(
-                    rule.exemption_amount
-                        .saturating_add(exemption_threshold),
-                );
+                let revised_taxable_value = assessment
+                    .assessed_value
+                    .saturating_sub(rule.exemption_amount.saturating_add(exemption_threshold));
                 let revised_tax_due = self
                     .base_tax_due(revised_taxable_value, rule.rate_basis_points)
                     .saturating_add(rule.fixed_charge);
@@ -1514,7 +1530,8 @@ pub struct TaxDeadlineNotification {
                 }
             }
 
-            opportunities.sort_by(|left, right| right.estimated_savings.cmp(&left.estimated_savings));
+            opportunities
+                .sort_by(|left, right| right.estimated_savings.cmp(&left.estimated_savings));
             Ok(opportunities)
         }
 
@@ -1529,7 +1546,9 @@ pub struct TaxDeadlineNotification {
             let profile = self.jurisdiction_profiles.get(jurisdiction.code);
             let now = self.env().block_timestamp();
             let reporting_period = self.reporting_period(now, rule.reporting_frequency);
-            let record = self.tax_records.get((property_id, jurisdiction.code, reporting_period));
+            let record = self
+                .tax_records
+                .get((property_id, jurisdiction.code, reporting_period));
 
             Ok(calculate_timing_strategy(rule, profile, record, now))
         }
@@ -1627,7 +1646,9 @@ pub struct TaxDeadlineNotification {
                 .ok_or(Error::AssessmentNotFound)?;
             let now = self.env().block_timestamp();
             let reporting_period = self.reporting_period(now, rule.reporting_frequency);
-            let record = self.tax_records.get((property_id, jurisdiction.code, reporting_period));
+            let record = self
+                .tax_records
+                .get((property_id, jurisdiction.code, reporting_period));
 
             Ok(analyze_strategies(
                 rule,
@@ -1662,7 +1683,11 @@ pub struct TaxDeadlineNotification {
 
         /// Canonical key for a treaty: (min, max) so order of arguments doesn't matter.
         fn treaty_key(a: u32, b: u32) -> (u32, u32) {
-            if a <= b { (a, b) } else { (b, a) }
+            if a <= b {
+                (a, b)
+            } else {
+                (b, a)
+            }
         }
 
         fn get_active_rule(&self, jurisdiction_code: u32) -> Result<TaxRule> {
@@ -1694,9 +1719,10 @@ pub struct TaxDeadlineNotification {
         }
 
         fn taxable_value(&self, rule: &TaxRule, assessment: &PropertyAssessment) -> Balance {
-            assessment
-                .assessed_value
-                .saturating_sub(rule.exemption_amount.saturating_add(assessment.exemption_override))
+            assessment.assessed_value.saturating_sub(
+                rule.exemption_amount
+                    .saturating_add(assessment.exemption_override),
+            )
         }
 
         fn base_tax_due(&self, taxable_value: Balance, rate_basis_points: u32) -> Balance {
@@ -2218,7 +2244,9 @@ pub struct TaxDeadlineNotification {
                 .set_property_assessment(7, jurisdiction(), owner, 200_000, 5_000)
                 .expect("assessment");
 
-            let record = contract.calculate_tax(7, jurisdiction(), None).expect("tax");
+            let record = contract
+                .calculate_tax(7, jurisdiction(), None)
+                .expect("tax");
             assert_eq!(record.taxable_value, 185_000);
             assert_eq!(record.tax_due, 5_625);
             assert_eq!(record.status, TaxStatus::Assessed);
@@ -2255,7 +2283,10 @@ pub struct TaxDeadlineNotification {
 
             assert!(reassessment.estimated_savings > 0);
             assert!(reassessment.current_tax_due >= reassessment.revised_tax_due);
-            assert_eq!(reassessment.reporting_period, initial_record.reporting_period);
+            assert_eq!(
+                reassessment.reporting_period,
+                initial_record.reporting_period
+            );
         }
 
         #[ink::test]
@@ -2270,7 +2301,9 @@ pub struct TaxDeadlineNotification {
                 .set_property_assessment(8, jurisdiction(), owner, 120_000, 0)
                 .expect("assessment");
 
-            let record = contract.calculate_tax(8, jurisdiction(), None).expect("tax");
+            let record = contract
+                .calculate_tax(8, jurisdiction(), None)
+                .expect("tax");
             let initial = contract
                 .check_compliance(8, jurisdiction())
                 .expect("compliance");
@@ -2313,7 +2346,9 @@ pub struct TaxDeadlineNotification {
             contract
                 .set_property_assessment(9, jurisdiction(), owner, 100_000, 0)
                 .expect("assessment");
-            let record = contract.calculate_tax(9, jurisdiction(), None).expect("tax");
+            let record = contract
+                .calculate_tax(9, jurisdiction(), None)
+                .expect("tax");
             contract
                 .record_tax_payment(
                     9,
@@ -2423,10 +2458,7 @@ pub struct TaxDeadlineNotification {
             assert_eq!(treaty.reduction_basis_points, 2000);
             assert!(treaty.active);
             // Canonical key: same result regardless of argument order
-            assert_eq!(
-                contract.get_tax_treaty(2001, 1001),
-                Some(treaty)
-            );
+            assert_eq!(contract.get_tax_treaty(2001, 1001), Some(treaty));
         }
 
         #[ink::test]
@@ -2434,7 +2466,9 @@ pub struct TaxDeadlineNotification {
             let mut contract = TaxComplianceModule::new(None);
             let owner = AccountId::from([0x10; 32]);
 
-            contract.configure_tax_rule(jurisdiction(), rule()).expect("rule");
+            contract
+                .configure_tax_rule(jurisdiction(), rule())
+                .expect("rule");
             contract
                 .set_property_assessment(20, jurisdiction(), owner, 200_000, 5_000)
                 .expect("assessment");
@@ -2446,7 +2480,12 @@ pub struct TaxDeadlineNotification {
 
             // Set a 20 % reduction treaty
             contract
-                .set_tax_treaty(jurisdiction().code, residence_jurisdiction().code, 2000, true)
+                .set_tax_treaty(
+                    jurisdiction().code,
+                    residence_jurisdiction().code,
+                    2000,
+                    true,
+                )
                 .expect("treaty");
 
             let record_with_treaty = contract
@@ -2454,10 +2493,7 @@ pub struct TaxDeadlineNotification {
                 .expect("tax with treaty");
 
             // tax_due should be 20 % less
-            let expected = record_no_treaty
-                .tax_due
-                .saturating_mul(8000)
-                / 10_000;
+            let expected = record_no_treaty.tax_due.saturating_mul(8000) / 10_000;
             assert_eq!(record_with_treaty.tax_due, expected);
             assert!(record_with_treaty.tax_due < record_no_treaty.tax_due);
         }
@@ -2467,14 +2503,21 @@ pub struct TaxDeadlineNotification {
             let mut contract = TaxComplianceModule::new(None);
             let owner = AccountId::from([0x11; 32]);
 
-            contract.configure_tax_rule(jurisdiction(), rule()).expect("rule");
+            contract
+                .configure_tax_rule(jurisdiction(), rule())
+                .expect("rule");
             contract
                 .set_property_assessment(21, jurisdiction(), owner, 200_000, 0)
                 .expect("assessment");
 
             // Inactive treaty
             contract
-                .set_tax_treaty(jurisdiction().code, residence_jurisdiction().code, 3000, false)
+                .set_tax_treaty(
+                    jurisdiction().code,
+                    residence_jurisdiction().code,
+                    3000,
+                    false,
+                )
                 .expect("treaty");
 
             let record_no_treaty = contract
@@ -2568,6 +2611,7 @@ pub struct TaxDeadlineNotification {
                 .expect("force refresh");
             assert_eq!(refreshed.property_id, 32);
         }
+
 
         // ── Multi-jurisdiction compliance (Issue #529) ──────────────────────
 

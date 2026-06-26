@@ -2719,4 +2719,8 @@ mod dex {
     // Include unit tests
     #[cfg(test)]
     include!("tests.rs");
+
+    // Include property-based fuzz tests (Issue #480)
+    #[cfg(test)]
+    include!("fuzz_tests.rs");
 }

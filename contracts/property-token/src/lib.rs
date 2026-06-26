@@ -826,5 +826,31 @@ pub mod property_token {
 
             Ok(token_id)
         }
+
+        /// Return the current health status of this contract.
+        #[ink(message)]
+        pub fn health(&self) -> HealthReport {
+            let error_rate_bips = if self.total_supply > 0 {
+                ((self.error_log_counter as u128 * 10_000) / (self.total_supply as u128)) as u32
+            } else {
+                0
+            };
+
+            HealthReport {
+                contract_name: String::from("property-token"),
+                status: if error_rate_bips < 100 {
+                    HealthStatus::Healthy
+                } else if error_rate_bips < 500 {
+                    HealthStatus::Degraded
+                } else {
+                    HealthStatus::Critical
+                },
+                reported_at: self.env().block_timestamp(),
+                total_operations: self.token_counter,
+                error_count: self.error_log_counter,
+                error_rate_bips,
+                is_accepting_calls: true,
+            }
+        }
     }
 }

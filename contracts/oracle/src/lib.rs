@@ -15,6 +15,7 @@ use propchain_traits::*;
 #[ink::contract]
 mod propchain_oracle {
     use super::*;
+    include!("types.rs");
     use ink::prelude::{
         collections::BTreeSet,
         string::{String, ToString},
@@ -22,8 +23,15 @@ mod propchain_oracle {
     };
 
     /// Property Valuation Oracle storage
-    #[ink(storage)]
-    pub struct PropertyValuationOracle {
+    pub enum AggregationMode {
+    SimpleMedian,
+    WeightedMedian,
+    TrimmedMean,
+}
+
+#[ink(storage)]
+pub struct PropertyValuationOracle {
+    aggregation_mode: AggregationMode,
         /// Admin account
         admin: AccountId,
         access_control: AccessControl,
@@ -168,12 +176,30 @@ mod propchain_oracle {
         /// Counter for source management proposal ids
         source_proposal_counter: u64,
 
+        // ── Data History Snapshots (Issue #249) ──────────────────────────────
+        /// Snapshots of aggregated oracle data points for trend analysis.
+        oracle_snapshots: Mapping<u64, Vec<OracleDataSnapshot>>,
+        /// Historical source submissions per source identifier.
+        source_history: Mapping<String, Vec<SourceHistoryEntry>>,
+        /// Whether history tracking is enabled.
+        history_tracking_enabled: bool,
+        /// Retention period for history data in milliseconds.
+        history_retention_ms: u64,
+
         // ── Batched Aggregation Optimization ───────────────────────────────────
         /// When true, use batched price collection to reduce gas costs
         batch_aggregation_enabled: bool,
         /// Packed source weights: each u64 contains two u32 weights (weight << 32 | weight2)
         /// This reduces storage reads during aggregation
         packed_source_weights: Vec<u64>,
+
+        // ── Median Price Cache (Issue #XXX) ───────────────────────────────────
+        /// Cached median prices: (asset_id, source_class) -> (price, timestamp)
+        cached_median_prices: Mapping<(u64, String), (u128, u64)>,
+        /// Per-asset, per-source-class TTL for the cache (in seconds)
+        cache_ttls: Mapping<(u64, String), u64>,
+
+
     }
 
     /// A pending multi-sig proposal for a critical oracle operation.
@@ -430,7 +456,26 @@ mod propchain_oracle {
         source_id: String,
     }
 
-    include!("types.rs");
+    /// Emitted when a history snapshot is recorded for a property.
+    #[ink(event)]
+    pub struct HistorySnapshotRecorded {
+        #[ink(topic)]
+        property_id: u64,
+        source_id: String,
+        valuation: u128,
+        timestamp: u64,
+        confidence_score: u32,
+    }
+
+    /// Emitted when source history is updated.
+    #[ink(event)]
+    pub struct SourceHistoryUpdated {
+        source_id: String,
+        #[ink(topic)]
+        property_id: u64,
+        success: bool,
+        timestamp: u64,
+    }
 
     impl PropertyValuationOracle {
         /// Constructor for the Property Valuation Oracle
@@ -514,9 +559,19 @@ mod propchain_oracle {
                 // Multi-sig source management (Issue #495)
                 source_proposals: Mapping::default(),
                 source_proposal_counter: 0,
+                // Data history snapshots (Issue #249)
+                oracle_snapshots: Mapping::default(),
+                source_history: Mapping::default(),
+                history_tracking_enabled: false,
+                history_retention_ms: 2592000000, // 30 days
+
                 // Batched aggregation optimization
                 batch_aggregation_enabled: false,
                 packed_source_weights: Vec::new(),
+
+                // Median Price Cache
+                cached_median_prices: Mapping::default(),
+                cache_ttls: Mapping::default(),
             }
         }
 
@@ -526,9 +581,33 @@ mod propchain_oracle {
             &self,
             property_id: u64,
         ) -> Result<PropertyValuation, OracleError> {
-            self.property_valuations
-                .get(&property_id)
-                .ok_or(OracleError::PropertyNotFound)
+            let aggregated_valuation = match self.aggregation_mode {
+    AggregationMode::SimpleMedian => {
+        let mut values: Vec<u128> = self.property_valuations.values().collect();
+        aggregation::simple_median(&mut values)
+    }
+    AggregationMode::WeightedMedian => {
+        let mut values: Vec<(u128, u32)> = self.property_valuations.iter().map(|(id, val)| (val, self.source_reputations.get(id).unwrap_or(0))).collect();
+        aggregation::weighted_median(&values)
+    }
+    AggregationMode::TrimmedMean => {
+        let mut values: Vec<u128> = self.property_valuations.values().collect();
+        aggregation::trimmed_mean(&mut values, 10)
+    }
+};
+        }
+
+        /// Set the cache TTL for a given asset and source class.
+        #[ink(message)]
+        pub fn set_cache_ttl(
+            &mut self,
+            asset_id: u64,
+            source_class: String,
+            ttl: u64,
+        ) -> Result<(), OracleError> {
+            self.access_control.ensure_caller_has_role(self.admin, Role::OracleAdmin, self.env().block_number(), self.env().block_timestamp()).map_err(|_| OracleError::Unauthorized)?;
+            self.cache_ttls.insert((asset_id, source_class), &ttl);
+            Ok(())
         }
 
         /// Get property valuation with confidence metrics
@@ -892,7 +971,7 @@ mod propchain_oracle {
 
             let proposal_id = self.governance_proposal_counter;
             self.governance_proposal_counter = self.governance_proposal_counter.saturating_add(1);
-            let now = self.env().block_number();
+            let now = self.env().block_number() as u64;
 
             let proposal = GovernanceProposal {
                 id: proposal_id,
@@ -939,7 +1018,7 @@ mod propchain_oracle {
                 return Err(OracleError::AlreadyExists);
             }
 
-            let now = self.env().block_number();
+            let now = self.env().block_number() as u64;
             if now >= proposal.voting_end {
                 return Err(OracleError::InvalidParameters);
             }
@@ -974,7 +1053,7 @@ mod propchain_oracle {
                 return Err(OracleError::AlreadyExists);
             }
 
-            let now = self.env().block_number();
+            let now = self.env().block_number() as u64;
             if now < proposal.voting_end {
                 return Err(OracleError::InvalidParameters);
             }
@@ -2986,7 +3065,7 @@ mod propchain_oracle {
             }
 
             let now = self.env().block_timestamp();
-            let is_anomaly = self.detect_outliers(property_id).unwrap_or(false) > 0;
+            let is_anomaly = self.detect_outliers(property_id).unwrap_or(0) > 0;
 
             let snapshot = OracleDataSnapshot {
                 property_id,
@@ -3010,7 +3089,8 @@ mod propchain_oracle {
 
             // Limit to last 1000 snapshots per property
             if snapshots.len() > 1000 {
-                snapshots = snapshots.into_iter().skip(snapshots.len() - 1000).collect();
+                let len = snapshots.len();
+                snapshots = snapshots.into_iter().skip(len - 1000).collect();
             }
 
             self.oracle_snapshots.insert(&property_id, &snapshots);
@@ -3061,7 +3141,8 @@ mod propchain_oracle {
 
             // Limit to last 5000 entries per source
             if history.len() > 5000 {
-                history = history.into_iter().skip(history.len() - 5000).collect();
+                let len = history.len();
+                history = history.into_iter().skip(len - 5000).collect();
             }
 
             self.source_history.insert(&source_id, &history);
@@ -3231,8 +3312,8 @@ mod propchain_oracle {
         #[ink(message)]
         pub fn set_history_retention_ms(&mut self, retention_ms: u64) -> Result<(), OracleError> {
             self.ensure_admin()?;
-            if retention_ms < types::HISTORY_MIN_RETENTION_MS
-                || retention_ms > types::HISTORY_MAX_RETENTION_MS
+            if retention_ms < HISTORY_MIN_RETENTION_MS
+                || retention_ms > HISTORY_MAX_RETENTION_MS
             {
                 return Err(OracleError::InvalidParameters);
             }

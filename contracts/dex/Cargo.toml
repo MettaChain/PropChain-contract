@@ -13,6 +13,9 @@ propchain-traits = { path = "../traits", default-features = false }
 [lib]
 path = "src/lib.rs"
 
+[dev-dependencies]
+proptest = { version = "1.4", default-features = false, features = ["std"] }
+
 [features]
 default = ["std"]
 std = [

@@ -67,6 +67,20 @@ mod propchain_analytics {
         pub volume_change_percentage: i32,
     }
 
+    /// Maximum number of items allowed in a batch operation to stay within gas limits.
+    const MAX_BATCH_SIZE: usize = 20;
+
+    /// Data structure for a single metric update used in batch operations
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct MetricUpdate {
+        pub average_price: u128,
+        pub total_volume: u128,
+        pub properties_listed: u64,
+    }
+
     /// User behavior analytics for a specific account.
     #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
@@ -137,6 +151,7 @@ mod propchain_analytics {
         NoPendingRotation,
         RotationUnauthorized,
         RequestExpired,
+        BatchSizeExceeded,
     }
 
     // ── Admin Key Rotation Events (Issue #496) ────────────────────────────────
@@ -163,6 +178,11 @@ mod propchain_analytics {
         #[ink(topic)]
         old_admin: AccountId,
         cancelled_by: AccountId,
+    }
+    #[ink(event)]
+    pub struct BatchMetricsUpdated {
+        #[ink(topic)]
+        count: u64,
     }
 
     impl AnalyticsDashboard {
@@ -209,6 +229,46 @@ mod propchain_analytics {
                 total_volume,
                 properties_listed,
             };
+        }
+
+        /// Batch update multiple market metrics in a single transaction.
+        #[ink(message)]
+        pub fn batch_update_metrics(
+            &mut self,
+            updates: Vec<MetricUpdate>,
+        ) -> Result<(), AnalyticsError> {
+            self.ensure_admin();
+            if updates.len() > MAX_BATCH_SIZE {
+                return Err(AnalyticsError::BatchSizeExceeded);
+            }
+            for upd in updates.iter() {
+                self.current_metrics = MarketMetrics {
+                    average_price: upd.average_price,
+                    total_volume: upd.total_volume,
+                    properties_listed: upd.properties_listed,
+                };
+            }
+            self.env().emit_event(BatchMetricsUpdated {
+                count: updates.len() as u64,
+            });
+            Ok(())
+        }
+
+        /// Batch add multiple market trends in a single transaction.
+        #[ink(message)]
+        pub fn batch_add_trends(&mut self, trends: Vec<MarketTrend>) -> Result<(), AnalyticsError> {
+            self.ensure_admin();
+            if trends.len() > MAX_BATCH_SIZE {
+                return Err(AnalyticsError::BatchSizeExceeded);
+            }
+            for trend in trends.iter() {
+                self.historical_trends.insert(self.trend_count, trend);
+                self.trend_count += 1;
+            }
+            self.env().emit_event(BatchMetricsUpdated {
+                count: trends.len() as u64,
+            });
+            Ok(())
         }
 
         /// Create market trend analysis with historical data
@@ -768,6 +828,78 @@ mod propchain_analytics {
             assert!(
                 residential_second.target_allocation_bips
                     < residential_first.target_allocation_bips
+            );
+        }
+
+        #[ink::test]
+        fn batch_update_metrics_success() {
+            let mut contract = AnalyticsDashboard::new();
+            let mut updates = Vec::new();
+            for i in 0..20u64 {
+                updates.push(MetricUpdate {
+                    average_price: (i * 10) as u128,
+                    total_volume: (i * 100) as u128,
+                    properties_listed: i as u64,
+                });
+            }
+            assert_eq!(contract.batch_update_metrics(updates.clone()), Ok(()));
+            let metrics = contract.get_market_metrics();
+            let last = updates.last().unwrap();
+            assert_eq!(metrics.average_price, last.average_price);
+            assert_eq!(metrics.total_volume, last.total_volume);
+            assert_eq!(metrics.properties_listed, last.properties_listed);
+        }
+
+        #[ink::test]
+        fn batch_update_metrics_exceeds_limit() {
+            let mut contract = AnalyticsDashboard::new();
+            let mut updates = Vec::new();
+            for i in 0..21u64 {
+                updates.push(MetricUpdate {
+                    average_price: i as u128,
+                    total_volume: i as u128,
+                    properties_listed: i as u64,
+                });
+            }
+            assert_eq!(
+                contract.batch_update_metrics(updates),
+                Err(AnalyticsError::BatchSizeExceeded)
+            );
+        }
+
+        #[ink::test]
+        fn batch_add_trends_success() {
+            let mut contract = AnalyticsDashboard::new();
+            let mut trends = Vec::new();
+            for i in 0..20u64 {
+                trends.push(MarketTrend {
+                    period_start: i * 10,
+                    period_end: i * 10 + 5,
+                    price_change_percentage: (i % 5) as i32,
+                    volume_change_percentage: (i % 7) as i32,
+                });
+            }
+            assert_eq!(contract.batch_add_trends(trends.clone()), Ok(()));
+            let stored = contract.get_historical_trends();
+            assert_eq!(stored.len(), 20);
+            assert_eq!(stored[0].period_start, trends[0].period_start);
+        }
+
+        #[ink::test]
+        fn batch_add_trends_exceeds_limit() {
+            let mut contract = AnalyticsDashboard::new();
+            let mut trends = Vec::new();
+            for i in 0..21u64 {
+                trends.push(MarketTrend {
+                    period_start: i,
+                    period_end: i + 1,
+                    price_change_percentage: 0,
+                    volume_change_percentage: 0,
+                });
+            }
+            assert_eq!(
+                contract.batch_add_trends(trends),
+                Err(AnalyticsError::BatchSizeExceeded)
             );
         }
     }

@@ -154,6 +154,36 @@ check_dependencies() {
     fi
 }
 
+# Document on-chain health check endpoints
+check_on_chain_health() {
+    log_info "On-chain Health Check Endpoints"
+    log_info "================================"
+    log_info ""
+    log_info "The following contracts expose health() message endpoints:"
+    log_info ""
+    log_info "  • property-token:  health() -> HealthReport"
+    log_info "    - Returns: contract_name, status, total_operations, error_count, error_rate_bips"
+    log_info ""
+    log_info "  • insurance:       health() -> HealthReport"
+    log_info "    - Returns: contract_name, status, total_operations, error_count, error_rate_bips"
+    log_info ""
+    log_info "  • lending:         health() -> HealthReport"
+    log_info "    - Returns: contract_name, status, total_operations, error_count, error_rate_bips"
+    log_info ""
+    log_info "Aggregation (monitoring contract):"
+    log_info "  • register_health_contract(contract: AccountId)   -> Register a contract for aggregation"
+    log_info "  • unregister_health_contract(contract: AccountId) -> Unregister a contract"
+    log_info "  • get_health_contracts()                          -> List registered contracts"
+    log_info ""
+    log_info "To check on-chain health after deployment, use cargo-contract call:"
+    log_info "  cargo contract call --suri //Alice property_token health"
+    log_info "  cargo contract call --suri //Alice insurance health"
+    log_info "  cargo contract call --suri //Alice lending health"
+    log_info ""
+    log_info "Health status values: Healthy, Degraded, Critical, Paused"
+    log_info ""
+}
+
 # Check contract artifacts
 check_contracts() {
     log_info "Checking contract health..."
@@ -253,6 +283,9 @@ main() {
         check_contracts
         echo ""
     fi
+
+    check_on_chain_health
+    echo ""
 
     if [ "$skip_tests" = false ]; then
         check_tests

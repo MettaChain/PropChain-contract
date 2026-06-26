@@ -163,13 +163,13 @@ pub mod risk_model {
     }
 
     /// Map risk score (0-1000) to risk level
-    pub fn score_to_risk_level(score: u32) -> crate::types::RiskLevel {
+    pub fn score_to_risk_level(score: u32) -> crate::propchain_insurance::RiskLevel {
         match score {
-            0..=200 => crate::types::RiskLevel::VeryLow,
-            201..=400 => crate::types::RiskLevel::Low,
-            401..=600 => crate::types::RiskLevel::Medium,
-            601..=800 => crate::types::RiskLevel::High,
-            _ => crate::types::RiskLevel::VeryHigh,
+            0..=200 => crate::propchain_insurance::RiskLevel::VeryLow,
+            201..=400 => crate::propchain_insurance::RiskLevel::Low,
+            401..=600 => crate::propchain_insurance::RiskLevel::Medium,
+            601..=800 => crate::propchain_insurance::RiskLevel::High,
+            _ => crate::propchain_insurance::RiskLevel::VeryHigh,
         }
     }
 
@@ -242,15 +242,15 @@ mod tests {
     fn test_risk_level_mapping() {
         assert_eq!(
             risk_model::score_to_risk_level(100),
-            crate::types::RiskLevel::VeryLow
+            crate::propchain_insurance::RiskLevel::VeryLow
         );
         assert_eq!(
             risk_model::score_to_risk_level(500),
-            crate::types::RiskLevel::Medium
+            crate::propchain_insurance::RiskLevel::Medium
         );
         assert_eq!(
             risk_model::score_to_risk_level(900),
-            crate::types::RiskLevel::VeryHigh
+            crate::propchain_insurance::RiskLevel::VeryHigh
         );
     }
 

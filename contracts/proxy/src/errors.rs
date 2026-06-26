@@ -17,4 +17,9 @@ pub enum Error {
     ProposalCancelled,
     EmergencyPauseActive,
     InvalidTimelockPeriod,
+    InvalidFacetAddress,
+    FacetAlreadyExists,
+    SelectorAlreadyExists,
+    FacetNotFound,
+    SelectorNotFound,
 }

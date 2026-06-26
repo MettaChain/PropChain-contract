@@ -195,7 +195,8 @@ pub(crate) fn calculate_timing_strategy(
 ) -> TimingStrategy {
     let early_payment_benefit = profile
         .map(|p| {
-            let base_tax = (1_000_000 * p.early_payment_discount_basis_points as Balance) / BASIS_POINTS_DENOMINATOR;
+            let base_tax = (1_000_000 * p.early_payment_discount_basis_points as Balance)
+                / BASIS_POINTS_DENOMINATOR;
             base_tax
         })
         .unwrap_or(0);
@@ -210,7 +211,9 @@ pub(crate) fn calculate_timing_strategy(
         })
         .unwrap_or(0);
 
-    let optimization_window = profile.map(|p| p.optimization_window).unwrap_or(30 * 24 * 60 * 60 * 1000);
+    let optimization_window = profile
+        .map(|p| p.optimization_window)
+        .unwrap_or(30 * 24 * 60 * 60 * 1000);
     let installment_count = if penalty_avoidance > 0 { 2 } else { 1 };
 
     TimingStrategy {
@@ -228,7 +231,8 @@ pub(crate) fn calculate_transfer_strategy(
     rule: TaxRule,
 ) -> TransferStrategy {
     let basis_adjustment = assessment.assessed_value / 10;
-    let transfer_tax_savings = (basis_adjustment * rule.rate_basis_points as Balance) / BASIS_POINTS_DENOMINATOR;
+    let transfer_tax_savings =
+        (basis_adjustment * rule.rate_basis_points as Balance) / BASIS_POINTS_DENOMINATOR;
 
     TransferStrategy {
         multi_step_transfer: assessment.assessed_value > 1_000_000,
@@ -264,7 +268,8 @@ pub(crate) fn calculate_entity_strategy(
 ) -> EntityStrategy {
     // LLC typically has ~20% lower tax rate than individual
     let recommended_rate = (current_tax_rate * 80) / 100;
-    let annual_tax_base = (assessment_value * current_tax_rate as Balance) / BASIS_POINTS_DENOMINATOR;
+    let annual_tax_base =
+        (assessment_value * current_tax_rate as Balance) / BASIS_POINTS_DENOMINATOR;
     let optimized_tax = (assessment_value * recommended_rate as Balance) / BASIS_POINTS_DENOMINATOR;
     let savings = annual_tax_base.saturating_sub(optimized_tax);
     let restructuring_cost = assessment_value / 100; // ~1% of property value
@@ -279,10 +284,14 @@ pub(crate) fn calculate_entity_strategy(
 }
 
 /// Calculates installment strategy for transaction structuring
-pub(crate) fn calculate_installment_strategy(
-    total_amount: Balance,
-) -> InstallmentStrategy {
-    let installment_count = if total_amount > 1_000_000 { 4 } else if total_amount > 500_000 { 3 } else { 2 };
+pub(crate) fn calculate_installment_strategy(total_amount: Balance) -> InstallmentStrategy {
+    let installment_count = if total_amount > 1_000_000 {
+        4
+    } else if total_amount > 500_000 {
+        3
+    } else {
+        2
+    };
     let amount_per_installment = total_amount / installment_count as Balance;
     let spacing = 90 * 24 * 60 * 60 * 1000; // 90 days
     let fees = (total_amount * 50) / BASIS_POINTS_DENOMINATOR; // 0.5% fees
@@ -310,7 +319,7 @@ pub(crate) fn calculate_cross_border_strategy(
     let optimized_combined = (current_combined * 75) / 100;
     let rate_reduction = current_combined.saturating_sub(optimized_combined);
     let treaty_savings = (transaction_value * rate_reduction as Balance) / BASIS_POINTS_DENOMINATOR;
-    
+
     // Transfer pricing opportunity ~5% of transaction value
     let transfer_pricing = (transaction_value * 500) / BASIS_POINTS_DENOMINATOR;
 
@@ -341,7 +350,8 @@ pub(crate) fn analyze_strategies(
     let entity = calculate_entity_strategy(rule.rate_basis_points, assessment.assessed_value);
 
     // Calculate total savings
-    let total_savings = timing.estimated_savings
+    let total_savings = timing
+        .estimated_savings
         .saturating_add(transfer.estimated_savings)
         .saturating_add(portfolio.estimated_savings)
         .saturating_add(entity.estimated_annual_savings);
@@ -389,7 +399,13 @@ pub(crate) fn analyze_strategies(
 
     let complexity = core::cmp::min(10, (applicable_strategies as u8) * 2);
     let risk = if profile.is_some() { 4 } else { 6 }; // Higher risk without jurisdiction profile
-    let priority = if timing.penalty_avoidance > 0 { 10 } else if applicable_strategies > 2 { 8 } else { 5 };
+    let priority = if timing.penalty_avoidance > 0 {
+        10
+    } else if applicable_strategies > 2 {
+        8
+    } else {
+        5
+    };
 
     OptimizationAnalysis {
         total_savings,
@@ -498,7 +514,8 @@ mod tests {
         let property_count = 10;
         let harvesting_opportunity = 100_000;
 
-        let strategy = calculate_portfolio_strategy(total_value, property_count, harvesting_opportunity);
+        let strategy =
+            calculate_portfolio_strategy(total_value, property_count, harvesting_opportunity);
 
         assert_eq!(strategy.portfolio_value, total_value);
         assert_eq!(strategy.property_count, property_count);

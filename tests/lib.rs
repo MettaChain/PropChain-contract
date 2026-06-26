@@ -21,6 +21,7 @@ pub mod security_audit_runner;
 pub mod security_bridge_tests;
 pub mod security_compliance_tests;
 pub mod security_fuzzing_tests;
+pub mod security_governance_tests;
 pub mod security_overflow_tests;
 
 // ── Integration Test Modules ─────────────────────────────────────────────

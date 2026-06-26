@@ -96,6 +96,8 @@ mod monitoring {
         // Metrics snapshots (circular buffer, size = MONITORING_MAX_SNAPSHOTS)
         snapshots: Mapping<u64, MetricsSnapshot>,
         snapshot_count: u64,
+        // Registered health-check contracts
+        health_check_contracts: Vec<AccountId>,
     }
 
     // =========================================================================
@@ -263,6 +265,7 @@ mod monitoring {
                 alert_subscribers: Vec::new(),
                 snapshots: Mapping::default(),
                 snapshot_count: 0,
+                health_check_contracts: Vec::new(),
             }
         }
 
@@ -423,6 +426,30 @@ mod monitoring {
             self.ensure_admin()?;
             self.admin = new_admin;
             Ok(())
+        }
+
+        /// Register a contract for health-check aggregation. Admin only.
+        #[ink(message)]
+        pub fn register_health_contract(&mut self, contract: AccountId) -> Result<(), MonitoringError> {
+            self.ensure_admin()?;
+            if !self.health_check_contracts.contains(&contract) {
+                self.health_check_contracts.push(contract);
+            }
+            Ok(())
+        }
+
+        /// Unregister a contract from health-check aggregation. Admin only.
+        #[ink(message)]
+        pub fn unregister_health_contract(&mut self, contract: AccountId) -> Result<(), MonitoringError> {
+            self.ensure_admin()?;
+            self.health_check_contracts.retain(|c| c != &contract);
+            Ok(())
+        }
+
+        /// Get list of registered health-check contracts.
+        #[ink(message)]
+        pub fn get_health_contracts(&self) -> Vec<AccountId> {
+            self.health_check_contracts.clone()
         }
 
         // =====================================================================
