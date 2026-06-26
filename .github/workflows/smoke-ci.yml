@@ -1,0 +1,46 @@
+name: Smoke CI Gate
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    name: Code Quality & Testing Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Install Stable Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo Build Artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-smoke-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-smoke-
+
+      - name: Check Code Formatting Style (fmt)
+        run: cargo fmt --check
+
+      - name: Execute Static Analysis Compiler Lints (clippy)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run Core Verification Tests (test)
+        run: cargo test --all-features --workspace
