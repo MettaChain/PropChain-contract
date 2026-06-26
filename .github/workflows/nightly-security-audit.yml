@@ -1,0 +1,76 @@
+name: Nightly Security & Mutation Audit
+
+on:
+  schedule:
+    # Triggers every single night at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allows manual trigger for verification
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    name: Run Security and Mutation Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (Nightly)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-nightly-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Utility Tooling Engines
+        run: |
+          cargo install cargo-deny --locked || true
+          cargo install cargo-audit --locked || true
+          cargo install cargo-mutants --locked || true
+
+      - name: Initialize or Clear Audit Log File
+        run: |
+          echo "# 🛡️ Automated Security & Mutation Audit Log" > AUDIT_LOG.md
+          echo "Generated on: $(date -u)" >> AUDIT_LOG.md
+          echo "---" >> AUDIT_LOG.md
+
+      - name: Execute Cargo Deny Checks
+        run: |
+          echo "## 📦 Dependency License & Advisory Checks (cargo-deny)" >> AUDIT_LOG.md
+          echo "\`\`\`text" >> AUDIT_LOG.md
+          cargo deny check licenses bans sources 2>&1 >> AUDIT_LOG.md || echo "cargo-deny failed or flagged warnings" >> AUDIT_LOG.md
+          echo "\`\`\`" >> AUDIT_LOG.md
+          echo "---" >> AUDIT_LOG.md
+
+      - name: Execute Cargo Audit Sweeps
+        run: |
+          echo "## 🔍 Vulnerability Advisory Scans (cargo-audit)" >> AUDIT_LOG.md
+          echo "\`\`\`text" >> AUDIT_LOG.md
+          cargo audit 2>&1 >> AUDIT_LOG.md || echo "cargo-audit detected critical vulnerability markers" >> AUDIT_LOG.md
+          echo "\`\`\`" >> AUDIT_LOG.md
+          echo "---" >> AUDIT_LOG.md
+
+      - name: Execute Cargo Mutants Quality Runs
+        run: |
+          echo "## 🧬 Mutation Testing Resilience Analytics (cargo-mutants)" >> AUDIT_LOG.md
+          echo "\`\`\`text" >> AUDIT_LOG.md
+          cargo mutants --all-features 2>&1 >> AUDIT_LOG.md || echo "cargo-mutants flagged missed mutant structures" >> AUDIT_LOG.md
+          echo "\`\`\`" >> AUDIT_LOG.md
+
+      - name: Commit and Push Security Results to Repo
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add AUDIT_LOG.md
+          git diff-index --quiet HEAD || git commit -m "chore(ci): update nightly AUDIT_LOG.md validation tracking profiles [skip ci]"
+          git push origin HEAD:${{ github.ref }}
