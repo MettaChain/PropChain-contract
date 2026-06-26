@@ -1588,5 +1588,4 @@ fn set_early_withdrawal_penalty_max_cap() {
         assert_eq!(vesting_after_claim.claimable_at_block(200), 0);
         assert_eq!(vesting_after_claim.claimable_at_block(300), 500);
     }
-}
 
