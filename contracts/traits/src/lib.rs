@@ -397,8 +397,26 @@ pub struct ChainBridgeInfo {
     pub chain_daily_limit: u128,
 }
 
-// =============================================================================
-// Structured Logging (Issue #107)
+/// Event emitted when an operator is caught double-signing or equivocating
+#[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub struct Equivocation {
+    #[ink(topic)]
+    pub operator: AccountId,
+    #[ink(topic)]
+    pub contract_type: ContractType,
+    pub evidence: Vec<u8>,
+}
+
+/// The type of contract where the equivocation occurred
+#[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub enum ContractType {
+    Staking,
+    Oracle,
+}
+
+// =============================================================================// Structured Logging (Issue #107)
 // =============================================================================
 
 /// Log severity levels for classifying contract events.

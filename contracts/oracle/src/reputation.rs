@@ -243,4 +243,11 @@ mod tests {
         assert_eq!(rep.get(b).submissions, 1);
         assert_eq!(rep.get(b).correct, 0);
     }
+    pub fn weight(&self, oracle: AccountId, total_weight: u32) -> u32 {
+        let raw_weight = self.score(oracle) * self.accuracy(oracle) / 100;
+        if total_weight == 0 {
+            return 0;
+        }
+        (raw_weight as u64 * 1000 / total_weight as u64) as u32
+    }
 }

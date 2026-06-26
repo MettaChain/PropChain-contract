@@ -74,6 +74,24 @@ pub mod propchain_identity {
         pub details: String,
     }
 
+    /// Reason for identity revocation
+    #[derive(
+        Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum RevocationReason {
+        /// KYC/AML policy violation
+        KycAmlRevoked,
+        /// Fraudulent activity detected
+        FraudDetected,
+        /// Account compromised
+        AccountCompromised,
+        /// User request
+        UserRequest,
+        /// Other reason
+        Other,
+    }
+
     /// Revocation record for a revoked identity
     #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
@@ -82,7 +100,7 @@ pub mod propchain_identity {
     pub struct RevocationRecord {
         pub account: AccountId,
         pub revoked_by: AccountId,
-        pub reason: String,
+        pub reason: RevocationReason,
         pub revoked_at: u64,
     }
 
@@ -197,9 +215,11 @@ pub mod propchain_identity {
         pub guardians: Vec<AccountId>, // Trusted guardians for recovery
         pub threshold: u8,             // Number of guardians required for recovery
         pub recovery_period: u64,      // Recovery period in blocks
+        pub timelock_period: u64,      // Timelock period in blocks
         pub last_recovery_attempt: Option<u64>,
         pub is_recovery_active: bool,
         pub recovery_approvals: Vec<AccountId>,
+        pub recovery_completion_timestamp: Option<u64>,
     }
 
     /// Privacy settings for identity verification
@@ -408,6 +428,7 @@ pub mod propchain_identity {
         Approved,
         Rejected,
         Expired,
+        Revoked,
     }
 
     /// Main identity registry contract
@@ -700,6 +721,49 @@ pub mod propchain_identity {
             registry.initialize_kyc_tiers();
 
             registry
+        }
+
+        /// Revokes an identity
+        #[ink(message)]
+        pub fn revoke_identity(
+            &mut self,
+            account: AccountId,
+            reason: RevocationReason,
+        ) -> Result<(), IdentityError> {
+            let caller = self.env().caller();
+
+            // Check if caller is authorized
+            if !self.authorized_verifiers.contains(&caller) && caller != self.admin {
+                return Err(IdentityError::Unauthorized);
+            }
+
+            // Check if identity exists
+            let mut identity = self.identities.get(&account).ok_or(IdentityError::IdentityNotFound)?;
+
+            // Update identity status
+            identity.is_verified = false;
+            identity.verification_level = VerificationLevel::None;
+            self.identities.insert(&account, &identity);
+
+            // Create revocation record
+            let revocation_record = RevocationRecord {
+                account,
+                revoked_by: caller,
+                reason,
+                revoked_at: self.env().block_timestamp(),
+            };
+
+            self.revocations.insert(&account, &revocation_record);
+
+            // Emit event
+            self.env().emit_event(IdentityRevoked {
+                account,
+                revoked_by: caller,
+                reason: format!("{:?}", reason),
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
         }
 
         /// Create a new identity with DID
@@ -2348,6 +2412,108 @@ pub mod propchain_identity {
                 reg.set_privacy_policy_hash([0x00u8; 32]),
                 Err(IdentityError::Unauthorized)
             );
+        }
+        /// Initiates the recovery process for an identity
+        #[ink(message)]
+        pub fn initiate_recovery(&mut self) -> Result<(), IdentityError> {
+            let caller = self.env().caller();
+            let mut identity = self.identities.get(&caller).ok_or(IdentityError::IdentityNotFound)?;
+
+            if identity.social_recovery.is_recovery_active {
+                return Err(IdentityError::RecoveryInProgress);
+            }
+
+            identity.social_recovery.is_recovery_active = true;
+            identity.social_recovery.last_recovery_attempt = Some(self.env().block_timestamp());
+            self.identities.insert(&caller, &identity);
+
+            self.env().emit_event(RecoveryInitiated {
+                account: caller,
+                initiator: caller,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Contributes to the recovery of an identity
+        #[ink(message)]
+        pub fn contribute_to_recovery(
+            &mut self,
+            account_to_recover: AccountId,
+        ) -> Result<(), IdentityError> {
+            let caller = self.env().caller();
+            let mut identity = self.identities.get(&account_to_recover).ok_or(IdentityError::IdentityNotFound)?;
+
+            if !identity.social_recovery.is_recovery_active {
+                return Err(IdentityError::RecoveryNotActive);
+            }
+
+            if !identity.social_recovery.guardians.contains(&caller) {
+                return Err(IdentityError::Unauthorized);
+            }
+
+            if identity.social_recovery.recovery_approvals.contains(&caller) {
+                return Err(IdentityError::AlreadyExists);
+            }
+
+            identity.social_recovery.recovery_approvals.push(caller);
+
+            if identity.social_recovery.recovery_approvals.len() as u8 >= identity.social_recovery.threshold {
+                identity.social_recovery.recovery_completion_timestamp = Some(self.env().block_timestamp() + identity.social_recovery.timelock_period);
+            }
+
+            self.identities.insert(&account_to_recover, &identity);
+
+            Ok(())
+        }
+
+        /// Completes the recovery of an identity
+        #[ink(message)]
+        pub fn complete_recovery(
+            &mut self,
+            old_account: AccountId,
+            new_account: AccountId,
+        ) -> Result<(), IdentityError> {
+            let mut identity = self.identities.get(&old_account).ok_or(IdentityError::IdentityNotFound)?;
+
+            if !identity.social_recovery.is_recovery_active {
+                return Err(IdentityError::RecoveryNotActive);
+            }
+
+            if identity.social_recovery.recovery_approvals.len() as u8
+                < identity.social_recovery.threshold
+            {
+                return Err(IdentityError::RecoveryThresholdNotMet);
+            }
+
+            if let Some(completion_timestamp) = identity.social_recovery.recovery_completion_timestamp {
+                if self.env().block_timestamp() < completion_timestamp {
+                    return Err(IdentityError::TimelockActive);
+                }
+            } else {
+                return Err(IdentityError::RecoveryThresholdNotMet);
+            }
+
+            // Transfer identity to new account
+            self.identities.remove(&old_account);
+            identity.account_id = new_account;
+            self.identities.insert(&new_account, &identity);
+
+            // Reset recovery state
+            let mut identity = self.identities.get(&new_account).unwrap();
+            identity.social_recovery.is_recovery_active = false;
+            identity.social_recovery.recovery_approvals.clear();
+            identity.social_recovery.recovery_completion_timestamp = None;
+            self.identities.insert(&new_account, &identity);
+
+            self.env().emit_event(RecoveryCompleted {
+                account: old_account,
+                new_account,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
         }
     }
 }

@@ -1,7 +1,7 @@
 use ink::storage::Mapping;
 use ink::primitives::AccountId;
 
-pub const MIN_ORACLE_STAKE: u128 = 1_000_000;
+pub const MIN_ORACLE_STAKE_PERCENT: u128 = 10;
 pub const SLASH_PERCENT: u128 = 10;
 
 pub struct OracleStaking {
