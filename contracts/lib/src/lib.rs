@@ -4772,3 +4772,6 @@ mod tests_pause {
         );
     }
 }
+
+#[cfg(kani)]
+mod verification;
