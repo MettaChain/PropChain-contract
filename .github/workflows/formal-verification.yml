@@ -1,0 +1,54 @@
+﻿name: Formal Verification (Kani)
+
+on:
+  pull_request:
+    branches: [main, master, develop]
+  push:
+    branches: [main, master]
+
+jobs:
+  kani-verification:
+    name: Run Kani Proofs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-kani-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-kani-
+
+      - name: Verify balance conservation
+        uses: model-checking/kani-github-action@v1
+        with:
+          working-directory: contracts/lib
+          args: >-
+            --harness balance_proofs::prove_balance_conservation
+            --harness balance_proofs::prove_no_balance_underflow
+
+      - name: Verify access-control role membership
+        uses: model-checking/kani-github-action@v1
+        with:
+          working-directory: contracts/lib
+          args: >-
+            --harness access_control_proofs::prove_non_admin_always_rejected
+            --harness access_control_proofs::prove_admin_always_accepted
+
+      - name: Verify oracle staleness bound
+        uses: model-checking/kani-github-action@v1
+        with:
+          working-directory: contracts/lib
+          args: >-
+            --harness oracle_proofs::prove_stale_oracle_always_rejected
+            --harness oracle_proofs::prove_fresh_oracle_always_accepted
