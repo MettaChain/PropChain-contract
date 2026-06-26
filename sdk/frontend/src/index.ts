@@ -214,3 +214,14 @@ export {
   filterEvents,
   extractTypedEvents,
 } from './utils/events';
+
+export {
+  applyGasBuffer,
+  estimateGasWithCongestion,
+  congestionFromFillRatio,
+  CongestionLevel,
+  DEFAULT_BUFFERS,
+} from './utils/gas';
+
+export type { GasEstimate, GasEstimationOptions } from './utils/gas';
+
