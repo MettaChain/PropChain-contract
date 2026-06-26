@@ -682,6 +682,12 @@ pub struct ClaimTrigger {
     pub threshold: i128,
     pub comparator: TriggerComparator,
     pub payout_mode: PayoutMode,
-    pub active: bool,
-    pub fired: bool,
+    pub is_active: bool,
+    pub triggered: bool,
+    pub last_observed_value: Option<u128>,
+    pub last_report_url: String,
+    pub created_at: u64,
+    pub triggered_at: Option<u64>,
+    pub triggering_claim_id: Option<u64>,
 }
+

@@ -161,6 +161,9 @@ mod governance {
         reveal_phase_started: Mapping<u64, bool>,
         /// Reveal phase duration in blocks
         reveal_phase_duration: u64,
+        // ── Discussion Forum (Issue #233) ───────────────────────────────────────
+        /// Comments/discussion for each proposal
+        proposal_comments: Mapping<u64, Vec<DiscussionComment>>,
     }
 
     // =========================================================================
@@ -200,6 +203,7 @@ mod governance {
                 vote_commitments: Mapping::default(),
                 reveal_phase_started: Mapping::default(),
                 reveal_phase_duration: 10_800, // ~18 hours at 6s blocks
+                proposal_comments: Mapping::default(),
             }
         }
 
@@ -654,7 +658,7 @@ mod governance {
 
             // Verify the commitment matches
             let encoded = (proposal_id, caller, support, salt);
-            let expected = self.env().hash_encoded::<ink::scale::Encode>(&encoded);
+            let expected = propchain_traits::crypto::hash_encoded(&encoded);
             if commitment != expected {
                 return Err(Error::Unauthorized);
             }

@@ -37,13 +37,55 @@ mod propchain_insurance {
     // Data types extracted to types.rs (Issue #101)
     include!("types.rs");
 
+    // ── Claim Trigger Events (Issue #249) ────────────────────────────────
+    #[ink(event)]
+    pub struct ClaimTriggerRegistered {
+        #[ink(topic)]
+        pub trigger_id: u64,
+        #[ink(topic)]
+        pub policy_id: u64,
+        pub metric: TriggerMetric,
+        pub threshold: i128,
+    }
+
+    #[ink(event)]
+    pub struct ClaimTriggerDeactivated {
+        #[ink(topic)]
+        pub trigger_id: u64,
+        #[ink(topic)]
+        pub policy_id: u64,
+    }
+
+    #[ink(event)]
+    pub struct OracleEventReceived {
+        #[ink(topic)]
+        pub trigger_id: u64,
+        #[ink(topic)]
+        pub oracle: AccountId,
+        pub observed_value: u128,
+        pub threshold_met: bool,
+        pub timestamp: u64,
+    }
+
+    #[ink(event)]
+    pub struct ClaimAutoPaid {
+        #[ink(topic)]
+        pub trigger_id: u64,
+        #[ink(topic)]
+        pub claim_id: u64,
+        #[ink(topic)]
+        pub policy_id: u64,
+        pub payout_amount: u128,
+        pub timestamp: u64,
+    }
+
     // Risk Assessment Model (Task #254)
     use crate::risk_assessment::risk_model;
 
     // Fraud Detection System (Task #258)
     use crate::fraud_detection::fraud_detection;
     // Premium calculation engine
-    use crate::premium_engine;
+    include!("premium_engine.rs");
 
     #[ink(storage)]
     pub struct PropertyInsurance {
@@ -744,7 +786,7 @@ mod propchain_insurance {
             let actuarial_model = self.get_actuarial_model_for_coverage(&coverage_type);
 
             // Use the premium engine for dynamic calculation
-            let calculation = premium_engine::calculate_dynamic_premium(
+            let calculation = calculate_dynamic_premium(
                 &assessment,
                 coverage_amount,
                 &coverage_type,
@@ -1080,7 +1122,7 @@ mod propchain_insurance {
             policy_id: u64,
             metric: TriggerMetric,
             comparator: TriggerComparator,
-            threshold: u128,
+            threshold: i128,
             payout_mode: PayoutMode,
         ) -> Result<u64, InsuranceError> {
             let caller = self.env().caller();
@@ -1104,7 +1146,7 @@ mod propchain_insurance {
             let trigger = ClaimTrigger {
                 trigger_id,
                 policy_id,
-                metric,
+                metric: metric.clone(),
                 comparator,
                 threshold,
                 payout_mode,
@@ -3107,11 +3149,11 @@ mod propchain_insurance {
         fn evaluate_condition(
             comparator: &TriggerComparator,
             observed: u128,
-            threshold: u128,
+            threshold: i128,
         ) -> bool {
             match comparator {
-                TriggerComparator::GreaterOrEqual => observed >= threshold,
-                TriggerComparator::LessOrEqual => observed <= threshold,
+                TriggerComparator::GreaterOrEqual => (observed as i128) >= threshold,
+                TriggerComparator::LessOrEqual => (observed as i128) <= threshold,
             }
         }
 

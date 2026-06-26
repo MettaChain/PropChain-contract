@@ -1,5 +1,76 @@
 [config]
+skip_core_tasks = true
 default_to_workspace = false
+
+[tasks.default]
+dependencies = ["build-all"]
+
+[tasks.build-all]
+command = "cargo"
+args = ["build", "--workspace"]
+
+[tasks.test-all]
+command = "cargo"
+args = ["test", "--workspace"]
+
+[tasks.test-unit]
+command = "cargo"
+args = ["test", "--lib", "--workspace"]
+
+[tasks.test-integration]
+command = "cargo"
+args = ["test", "--test", "*", "--workspace"]
+
+[tasks.lint]
+command = "cargo"
+args = ["clippy", "--workspace", "--", "-D", "warnings"]
+
+[tasks.format]
+command = "cargo"
+args = ["fmt", "--all"]
+[[tasks.format.commands]]
+command = "cargo"
+args = ["fmt", "--all", "--check"]
+
+[tasks.clean]
+command = "cargo"
+args = ["clean"]
+
+[tasks.deploy-local]
+command = "bash"
+args = ["scripts/deploy.sh"]
+
+[tasks.coverage]
+command = "cargo"
+args = ["tarpaulin", "--workspace", "--out", "Html"]
+[[tasks.coverage.commands]]
+command = "echo"
+args = ["Install tarpaulin: cargo install cargo-tarpaulin"]
+condition = "failure"
+
+[tasks.audit]
+command = "cargo"
+args = ["audit"]
+[[tasks.audit.commands]]
+command = "echo"
+args = ["Install cargo-audit: cargo install cargo-audit"]
+condition = "failure"
+
+[tasks.docs]
+dependencies = ["docs-build", "docs-open"]
+
+[tasks.docs-build]
+command = "cargo"
+args = ["doc", "--workspace", "--no-deps"]
+
+[tasks.docs-open]
+command = "open"
+args = ["target/doc/propchain_contract/index.html"]
+platform = "mac"
+
+[tasks.setup]
+command = "bash"
+args = ["scripts/setup.sh"]
 
 # ── Build ──────────────────────────────────────────────────────────────────
 

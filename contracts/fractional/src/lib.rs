@@ -536,12 +536,6 @@ mod fractional {
                 }
 
                 // Analytics: record trade and update holder counts
-                let price_per_share = listing.price_per_share;
-                let seller_new_bal = self.balances.get(&(seller, token_id)).unwrap_or(0);
-                let buyer_new_bal = self.balances.get(&(buyer, token_id)).unwrap_or(0);
-                self.record_trade(token_id, total_price, price_per_share);
-                self.update_holder(seller, token_id, seller_new_bal);
-                self.update_holder(buyer, token_id, buyer_new_bal);
 
                 self.env().emit_event(SharesSold {
                     seller,
@@ -588,9 +582,6 @@ mod fractional {
                 }
 
                 // Analytics: record redemption as a trade and update holder count
-                let new_bal = self.balances.get(&(caller, token_id)).unwrap_or(0);
-                self.record_trade(token_id, payout, price);
-                self.update_holder(caller, token_id, new_bal);
 
                 self.env().emit_event(SharesRedeemed {
                     owner: caller,

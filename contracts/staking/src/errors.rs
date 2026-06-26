@@ -23,6 +23,16 @@ pub enum Error {
     QuorumNotReached,
     TooManyProposals,
     EarlyWithdrawalPenaltyApplied,
+    // ----- Validator / Delegation -----
+    InsufficientValidatorStake,
+    InvalidCommissionRate,
+    AlreadyValidator,
+    ValidatorNotFound,
+    ValidatorNotActive,
+    AlreadyDelegated,
+    DelegationNotFound,
+    AlreadyUnbonding,
+    UnbondingPeriodActive,
 }
 
 impl core::fmt::Display for Error {
@@ -48,6 +58,15 @@ impl core::fmt::Display for Error {
             Error::QuorumNotReached => write!(f, "Quorum not reached"),
             Error::TooManyProposals => write!(f, "Too many active proposals"),
             Error::EarlyWithdrawalPenaltyApplied => write!(f, "Early withdrawal penalty applied"),
+            Error::InsufficientValidatorStake => write!(f, "Insufficient validator self-stake"),
+            Error::InvalidCommissionRate => write!(f, "Commission rate exceeds maximum"),
+            Error::AlreadyValidator => write!(f, "Already a registered validator"),
+            Error::ValidatorNotFound => write!(f, "Validator not found"),
+            Error::ValidatorNotActive => write!(f, "Validator is not active"),
+            Error::AlreadyDelegated => write!(f, "Already delegated to this validator"),
+            Error::DelegationNotFound => write!(f, "Delegation not found"),
+            Error::AlreadyUnbonding => write!(f, "Already unbonding from this validator"),
+            Error::UnbondingPeriodActive => write!(f, "Unbonding period still active"),
         }
     }
 }
@@ -75,6 +94,15 @@ impl ContractError for Error {
             Error::QuorumNotReached => staking_codes::STAKING_QUORUM_NOT_REACHED,
             Error::TooManyProposals => staking_codes::STAKING_TOO_MANY_PROPOSALS,
             Error::EarlyWithdrawalPenaltyApplied => staking_codes::STAKING_LOCK_ACTIVE + 1,
+            Error::InsufficientValidatorStake => staking_codes::STAKING_LOCK_ACTIVE + 2,
+            Error::InvalidCommissionRate => staking_codes::STAKING_LOCK_ACTIVE + 3,
+            Error::AlreadyValidator => staking_codes::STAKING_LOCK_ACTIVE + 4,
+            Error::ValidatorNotFound => staking_codes::STAKING_LOCK_ACTIVE + 5,
+            Error::ValidatorNotActive => staking_codes::STAKING_LOCK_ACTIVE + 6,
+            Error::AlreadyDelegated => staking_codes::STAKING_LOCK_ACTIVE + 7,
+            Error::DelegationNotFound => staking_codes::STAKING_LOCK_ACTIVE + 8,
+            Error::AlreadyUnbonding => staking_codes::STAKING_LOCK_ACTIVE + 9,
+            Error::UnbondingPeriodActive => staking_codes::STAKING_LOCK_ACTIVE + 10,
         }
     }
 
@@ -100,6 +128,15 @@ impl ContractError for Error {
             Error::QuorumNotReached => "Total turnout did not meet the quorum threshold",
             Error::TooManyProposals => "Active proposal limit reached",
             Error::EarlyWithdrawalPenaltyApplied => "Stake was withdrawn early; a penalty was deducted",
+            Error::InsufficientValidatorStake => "Validator self-stake is below the minimum",
+            Error::InvalidCommissionRate => "Commission rate exceeds the maximum allowed",
+            Error::AlreadyValidator => "This account is already a registered validator",
+            Error::ValidatorNotFound => "No validator found for this account",
+            Error::ValidatorNotActive => "The validator is not currently active",
+            Error::AlreadyDelegated => "Account already has an active delegation to this validator",
+            Error::DelegationNotFound => "No delegation found for this pair",
+            Error::AlreadyUnbonding => "Already unbonding from this validator",
+            Error::UnbondingPeriodActive => "Unbonding period is still active for this delegation",
         }
     }
 

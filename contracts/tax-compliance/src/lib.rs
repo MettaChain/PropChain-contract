@@ -1259,6 +1259,7 @@ pub enum DeadlineAlertLevel {
             Ok(())
         }
 
+
         /// Query compliance status across multiple jurisdictions for a property.
         /// Returns a snapshot per jurisdiction with outstanding tax, reporting
         /// status, document verification, and overall compliance flags.
@@ -2610,6 +2611,7 @@ pub enum DeadlineAlertLevel {
                 .expect("force refresh");
             assert_eq!(refreshed.property_id, 32);
         }
+
 
         // ── Multi-jurisdiction compliance (Issue #529) ──────────────────────
 

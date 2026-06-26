@@ -265,6 +265,13 @@ mod staking {
         voting_period_blocks: u64,
         quorum_bps: u32,
         early_withdrawal_penalty_bps: u128,
+        // ----- Validator / Delegation -----
+        validators: Mapping<AccountId, ValidatorInfo>,
+        delegations: Mapping<(AccountId, AccountId), DelegationRecord>,
+        validator_list: Vec<AccountId>,
+        total_delegated_stake: u128,
+        validator_delegators: Mapping<AccountId, Vec<AccountId>>,
+        delegator_validator: Mapping<AccountId, AccountId>,
     }
 
     // =========================================================================
@@ -306,6 +313,12 @@ mod staking {
                 voting_period_blocks: DEFAULT_VOTING_PERIOD_BLOCKS,
                 quorum_bps: DEFAULT_QUORUM_BPS,
                 early_withdrawal_penalty_bps: constants::DEFAULT_EARLY_WITHDRAWAL_PENALTY_BPS,
+                validators: Mapping::default(),
+                delegations: Mapping::default(),
+                validator_list: Vec::new(),
+                total_delegated_stake: 0,
+                validator_delegators: Mapping::default(),
+                delegator_validator: Mapping::default(),
             }
         }
 
