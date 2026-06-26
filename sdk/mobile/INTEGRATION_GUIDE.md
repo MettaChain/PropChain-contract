@@ -127,5 +127,35 @@ try {
 
 > **Security:** Never hardcode private keys. Use [`flutter_secure_storage`](https://pub.dev/packages/flutter_secure_storage) or the OS keychain to store and retrieve signing keys.
 
+## React Native — Property Minting
+
+The `sdk/mobile/react-native/mint_property.ts` file exposes an opinionated API for the full `mint_property` flow covering KYC, offline signing, and progress streaming.
+
+### Usage
+
+```typescript
+import { mintProperty, MintProgressStatus } from './mint_property';
+
+const result = await mintProperty(
+  'https://rpc.propchain.io',
+  '0xPropertyTokenContract',
+  privateKey,           // from react-native-keychain
+  {
+    location: '123 Marina Drive, Lagos',
+    sizeSqm: 450,
+    legalDescription: 'Lot 7, Block 3, Marina Estate',
+    valuation: BigInt('5000000000000000000'),
+    documentsUri: 'ipfs://QmXyz...',
+  },
+  {
+    kycProviderUrl: 'https://kyc.propchain.io',
+    onProgress: ({ status, message }) => {
+      if (status === MintProgressStatus.KycChecking) showSpinner('Verifying KYC…');
+      if (status === MintProgressStatus.Finalized) showSuccess(`Token #${result.tokenId} minted!`);
+    },
+  },
+);
+```
+
 ## Support
 For questions or issues, see the main project README or contact the maintainers.
