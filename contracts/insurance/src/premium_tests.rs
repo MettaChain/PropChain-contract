@@ -45,6 +45,7 @@ fn test_dynamic_premium_basic_calculation() {
         claim_free_years: 0,
         has_safety_features: false,
         loyalty_years: 0,
+        recent_claims_count: 0,
     };
 
     let result = calculate_dynamic_premium(
@@ -106,6 +107,7 @@ fn test_dynamic_premium_with_discounts() {
         claim_free_years: 5,              // 20% discount
         has_safety_features: true,        // 10% discount
         loyalty_years: 7,                 // 10% discount
+        recent_claims_count: 0,           // no recent claims
     };
 
     let result = calculate_dynamic_premium(
@@ -161,6 +163,7 @@ fn test_dynamic_premium_high_risk_property() {
         claim_free_years: 0,
         has_safety_features: false,
         loyalty_years: 0,
+        recent_claims_count: 0,
     };
 
     let result = calculate_dynamic_premium(
@@ -230,6 +233,7 @@ fn test_pool_utilization_impact() {
         claim_free_years: 0,
         has_safety_features: false,
         loyalty_years: 0,
+        recent_claims_count: 0,
     };
 
     let low_util_result = calculate_dynamic_premium(
@@ -291,6 +295,7 @@ fn test_duration_impact_on_premium() {
         claim_free_years: 0,
         has_safety_features: false,
         loyalty_years: 0,
+        recent_claims_count: 0,
     };
 
     // Short term: 1 month
@@ -357,6 +362,7 @@ fn test_actuarial_model_impact() {
         claim_free_years: 0,
         has_safety_features: false,
         loyalty_years: 0,
+        recent_claims_count: 0,
     };
 
     // With actuarial model
@@ -437,6 +443,7 @@ fn test_premium_breakdown_accuracy() {
         claim_free_years: 0,
         has_safety_features: false,
         loyalty_years: 0,
+        recent_claims_count: 0,
     };
 
     let result = calculate_dynamic_premium(
@@ -455,6 +462,7 @@ fn test_premium_breakdown_accuracy() {
         .saturating_add(result.breakdown.coverage_adjustment)
         .saturating_add(result.breakdown.pool_adjustment)
         .saturating_add(result.breakdown.time_adjustment)
+        .saturating_add(result.breakdown.claim_freq_adjustment)
         .saturating_sub(result.breakdown.discount_amount);
 
     // Should be approximately equal (allow for rounding)

@@ -33,6 +33,17 @@ Welcome to the PropChain development team! Use this checklist to set up your env
 - [ ] **Create a Feature Branch**: Always work on a separate branch for your changes.
 - [ ] **Follow ADRs**: Check existing [Architecture Decision Records](adr/) before making major design choices.
 
+## Docker Test Environment
+
+A pre-built Docker environment is available for running PropChain contract tests without a local Rust/Substrate setup.
+
+- [ ] **Start the test environment**: Run `./scripts/start-test-env.sh` from the repo root. This brings up a `substrate-contracts-node` (dev mode), an IPFS node, and a Subsquid indexer.
+- [ ] **Substrate RPC**: WebSocket at `ws://localhost:9944`, HTTP at `http://localhost:9933`
+- [ ] **IPFS API**: `http://localhost:5001`
+- [ ] **Stop the environment**: `docker compose -f docker-compose.test.yml down`
+
+The test compose file is `docker-compose.test.yml`; the node image is built from `Dockerfile.test-node`.
+
 ## Getting Help
 
 - [ ] **Review FAQ**: Check the [Troubleshooting/FAQ](troubleshooting-faq.md) for common issues.

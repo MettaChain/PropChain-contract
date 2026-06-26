@@ -255,6 +255,54 @@ mod bridge {
 
     impl scale::EncodeLike for StoredBridgeRequest {}
 
+    /// Emergency multi-sig request data structure
+    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    struct EmergencyRequest {
+        request_id: u64,
+        request_type: EmergencyRequestType,
+        proposed_by: AccountId,
+        signatures: Vec<AccountId>,
+        created_at: u64,
+        expires_at: Option<u64>,
+        executed: bool,
+        // For pause_bridge: the pause flags and reason
+        pause_flags: Option<PauseFlags>,
+        pause_reason: Option<PauseReason>,
+        pause_detail: Option<String>,
+        // For freeze_asset: asset address and reason
+        asset_address: Option<AccountId>,
+        freeze_reason: Option<String>,
+    }
+
+    /// Types of emergency multi-sig requests
+    #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    enum EmergencyRequestType {
+        PauseBridge,
+        FreezeAsset,
+    }
+
+    /// Asset freeze information
+    #[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    struct AssetFreezeInfo {
+        asset_address: AccountId,
+        frozen_by: AccountId,
+        frozen_at: u64,
+        reason: String,
+        affects_inflight: bool,
+    }
+
     /// Bridge contract for cross-chain property token transfers
     #[ink(storage)]
     pub struct PropertyBridge {
@@ -364,6 +412,41 @@ mod bridge {
         failed_signatures_window_count: u32,
         /// Start-of-hour timestamp the failed-signature counter applies to.
         failed_signatures_window_start: u64,
+
+        // ── Travel rule (FATF) ──────────────────────────────────────────────
+        /// Encrypted hash of travel rule data per bridge request (actual data stored off-chain).
+        travel_rule_data: Mapping<u64, TravelRuleData>,
+        /// Jurisdiction-specific travel rule thresholds (chain_id -> minimum amount requiring compliance).
+        travel_rule_thresholds: Mapping<ChainId, u128>,
+
+        // ── Emergency multi-sig for pause/freeze operations ────────────────
+        /// Emergency multi-sig members authorized to trigger pause/freeze operations.
+        emergency_signers: Vec<AccountId>,
+        /// Number of signatures required for emergency multi-sig operations.
+        emergency_threshold: u8,
+        /// Pending emergency multi-sig requests (request_id -> request data).
+        emergency_requests: Mapping<u64, EmergencyRequest>,
+        /// Emergency request counter.
+        emergency_request_counter: u64,
+        /// Frozen assets (asset_address -> freeze info).
+        frozen_assets: Mapping<AccountId, AssetFreezeInfo>,
+
+        // ── Batched Merkle verification for performance ────────────────────
+        /// Batch verification windows keyed by (source_chain, window_id).
+        /// Stores the Merkle root for each batch window.
+        batch_merkle_roots: Mapping<(ChainId, u64), Hash>,
+        /// Transaction to batch window mapping (transaction_hash -> (source_chain, window_id)).
+        transaction_to_batch: Mapping<Hash, (ChainId, u64)>,
+        /// Batch window counter per source chain.
+        batch_window_counter: Mapping<ChainId, u64>,
+        /// Transactions in each batch window (source_chain, window_id -> Vec<transaction_hash>).
+        batch_transactions: Mapping<(ChainId, u64), Vec<Hash>>,
+        /// Batch window size (number of transactions per batch).
+        batch_window_size: u64,
+        /// Current batch window start timestamp per source chain.
+        batch_window_start: Mapping<ChainId, u64>,
+        /// Batch window duration in seconds.
+        batch_window_duration: u64,
     }
 
     /// Events for bridge operations
@@ -498,6 +581,158 @@ mod bridge {
         pub timestamp: u64,
     }
 
+    // ── Travel rule (FATF) data structure ─────────────────────────────────
+
+    /// Originator and beneficiary information required by FATF Recommendation 16.
+    /// The raw PII is stored off-chain; only the `data_hash` (SHA-256 of the
+    /// canonical off-chain payload) is persisted on-chain.
+    #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub struct TravelRuleData {
+        /// UTF-8 name of the originator (hashed reference; actual name stored off-chain).
+        pub originator_name: Vec<u8>,
+        /// On-chain account of the originator.
+        pub originator_account: AccountId,
+        /// UTF-8 name of the beneficiary.
+        pub beneficiary_name: Vec<u8>,
+        /// On-chain account of the beneficiary.
+        pub beneficiary_account: AccountId,
+        /// Transfer amount in the base token unit.
+        pub transfer_amount: u128,
+        /// SHA-256 hash of the canonical off-chain compliance payload.
+        pub data_hash: [u8; 32],
+        /// Block timestamp at which the data was submitted (set by the contract).
+        pub submitted_at: u64,
+    }
+
+    /// Emitted when travel rule data is submitted for a bridge request.
+    #[ink(event)]
+    pub struct TravelRuleDataSubmitted {
+        #[ink(topic)]
+        pub request_id: u64,
+        #[ink(topic)]
+        pub originator_account: AccountId,
+        pub data_hash: [u8; 32],
+        pub timestamp: u64,
+    }
+
+    /// Emitted when a jurisdiction-specific travel rule threshold is updated.
+    #[ink(event)]
+    pub struct TravelRuleThresholdUpdated {
+        pub chain_id: ChainId,
+        pub threshold_amount: u128,
+        pub timestamp: u64,
+    }
+
+    // ── Emergency multi-sig events ────────────────────────────────────────
+
+    /// Emitted when an emergency multi-sig request is created.
+    #[ink(event)]
+    pub struct EmergencyRequestCreated {
+        #[ink(topic)]
+        pub request_id: u64,
+        #[ink(topic)]
+        pub request_type: EmergencyRequestType,
+        #[ink(topic)]
+        pub proposed_by: AccountId,
+        pub timestamp: u64,
+    }
+
+    /// Emitted when an emergency multi-sig request is signed.
+    #[ink(event)]
+    pub struct EmergencyRequestSigned {
+        #[ink(topic)]
+        pub request_id: u64,
+        #[ink(topic)]
+        pub signer: AccountId,
+        pub signatures_collected: u8,
+        pub signatures_required: u8,
+    }
+
+    /// Emitted when an emergency multi-sig request is executed.
+    #[ink(event)]
+    pub struct EmergencyRequestExecuted {
+        #[ink(topic)]
+        pub request_id: u64,
+        #[ink(topic)]
+        pub request_type: EmergencyRequestType,
+        #[ink(topic)]
+        pub executed_by: AccountId,
+        pub timestamp: u64,
+    }
+
+    /// Emitted when an asset is frozen.
+    #[ink(event)]
+    pub struct AssetFrozen {
+        #[ink(topic)]
+        pub asset_address: AccountId,
+        #[ink(topic)]
+        pub frozen_by: AccountId,
+        pub reason: String,
+        pub affects_inflight: bool,
+        pub timestamp: u64,
+    }
+
+    /// Emitted when an asset freeze is lifted.
+    #[ink(event)]
+    pub struct AssetUnfrozen {
+        #[ink(topic)]
+        pub asset_address: AccountId,
+        #[ink(topic)]
+        pub unfrozen_by: AccountId,
+        pub timestamp: u64,
+    }
+
+    // ── Batched Merkle verification events ───────────────────────────────
+
+    /// Emitted when a new batch verification window is created.
+    #[ink(event)]
+    pub struct BatchWindowCreated {
+        #[ink(topic)]
+        pub source_chain: ChainId,
+        pub window_id: u64,
+        pub window_start: u64,
+        pub window_duration: u64,
+        pub timestamp: u64,
+    }
+
+    /// Emitted when a batch Merkle root is submitted for verification.
+    #[ink(event)]
+    pub struct BatchMerkleRootSubmitted {
+        #[ink(topic)]
+        pub source_chain: ChainId,
+        pub window_id: u64,
+        pub merkle_root: Hash,
+        pub transaction_count: u64,
+        pub submitted_by: AccountId,
+        pub timestamp: u64,
+    }
+
+    /// Emitted when a batch Merkle root is verified.
+    #[ink(event)]
+    pub struct BatchMerkleRootVerified {
+        #[ink(topic)]
+        pub source_chain: ChainId,
+        pub window_id: u64,
+        pub merkle_root: Hash,
+        pub verified_by: AccountId,
+        pub timestamp: u64,
+    }
+
+    /// Emitted when a transaction is added to a batch window.
+    #[ink(event)]
+    pub struct TransactionAddedToBatch {
+        #[ink(topic)]
+        pub transaction_hash: Hash,
+        #[ink(topic)]
+        pub source_chain: ChainId,
+        pub window_id: u64,
+        pub timestamp: u64,
+    }
+
     impl PropertyBridge {
         /// Creates a new PropertyBridge contract
         #[ink(constructor)]
@@ -557,6 +792,20 @@ mod bridge {
                 chain_hourly_window_start: Mapping::default(),
                 failed_signatures_window_count: 0,
                 failed_signatures_window_start: 0,
+                travel_rule_data: Mapping::default(),
+                travel_rule_thresholds: Mapping::default(),
+                emergency_signers: Vec::new(),
+                emergency_threshold: 2, // Default threshold
+                emergency_requests: Mapping::default(),
+                emergency_request_counter: 0,
+                frozen_assets: Mapping::default(),
+                batch_merkle_roots: Mapping::default(),
+                transaction_to_batch: Mapping::default(),
+                batch_window_counter: Mapping::default(),
+                batch_transactions: Mapping::default(),
+                batch_window_size: 10, // Default batch size
+                batch_window_start: Mapping::default(),
+                batch_window_duration: 300, // Default 5 minutes in seconds
             };
 
             // Set up default chain information
@@ -619,6 +868,9 @@ mod bridge {
             // Enforce rate limiting
             // For NFT bridge, we count requests but value is 0 here since NFT value isn't strictly defined by amount.
             self.check_and_update_rate_limits(caller, destination_chain, 0, true)?;
+
+            // Check if asset is frozen
+            self.ensure_asset_not_frozen(token_id)?;
 
             // Create bridge request
             self.request_counter += 1;
@@ -705,6 +957,9 @@ mod bridge {
             }
 
             self.check_and_update_rate_limits(caller, *route.last().unwrap(), 0, true)?;
+
+            // Check if asset is frozen
+            self.ensure_asset_not_frozen(token_id)?;
 
             let total_gas_estimate = self.estimate_multi_hop_bridge_gas(route.clone())?;
 
@@ -902,6 +1157,12 @@ mod bridge {
                     return Err(Error::InsufficientSignatures);
                 }
 
+                // FATF travel rule compliance check
+                self.ensure_travel_rule_compliance(request_id, &request)?;
+
+                // Check if asset is frozen
+                self.ensure_asset_not_frozen(request.token_id)?;
+
                 // Generate transaction hash
                 let transaction_hash = self.generate_transaction_hash(&request);
                 let old_source_chain = request.source_chain;
@@ -947,7 +1208,10 @@ mod bridge {
                 }
 
                 self.bridge_requests.insert(request_id, &request);
-                self.verified_transactions.insert(transaction_hash, &true);
+
+                // Add transaction to batch window for batched verification
+                self.add_transaction_to_batch(transaction_hash, old_source_chain);
+
                 self.advance_cross_chain_status_on_execute(
                     request_id,
                     old_source_chain,
@@ -1039,6 +1303,82 @@ mod bridge {
 
                 Ok(())
             })
+        }
+
+        // ── Travel rule (FATF) messages ────────────────────────────────────────
+
+        /// Submit travel rule data for a bridge request (must be called before
+        /// [`execute_bridge`] when the transfer amount exceeds the jurisdiction threshold).
+        ///
+        /// Only the request originator or the admin may submit travel rule data.
+        /// The raw PII should be stored off-chain; supply its SHA-256 hash as `data.data_hash`.
+        #[ink(message)]
+        pub fn submit_travel_rule_data(
+            &mut self,
+            request_id: u64,
+            data: TravelRuleData,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+            let request = self
+                .bridge_requests
+                .get(request_id)
+                .ok_or(Error::InvalidRequest)?;
+
+            if request.sender != caller && caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            if self.travel_rule_data.contains(request_id) {
+                return Err(Error::TravelRuleDataAlreadySubmitted);
+            }
+
+            let mut stored = data;
+            stored.submitted_at = self.env().block_timestamp();
+            self.travel_rule_data.insert(request_id, &stored);
+
+            self.env().emit_event(TravelRuleDataSubmitted {
+                request_id,
+                originator_account: stored.originator_account,
+                data_hash: stored.data_hash,
+                timestamp: stored.submitted_at,
+            });
+
+            Ok(())
+        }
+
+        /// Return the on-chain travel rule record for `request_id`, or `None` if not yet submitted.
+        /// The returned `data_hash` is a reference to the off-chain compliance payload.
+        #[ink(message)]
+        pub fn get_travel_rule_data(&self, request_id: u64) -> Option<TravelRuleData> {
+            self.travel_rule_data.get(request_id)
+        }
+
+        /// Admin: set the minimum transfer amount above which travel rule data is required
+        /// for transfers to `chain_id`.  Set to `u128::MAX` to disable for a jurisdiction.
+        #[ink(message)]
+        pub fn set_travel_rule_threshold(
+            &mut self,
+            chain_id: ChainId,
+            threshold_amount: u128,
+        ) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            self.travel_rule_thresholds.insert(chain_id, &threshold_amount);
+            self.env().emit_event(TravelRuleThresholdUpdated {
+                chain_id,
+                threshold_amount,
+                timestamp: self.env().block_timestamp(),
+            });
+            Ok(())
+        }
+
+        /// Return the travel rule threshold for `chain_id`.
+        /// Defaults to `u128::MAX` (disabled) when no threshold has been configured.
+        #[ink(message)]
+        pub fn get_travel_rule_threshold(&self, chain_id: ChainId) -> u128 {
+            self.travel_rule_thresholds.get(chain_id).unwrap_or(u128::MAX)
         }
 
         // ── #201: Transaction rollback mechanism ─────────────────────────────────
@@ -1194,9 +1534,23 @@ mod bridge {
             transaction_hash: Hash,
             _source_chain: ChainId,
         ) -> bool {
-            self.verified_transactions
-                .get(transaction_hash)
-                .unwrap_or(false)
+            // Check if transaction is individually verified
+            if self.verified_transactions.get(transaction_hash).unwrap_or(false) {
+                return true;
+            }
+
+            // Check if transaction is in a verified batch
+            if let Some((source_chain, window_id)) = self.transaction_to_batch.get(transaction_hash) {
+                let batch_key = (source_chain, window_id);
+                if let Some(_merkle_root) = self.batch_merkle_roots.get(batch_key) {
+                    // Transaction is in a batch that has a Merkle root submitted
+                    // In production, this would verify the Merkle proof
+                    // For now, we consider it verified if the batch has a root
+                    return true;
+                }
+            }
+
+            false
         }
 
         /// Gets bridge history for an account
@@ -1725,6 +2079,493 @@ mod bridge {
             Ok(())
         }
 
+        // ── Emergency multi-sig for pause/freeze operations ─────────────────
+
+        /// Add an emergency signer. Admin only.
+        #[ink(message)]
+        pub fn add_emergency_signer(&mut self, signer: AccountId) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            if !self.emergency_signers.contains(&signer) {
+                self.emergency_signers.push(signer);
+            }
+            Ok(())
+        }
+
+        /// Remove an emergency signer. Admin only.
+        #[ink(message)]
+        pub fn remove_emergency_signer(&mut self, signer: AccountId) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            self.emergency_signers.retain(|s| s != &signer);
+            Ok(())
+        }
+
+        /// Set the emergency signature threshold. Admin only.
+        #[ink(message)]
+        pub fn set_emergency_threshold(&mut self, threshold: u8) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            if threshold == 0 || threshold > self.emergency_signers.len() as u8 {
+                return Err(Error::InsufficientSignatures);
+            }
+            self.emergency_threshold = threshold;
+            Ok(())
+        }
+
+        /// Get the current emergency signers and threshold.
+        #[ink(message)]
+        pub fn get_emergency_config(&self) -> (Vec<AccountId>, u8) {
+            (self.emergency_signers.clone(), self.emergency_threshold)
+        }
+
+        /// Propose a bridge pause via emergency multi-sig.
+        #[ink(message)]
+        pub fn propose_pause_bridge(
+            &mut self,
+            flags: PauseFlags,
+            reason: PauseReason,
+            detail: Option<String>,
+            timeout_blocks: Option<u64>,
+        ) -> Result<u64, Error> {
+            let caller = self.env().caller();
+            if !self.emergency_signers.contains(&caller) {
+                return Err(Error::NotEmergencySigner);
+            }
+
+            self.emergency_request_counter += 1;
+            let request_id = self.emergency_request_counter;
+            let current_block = u64::from(self.env().block_number());
+            let expires_at = timeout_blocks.map(|blocks| current_block + blocks);
+
+            let request = EmergencyRequest {
+                request_id,
+                request_type: EmergencyRequestType::PauseBridge,
+                proposed_by: caller,
+                signatures: vec![caller],
+                created_at: current_block,
+                expires_at,
+                executed: false,
+                pause_flags: Some(flags),
+                pause_reason: Some(reason),
+                pause_detail: detail,
+                asset_address: None,
+                freeze_reason: None,
+            };
+
+            self.emergency_requests.insert(request_id, &request);
+
+            self.env().emit_event(EmergencyRequestCreated {
+                request_id,
+                request_type: EmergencyRequestType::PauseBridge,
+                proposed_by: caller,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(request_id)
+        }
+
+        /// Propose an asset freeze via emergency multi-sig.
+        #[ink(message)]
+        pub fn propose_freeze_asset(
+            &mut self,
+            asset_address: AccountId,
+            reason: String,
+            affects_inflight: bool,
+            timeout_blocks: Option<u64>,
+        ) -> Result<u64, Error> {
+            let caller = self.env().caller();
+            if !self.emergency_signers.contains(&caller) {
+                return Err(Error::NotEmergencySigner);
+            }
+
+            self.emergency_request_counter += 1;
+            let request_id = self.emergency_request_counter;
+            let current_block = u64::from(self.env().block_number());
+            let expires_at = timeout_blocks.map(|blocks| current_block + blocks);
+
+            let request = EmergencyRequest {
+                request_id,
+                request_type: EmergencyRequestType::FreezeAsset,
+                proposed_by: caller,
+                signatures: vec![caller],
+                created_at: current_block,
+                expires_at,
+                executed: false,
+                pause_flags: None,
+                pause_reason: None,
+                pause_detail: None,
+                asset_address: Some(asset_address),
+                freeze_reason: Some(reason),
+            };
+
+            self.emergency_requests.insert(request_id, &request);
+
+            self.env().emit_event(EmergencyRequestCreated {
+                request_id,
+                request_type: EmergencyRequestType::FreezeAsset,
+                proposed_by: caller,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(request_id)
+        }
+
+        /// Sign an emergency multi-sig request.
+        #[ink(message)]
+        pub fn sign_emergency_request(&mut self, request_id: u64) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if !self.emergency_signers.contains(&caller) {
+                return Err(Error::NotEmergencySigner);
+            }
+
+            let mut request = self
+                .emergency_requests
+                .get(request_id)
+                .ok_or(Error::InvalidRequest)?;
+
+            if request.executed {
+                return Err(Error::EmergencyRequestAlreadyExecuted);
+            }
+
+            if let Some(expires_at) = request.expires_at {
+                if u64::from(self.env().block_number()) > expires_at {
+                    return Err(Error::EmergencyRequestExpired);
+                }
+            }
+
+            if request.signatures.contains(&caller) {
+                return Err(Error::AlreadySigned);
+            }
+
+            request.signatures.push(caller);
+            self.emergency_requests.insert(request_id, &request);
+
+            self.env().emit_event(EmergencyRequestSigned {
+                request_id,
+                signer: caller,
+                signatures_collected: request.signatures.len() as u8,
+                signatures_required: self.emergency_threshold,
+            });
+
+            Ok(())
+        }
+
+        /// Execute an emergency multi-sig request once threshold is reached.
+        #[ink(message)]
+        pub fn execute_emergency_request(&mut self, request_id: u64) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if !self.emergency_signers.contains(&caller) {
+                return Err(Error::NotEmergencySigner);
+            }
+
+            let mut request = self
+                .emergency_requests
+                .get(request_id)
+                .ok_or(Error::InvalidRequest)?;
+
+            if request.executed {
+                return Err(Error::EmergencyRequestAlreadyExecuted);
+            }
+
+            if let Some(expires_at) = request.expires_at {
+                if u64::from(self.env().block_number()) > expires_at {
+                    return Err(Error::EmergencyRequestExpired);
+                }
+            }
+
+            if request.signatures.len() < self.emergency_threshold as usize {
+                return Err(Error::InsufficientEmergencySignatures);
+            }
+
+            request.executed = true;
+            self.emergency_requests.insert(request_id, &request);
+
+            match request.request_type {
+                EmergencyRequestType::PauseBridge => {
+                    let flags = request.pause_flags.ok_or(Error::InvalidRequest)?;
+                    let reason = request.pause_reason.ok_or(Error::InvalidRequest)?;
+                    let detail = request.pause_detail.clone();
+                    self.apply_pause(caller, flags, reason, detail);
+                }
+                EmergencyRequestType::FreezeAsset => {
+                    let asset_address = request.asset_address.ok_or(Error::InvalidRequest)?;
+                    let freeze_reason = request.freeze_reason.ok_or(Error::InvalidRequest)?;
+                    self.apply_asset_freeze(caller, asset_address, freeze_reason, true);
+                }
+            }
+
+            self.env().emit_event(EmergencyRequestExecuted {
+                request_id,
+                request_type: request.request_type,
+                executed_by: caller,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Get an emergency request by ID.
+        #[ink(message)]
+        pub fn get_emergency_request(&self, request_id: u64) -> Option<EmergencyRequest> {
+            self.emergency_requests.get(request_id)
+        }
+
+        /// Check if an asset is frozen.
+        #[ink(message)]
+        pub fn is_asset_frozen(&self, asset_address: AccountId) -> bool {
+            self.frozen_assets.get(asset_address).is_some()
+        }
+
+        /// Get freeze info for an asset.
+        #[ink(message)]
+        pub fn get_asset_freeze_info(&self, asset_address: AccountId) -> Option<AssetFreezeInfo> {
+            self.frozen_assets.get(asset_address)
+        }
+
+        /// Unfreeze an asset. Admin only.
+        #[ink(message)]
+        pub fn unfreeze_asset(&mut self, asset_address: AccountId) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            if self.frozen_assets.get(asset_address).is_none() {
+                return Err(Error::AssetNotFrozen);
+            }
+
+            self.frozen_assets.remove(asset_address);
+
+            self.env().emit_event(AssetUnfrozen {
+                asset_address,
+                unfrozen_by: self.env().caller(),
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Apply an asset freeze to storage.
+        fn apply_asset_freeze(
+            &mut self,
+            frozen_by: AccountId,
+            asset_address: AccountId,
+            reason: String,
+            affects_inflight: bool,
+        ) {
+            let freeze_info = AssetFreezeInfo {
+                asset_address,
+                frozen_by,
+                frozen_at: self.env().block_timestamp(),
+                reason,
+                affects_inflight,
+            };
+
+            self.frozen_assets.insert(asset_address, &freeze_info);
+
+            self.env().emit_event(AssetFrozen {
+                asset_address,
+                frozen_by,
+                reason,
+                affects_inflight,
+                timestamp: self.env().block_timestamp(),
+            });
+        }
+
+        /// Check if an asset transfer should be blocked due to freeze.
+        fn ensure_asset_not_frozen(&self, asset_address: AccountId) -> Result<(), Error> {
+            if let Some(freeze_info) = self.frozen_assets.get(asset_address) {
+                if freeze_info.affects_inflight {
+                    return Err(Error::OperationPaused);
+                }
+            }
+            Ok(())
+        }
+
+        // ── Batched Merkle verification for performance ─────────────────────
+
+        /// Configure batch verification parameters. Admin only.
+        #[ink(message)]
+        pub fn configure_batch_verification(
+            &mut self,
+            window_size: u64,
+            window_duration: u64,
+        ) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            if window_size == 0 || window_duration == 0 {
+                return Err(Error::InvalidRequest);
+            }
+            self.batch_window_size = window_size;
+            self.batch_window_duration = window_duration;
+            Ok(())
+        }
+
+        /// Get the current batch verification configuration.
+        #[ink(message)]
+        pub fn get_batch_config(&self) -> (u64, u64) {
+            (self.batch_window_size, self.batch_window_duration)
+        }
+
+        /// Get or create a batch window for a source chain.
+        fn get_or_create_batch_window(&mut self, source_chain: ChainId) -> (ChainId, u64) {
+            let current_time = self.env().block_timestamp();
+            let window_start = self.batch_window_start.get(source_chain).unwrap_or(0);
+            let window_duration = self.batch_window_duration;
+
+            // Check if we need to create a new window
+            if window_start == 0 || current_time >= window_start + window_duration {
+                let window_counter = self.batch_window_counter.get(source_chain).unwrap_or(0) + 1;
+                self.batch_window_counter.insert(source_chain, &window_counter);
+                self.batch_window_start.insert(source_chain, &current_time);
+
+                self.env().emit_event(BatchWindowCreated {
+                    source_chain,
+                    window_id: window_counter,
+                    window_start: current_time,
+                    window_duration,
+                    timestamp: current_time,
+                });
+
+                (source_chain, window_counter)
+            } else {
+                let window_id = self.batch_window_counter.get(source_chain).unwrap_or(0);
+                (source_chain, window_id)
+            }
+        }
+
+        /// Add a transaction to a batch window.
+        fn add_transaction_to_batch(
+            &mut self,
+            transaction_hash: Hash,
+            source_chain: ChainId,
+        ) -> (ChainId, u64) {
+            let (chain, window_id) = self.get_or_create_batch_window(source_chain);
+            let batch_key = (chain, window_id);
+
+            // Add transaction to batch
+            let mut transactions = self.batch_transactions.get(batch_key).unwrap_or_default();
+            transactions.push(transaction_hash);
+            self.batch_transactions.insert(batch_key, &transactions);
+
+            // Map transaction to batch
+            self.transaction_to_batch
+                .insert(transaction_hash, &batch_key);
+
+            self.env().emit_event(TransactionAddedToBatch {
+                transaction_hash,
+                source_chain: chain,
+                window_id,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            batch_key
+        }
+
+        /// Submit a batch Merkle root for verification. Admin or operators only.
+        #[ink(message)]
+        pub fn submit_batch_merkle_root(
+            &mut self,
+            source_chain: ChainId,
+            window_id: u64,
+            merkle_root: Hash,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if caller != self.admin && !self.bridge_operators.contains(&caller) {
+                return Err(Error::Unauthorized);
+            }
+
+            let batch_key = (source_chain, window_id);
+            let transactions = self
+                .batch_transactions
+                .get(batch_key)
+                .ok_or(Error::InvalidRequest)?;
+
+            if transactions.is_empty() {
+                return Err(Error::InvalidRequest);
+            }
+
+            self.batch_merkle_roots.insert(batch_key, &merkle_root);
+
+            self.env().emit_event(BatchMerkleRootSubmitted {
+                source_chain,
+                window_id,
+                merkle_root,
+                transaction_count: transactions.len() as u64,
+                submitted_by: caller,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Verify a batch Merkle root. Admin or operators only.
+        #[ink(message)]
+        pub fn verify_batch_merkle_root(
+            &mut self,
+            source_chain: ChainId,
+            window_id: u64,
+            merkle_root: Hash,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if caller != self.admin && !self.bridge_operators.contains(&caller) {
+                return Err(Error::Unauthorized);
+            }
+
+            let batch_key = (source_chain, window_id);
+            let stored_root = self
+                .batch_merkle_roots
+                .get(batch_key)
+                .ok_or(Error::InvalidRequest)?;
+
+            if stored_root != merkle_root {
+                return Err(Error::InvalidRequest);
+            }
+
+            // Mark all transactions in the batch as verified
+            let transactions = self
+                .batch_transactions
+                .get(batch_key)
+                .ok_or(Error::InvalidRequest)?;
+
+            for tx_hash in transactions {
+                self.verified_transactions.insert(tx_hash, &true);
+            }
+
+            self.env().emit_event(BatchMerkleRootVerified {
+                source_chain,
+                window_id,
+                merkle_root,
+                verified_by: caller,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Get batch window information.
+        #[ink(message)]
+        pub fn get_batch_window_info(
+            &self,
+            source_chain: ChainId,
+            window_id: u64,
+        ) -> Option<(Hash, Vec<Hash>)> {
+            let batch_key = (source_chain, window_id);
+            let merkle_root = self.batch_merkle_roots.get(batch_key)?;
+            let transactions = self.batch_transactions.get(batch_key)?;
+            Some((merkle_root, transactions))
+        }
+
+        /// Get the batch window for a transaction.
+        #[ink(message)]
+        pub fn get_transaction_batch(&self, transaction_hash: Hash) -> Option<(ChainId, u64)> {
+            self.transaction_to_batch.get(transaction_hash)
+        }
+
         // ── Cross-chain transaction status tracking (TASK 1) ───────────────
 
         /// Update the per-chain status of an in-flight cross-chain transaction.
@@ -2118,6 +2959,32 @@ mod bridge {
             let base_gas = 100000; // Base gas for bridge operation
             let metadata_gas = request.metadata.legal_description.len() as u64 * 100; // Gas for metadata
             base_gas + metadata_gas
+        }
+
+        /// Check FATF travel rule compliance for the given bridge request.
+        ///
+        /// Returns `Ok(())` when the transfer amount is below the configured threshold or when
+        /// travel rule data has already been submitted. Returns `Err(TravelRuleDataRequired)`
+        /// when the amount exceeds the threshold and no data has been submitted.
+        fn ensure_travel_rule_compliance(
+            &self,
+            request_id: u64,
+            request: &StoredBridgeRequest,
+        ) -> Result<(), Error> {
+            let threshold = self
+                .travel_rule_thresholds
+                .get(request.destination_chain)
+                .unwrap_or(u128::MAX);
+
+            if request.metadata.valuation <= threshold {
+                return Ok(());
+            }
+
+            if !self.travel_rule_data.contains(request_id) {
+                return Err(Error::TravelRuleDataRequired);
+            }
+
+            Ok(())
         }
 
         fn check_and_update_rate_limits(

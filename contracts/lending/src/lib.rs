@@ -119,6 +119,22 @@ mod propchain_lending {
     }
 
     #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum LoanType {
+        Variable,
+        FixedRate,
+    }
+
+    #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -137,6 +153,8 @@ mod propchain_lending {
         pub term_months: u32,
         pub interest_rate_bps: u32,
         pub status: LoanStatus,
+        pub loan_type: LoanType,
+        pub start_block: Option<u64>,
     }
 
     #[derive(
@@ -152,6 +170,8 @@ mod propchain_lending {
         pub term_months: u32,
         pub interest_rate_bps: u32,
         pub status: LoanStatus,
+        pub loan_type: LoanType,
+        pub start_block: Option<u64>,
     }
 
     #[derive(
@@ -680,6 +700,45 @@ mod propchain_lending {
         }
 
         #[ink(message)]
+        pub fn apply_for_fixed_rate_loan(
+            &mut self,
+            property_id: u64,
+            requested_amount: u128,
+            collateral_value: u128,
+            credit_score: u32,
+            term_months: u32,
+            interest_rate_bps: u32,
+        ) -> Result<u64, LendingError> {
+            if requested_amount == 0 || collateral_value == 0 || term_months == 0 || interest_rate_bps == 0 {
+                return Err(LendingError::InvalidParameters);
+            }
+            self.loan_count += 1;
+            let app = LoanApplication {
+                loan_id: self.loan_count,
+                applicant: self.env().caller(),
+                property_id,
+                requested_amount,
+                collateral_value,
+                credit_score,
+                approved: false,
+                servicer_id: None,
+                servicing_reference: String::new(),
+                servicing_status: String::from("Pending"),
+                collateral_kind: CollateralKind::Unsecured,
+                term_months,
+                interest_rate_bps,
+                status: LoanStatus::Pending,
+                loan_type: LoanType::Variable,
+                start_block: None,
+                loan_type: LoanType::FixedRate,
+                start_block: None,
+            };
+            self.loan_applications.insert(self.loan_count, &app);
+            self.track_borrower_loan(app.applicant, self.loan_count);
+            Ok(self.loan_count)
+        }
+
+        #[ink(message)]
         pub fn apply_for_loan_with_terms(
             &mut self,
             property_id: u64,
@@ -712,6 +771,8 @@ mod propchain_lending {
                 term_months,
                 interest_rate_bps,
                 status: LoanStatus::Pending,
+                loan_type: LoanType::Variable,
+                start_block: None,
             };
             self.loan_applications.insert(self.loan_count, &app);
             self.track_borrower_loan(app.applicant, self.loan_count);
@@ -756,6 +817,8 @@ mod propchain_lending {
                 term_months,
                 interest_rate_bps,
                 status: LoanStatus::Pending,
+                loan_type: LoanType::Variable,
+                start_block: None,
             };
             self.loan_applications.insert(self.loan_count, &app);
             self.track_borrower_loan(app.applicant, self.loan_count);
@@ -791,6 +854,7 @@ mod propchain_lending {
                 profile.total_borrowed =
                     profile.total_borrowed.saturating_add(app.requested_amount);
                 self.credit_profiles.insert(app.applicant, &profile);
+                app.start_block = Some(self.env().block_number() as u64);
                 LoanStatus::Active
             } else {
                 LoanStatus::Pending
@@ -1026,9 +1090,19 @@ mod propchain_lending {
 
             // Calculate current LTV: (loan amount / current property value)
             let current_ltv = (app.requested_amount * 10000) / current_property_value.max(1);
+            let health_factor_drops = current_ltv > record.liquidation_threshold as u128;
 
-            // Check if current LTV exceeds the liquidation threshold
-            if current_ltv <= record.liquidation_threshold as u128 {
+            let mut is_expired = false;
+            if app.loan_type == LoanType::FixedRate {
+                if let Some(start) = app.start_block {
+                    let term_blocks = app.term_months as u64 * 432_000;
+                    if (self.env().block_number() as u64) > start + term_blocks {
+                        is_expired = true;
+                    }
+                }
+            }
+
+            if !health_factor_drops && !is_expired {
                 return Err(LendingError::LiquidationThresholdNotMet);
             }
 
@@ -1362,6 +1436,8 @@ mod propchain_lending {
                 term_months: offer.term_months,
                 interest_rate_bps: offer.rate_bps,
                 status: LoanStatus::Active,
+                loan_type: LoanType::Variable,
+                start_block: Some(self.env().block_number() as u64),
             };
 
             self.loan_applications.insert(loan_id, &loan);

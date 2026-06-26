@@ -54,9 +54,11 @@ let template = PropertyTokenTemplate {
     symbol: "PROP".to_string(),
 };
 
+let salt = generate_deterministic_salt(&template.encode_params());
+
 let config = DeploymentConfig {
     contract_type: ContractType::PropertyToken,
-    salt: generate_salt(),
+    salt,
     init_params: template.encode_params(),
 };
 
@@ -68,9 +70,11 @@ let address = factory.deploy_contract(config, "1.0.0".to_string())?;
 ```rust
 use propchain_factory::builder::DeploymentBuilder;
 
+let salt = generate_deterministic_salt(&encoded_params);
+
 let (config, version) = DeploymentBuilder::new()
     .contract_type(ContractType::Escrow)
-    .salt(generate_salt())
+    .salt(salt)
     .init_params(encoded_params)
     .version("1.0.0".to_string())
     .build()?;
@@ -103,9 +107,11 @@ let template = PropertyTokenTemplate {
     symbol: "LAT".to_string(),
 };
 
+let salt = generate_deterministic_salt(&template.encode_params());
+
 let config = DeploymentConfig {
     contract_type: ContractType::PropertyToken,
-    salt: [1u8; 32],
+    salt,
     init_params: template.encode_params(),
 };
 
@@ -120,9 +126,11 @@ let template = EscrowTemplate {
     fee_percentage: 250, // 2.5%
 };
 
+let salt = generate_deterministic_salt(&template.encode_params());
+
 let config = DeploymentConfig {
     contract_type: ContractType::Escrow,
-    salt: [2u8; 32],
+    salt,
     init_params: template.encode_params(),
 };
 
@@ -137,32 +145,59 @@ let template = OracleTemplate {
     update_interval: 3600, // 1 hour
 };
 
+let salt = generate_deterministic_salt(&template.encode_params());
+
 let config = DeploymentConfig {
     contract_type: ContractType::Oracle,
-    salt: [3u8; 32],
+    salt,
     init_params: template.encode_params(),
 };
 
 let oracle_address = factory.deploy_contract(config, "1.0.0".to_string())?;
 ```
 
-## Salt Generation
+## Deterministic Deployments with CREATE2
 
-Generate unique salts to avoid address collisions:
+The factory now supports CREATE2-style deterministic deployments. This means that the same contract configuration will always be deployed to the same address, regardless of the network or the deployer. This is achieved by using a salt that is based on the contract's initialization parameters.
+
+### Salt Generation for Deterministic Addresses
+
+To generate a deterministic address, you should use a salt that is derived from the contract's initialization parameters. This ensures that any change in the configuration will result in a different address.
 
 ```rust
 use ink::env::hash::{Blake2x256, HashOutput};
 
-fn generate_salt() -> [u8; 32] {
+fn generate_deterministic_salt(params: &[u8]) -> [u8; 32] {
     let mut output = <Blake2x256 as HashOutput>::Type::default();
     ink::env::hash_bytes::<Blake2x256>(
-        &[
-            &ink::env::block_timestamp().to_le_bytes()[..],
-            &ink::env::caller().as_ref()[..],
-        ].concat(),
+        params,
         &mut output,
     );
     output
+}
+```
+
+## Pre-computing Contract Addresses
+
+A key advantage of deterministic deployments is the ability to pre-compute a contract's address without actually deploying it. This is useful for counter-factual reasoning, setting up off-chain systems, and more.
+
+The address is determined by the factory's address, the salt, and the code hash of the contract being deployed. You can compute the address off-chain using a similar hashing function to the one used in the factory.
+
+```rust
+use ink::env::hash::{Blake2x256, HashOutput};
+
+fn pre_compute_address(
+    factory_address: &AccountId,
+    code_hash: &Hash,
+    salt: &[u8; 32],
+) -> AccountId {
+    let mut output = <Blake2x256 as HashOutput>::Type::default();
+    let mut input = Vec::new();
+    input.extend_from_slice(factory_address.as_ref());
+    input.extend_from_slice(salt);
+    input.extend_from_slice(code_hash.as_ref());
+    ink::env::hash_bytes::<Blake2x256>(&input, &mut output);
+    AccountId::from(output)
 }
 ```
 

@@ -51,6 +51,8 @@ mod ipfs_metadata {
         DocumentNotFound,
         /// Document already exists
         DocumentAlreadyExists,
+        /// Document already notarized with this hash
+        AlreadyNotarized,
     }
 
     /// Enhanced property metadata with IPFS integration
@@ -113,6 +115,21 @@ mod ipfs_metadata {
         pub uploaded_at: u64,
         /// Last verification timestamp
         pub last_verified_at: u64,
+    }
+
+    /// On-chain notarization record proving a document existed at a point in time
+    #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub struct NotarizationRecord {
+        pub property_id: u64,
+        pub document_hash: Hash,
+        pub document_type: DocumentType,
+        pub notarized_by: AccountId,
+        pub timestamp: u64,
+        pub block_number: u32,
     }
 
     /// Document type enumeration
@@ -233,6 +250,17 @@ mod ipfs_metadata {
         timestamp: u64,
     }
 
+    /// Event emitted when a document is notarized on-chain
+    #[ink(event)]
+    pub struct DocumentNotarized {
+        #[ink(topic)]
+        property_id: u64,
+        #[ink(topic)]
+        document_hash: Hash,
+        notarized_by: AccountId,
+        timestamp: u64,
+    }
+
     /// Event emitted when IPFS network failure occurs
     #[ink(event)]
     pub struct IpfsNetworkFailure {
@@ -277,6 +305,10 @@ mod ipfs_metadata {
         property_pinned_size: Mapping<u64, u64>,
         /// Mapping from account to access permissions
         access_permissions: Mapping<(u64, AccountId), AccessLevel>,
+        /// Mapping from (property_id, document_hash) to notarization record
+        notarizations: Mapping<(u64, Hash), NotarizationRecord>,
+        /// Mapping from property_id to list of notarized document hashes
+        property_notarization_hashes: Mapping<u64, Vec<Hash>>,
     }
 
     /// Access level for property documents
@@ -322,6 +354,8 @@ mod ipfs_metadata {
                 },
                 property_pinned_size: Mapping::default(),
                 access_permissions: Mapping::default(),
+                notarizations: Mapping::default(),
+                property_notarization_hashes: Mapping::default(),
             }
         }
 
@@ -340,6 +374,8 @@ mod ipfs_metadata {
                 validation_rules: rules,
                 property_pinned_size: Mapping::default(),
                 access_permissions: Mapping::default(),
+                notarizations: Mapping::default(),
+                property_notarization_hashes: Mapping::default(),
             }
         }
 
@@ -794,6 +830,74 @@ mod ipfs_metadata {
             self.property_documents.get(property_id).unwrap_or_default()
         }
 
+        /// Notarizes a property document, recording proof of existence on-chain
+        #[ink(message)]
+        pub fn notarize_document(
+            &mut self,
+            property_id: u64,
+            document_hash: Hash,
+            document_type: DocumentType,
+        ) -> Result<(), Error> {
+            let caller = self.env().caller();
+
+            if self.notarizations.contains((property_id, document_hash)) {
+                return Err(Error::AlreadyNotarized);
+            }
+
+            let timestamp = self.env().block_timestamp();
+            let block_number = self.env().block_number();
+
+            let record = NotarizationRecord {
+                property_id,
+                document_hash,
+                document_type,
+                notarized_by: caller,
+                timestamp,
+                block_number,
+            };
+
+            self.notarizations
+                .insert((property_id, document_hash), &record);
+
+            let mut hashes = self
+                .property_notarization_hashes
+                .get(property_id)
+                .unwrap_or_default();
+            hashes.push(document_hash);
+            self.property_notarization_hashes
+                .insert(property_id, &hashes);
+
+            self.env().emit_event(DocumentNotarized {
+                property_id,
+                document_hash,
+                notarized_by: caller,
+                timestamp,
+            });
+
+            Ok(())
+        }
+
+        /// Verifies whether a document hash has been notarized for a property
+        #[ink(message)]
+        pub fn verify_document_notarization(
+            &self,
+            property_id: u64,
+            document_hash: Hash,
+        ) -> Option<NotarizationRecord> {
+            self.notarizations.get((property_id, document_hash))
+        }
+
+        /// Gets all notarized documents for a property
+        #[ink(message)]
+        pub fn get_property_notarizations(&self, property_id: u64) -> Vec<NotarizationRecord> {
+            self.property_notarization_hashes
+                .get(property_id)
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|hash| self.notarizations.get((property_id, *hash)))
+                .collect()
+        }
+
         /// Gets document by IPFS CID
         #[ink(message)]
         pub fn get_document_by_cid(&self, ipfs_cid: IpfsCid) -> Option<IpfsDocument> {
@@ -929,6 +1033,54 @@ mod ipfs_metadata {
     impl Default for IpfsMetadataRegistry {
         fn default() -> Self {
             Self::new()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[ink::test]
+        fn notarize_document_creates_record() {
+            let mut contract = IpfsMetadataRegistry::new();
+            let property_id = 1u64;
+            let document_hash = Hash::from([0x11; 32]);
+
+            let result = contract.notarize_document(property_id, document_hash, DocumentType::Deed);
+            assert_eq!(result, Ok(()));
+
+            let record = contract
+                .notarizations
+                .get((property_id, document_hash))
+                .expect("record should exist");
+            assert_eq!(record.property_id, property_id);
+            assert_eq!(record.document_hash, document_hash);
+            assert_eq!(record.document_type, DocumentType::Deed);
+        }
+
+        #[ink::test]
+        fn verify_document_notarization_confirms_existence() {
+            let mut contract = IpfsMetadataRegistry::new();
+            let property_id = 2u64;
+            let document_hash = Hash::from([0x22; 32]);
+
+            contract
+                .notarize_document(property_id, document_hash, DocumentType::Title)
+                .unwrap();
+
+            let verified = contract.verify_document_notarization(property_id, document_hash);
+            assert!(verified.is_some());
+            assert_eq!(verified.unwrap().document_type, DocumentType::Title);
+        }
+
+        #[ink::test]
+        fn unnotarized_document_returns_none() {
+            let contract = IpfsMetadataRegistry::new();
+            let property_id = 3u64;
+            let document_hash = Hash::from([0x33; 32]);
+
+            let result = contract.verify_document_notarization(property_id, document_hash);
+            assert_eq!(result, None);
         }
     }
 }

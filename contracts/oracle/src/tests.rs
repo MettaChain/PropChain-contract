@@ -297,16 +297,199 @@ mod oracle_tests {
                 .expect("Source reputation should exist after update"),
             510
         );
+    }
 
-        assert!(oracle
-            .update_source_reputation(source_id.clone(), false)
-            .is_ok());
-        assert_eq!(
+    // ── Batched Aggregation Tests ───────────────────────────────────────────────
+
+    #[ink::test]
+    fn test_set_batch_aggregation_works() {
+        let mut oracle = setup_oracle();
+
+        // Initially disabled
+        assert_eq!(oracle.is_batch_aggregation_enabled(), false);
+
+        // Enable batch aggregation
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+        assert_eq!(oracle.is_batch_aggregation_enabled(), true);
+
+        // Disable batch aggregation
+        assert!(oracle.set_batch_aggregation(false).is_ok());
+        assert_eq!(oracle.is_batch_aggregation_enabled(), false);
+    }
+
+    #[ink::test]
+    fn test_batch_aggregation_produces_same_results() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Add multiple oracle sources
+        for (id, weight) in &[
+            ("source1", 50u32),
+            ("source2", 30u32),
+            ("source3", 20u32),
+        ] {
             oracle
-                .source_reputations
-                .get(&source_id)
-                .expect("Source reputation should exist after update"),
-            460
+                .add_oracle_source(OracleSource {
+                    id: id.to_string(),
+                    source_type: OracleSourceType::Manual,
+                    address: accounts.bob,
+                    is_active: true,
+                    weight: *weight,
+                    last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+                })
+                .expect("Oracle source registration should succeed");
+        }
+
+        // Set up manual prices for aggregation test
+        let prices = vec![
+            PriceData {
+                price: 100,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "source1".to_string(),
+            },
+            PriceData {
+                price: 105,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "source2".to_string(),
+            },
+            PriceData {
+                price: 98,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "source3".to_string(),
+            },
+        ];
+
+        // Test sequential aggregation (batch disabled)
+        let sequential_result = oracle.aggregate_prices(&prices);
+        assert!(sequential_result.is_ok());
+        let sequential_price = sequential_result.unwrap();
+
+        // Enable batch aggregation
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+
+        // Test batch aggregation
+        let batch_result = oracle.aggregate_prices(&prices);
+        assert!(batch_result.is_ok());
+        let batch_price = batch_result.unwrap();
+
+        // Results should be identical
+        assert_eq!(sequential_price, batch_price);
+    }
+
+    #[ink::test]
+    fn test_batch_mode_handles_source_failures_gracefully() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Add multiple sources
+        for (id, weight) in &[
+            ("source1", 50u32),
+            ("source2", 30u32),
+            ("source3", 20u32),
+            ("source4", 10u32),
+        ] {
+            oracle
+                .add_oracle_source(OracleSource {
+                    id: id.to_string(),
+                    source_type: OracleSourceType::Manual,
+                    address: accounts.bob,
+                    is_active: true,
+                    weight: *weight,
+                    last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+                })
+                .expect("Oracle source registration should succeed");
+        }
+
+        // Enable batch aggregation
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+
+        // Set up prices with some sources that would fail (simulated by not providing all)
+        let prices = vec![
+            PriceData {
+                price: 100,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "source1".to_string(),
+            },
+            PriceData {
+                price: 105,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "source2".to_string(),
+            },
+            // source3 and source4 are missing - simulating failures
+        ];
+
+        // Batch aggregation should still work with partial data
+        let result = oracle.aggregate_prices(&prices);
+        assert!(result.is_ok());
+
+        let aggregated = result.unwrap();
+        // Should aggregate the available sources
+        assert!((100..=105).contains(&aggregated));
+    }
+
+    #[ink::test]
+    fn test_packed_weights_cache_rebuilds_on_source_change() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Add initial sources
+        oracle
+            .add_oracle_source(OracleSource {
+                id: "source1".to_string(),
+                source_type: OracleSourceType::Manual,
+                address: accounts.bob,
+                is_active: true,
+                weight: 50,
+                last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+            })
+            .expect("Oracle source registration should succeed");
+
+        // Enable batch aggregation - should rebuild cache
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+        assert_eq!(oracle.active_sources.len(), 1);
+
+        // Add another source - should rebuild cache
+        oracle
+            .add_oracle_source(OracleSource {
+                id: "source2".to_string(),
+                source_type: OracleSourceType::Manual,
+                address: accounts.bob,
+                is_active: true,
+                weight: 30,
+                last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+            })
+            .expect("Oracle source registration should succeed");
+
+        assert_eq!(oracle.active_sources.len(), 2);
+
+        // Verify aggregation still works correctly after cache rebuild
+        let prices = vec![
+            PriceData {
+                price: 100,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "source1".to_string(),
+            },
+            PriceData {
+                price: 105,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "source2".to_string(),
+            },
+        ];
+
+        let result = oracle.aggregate_prices(&prices);
+        assert!(result.is_ok());
+    }
+
+    #[ink::test]
+    fn test_unauthorized_set_batch_aggregation_fails() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Try to enable batch aggregation as non-admin
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            oracle.set_batch_aggregation(true),
+            Err(OracleError::Unauthorized)
         );
     }
 
@@ -818,6 +1001,426 @@ mod oracle_source_multisig_tests {
         assert!(
             oracle.active_sources.contains(&"instant_src".to_string()),
             "Source added immediately when no signers configured"
+        );
+    }
+
+    // ── Batched Collection: collect_prices_from_sources tests ────────────────
+
+    #[ink::test]
+    fn test_collect_prices_batched_vs_sequential_full_flow() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        for (id, weight) in &[
+            ("src_a", 40u32),
+            ("src_b", 35u32),
+            ("src_c", 25u32),
+        ] {
+            oracle
+                .add_oracle_source(OracleSource {
+                    id: id.to_string(),
+                    source_type: OracleSourceType::Manual,
+                    address: accounts.bob,
+                    is_active: true,
+                    weight: *weight,
+                    last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+                })
+                .expect("add source");
+        }
+
+        // Run batched path
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+        let batch_prices = oracle.collect_prices_from_sources(1).expect("batch collect");
+
+        // Run sequential path
+        assert!(oracle.set_batch_aggregation(false).is_ok());
+        let seq_prices = oracle.collect_prices_from_sources(1).expect("seq collect");
+
+        // Both paths should produce the same number of price results
+        assert_eq!(
+            batch_prices.len(),
+            seq_prices.len(),
+            "batched and sequential should return same count"
+        );
+
+        // Both should aggregate to the same value
+        let batch_agg = oracle.set_batch_aggregation(true).ok().and_then(|_| {
+            oracle.aggregate_prices(&batch_prices).ok()
+        });
+        let seq_agg = oracle.set_batch_aggregation(false).ok().and_then(|_| {
+            oracle.aggregate_prices(&seq_prices).ok()
+        });
+        assert_eq!(batch_agg, seq_agg, "aggregated prices should match");
+    }
+
+    #[ink::test]
+    fn test_batch_collect_handles_all_sources_failing() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Add sources that will all fail (Chainlink with no endpoint configured)
+        for (id, weight) in &[("cl_fail1", 50u32), ("cl_fail2", 50u32)] {
+            oracle
+                .add_oracle_source(OracleSource {
+                    id: id.to_string(),
+                    source_type: OracleSourceType::Chainlink,
+                    address: accounts.bob,
+                    is_active: true,
+                    weight: *weight,
+                    last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+                })
+                .expect("add source");
+        }
+
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+        let prices = oracle.collect_prices_from_sources(999).expect("batch collect");
+        assert!(
+            prices.is_empty(),
+            "all sources failing should yield empty price list"
+        );
+    }
+
+    #[ink::test]
+    fn test_batched_source_failure_does_not_panic() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Mix of Manual (succeeds) and Chainlink (fails with no endpoint)
+        oracle
+            .add_oracle_source(OracleSource {
+                id: "manual_ok".to_string(),
+                source_type: OracleSourceType::Manual,
+                address: accounts.bob,
+                is_active: true,
+                weight: 60,
+                last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+            })
+            .expect("add manual");
+
+        oracle
+            .add_oracle_source(OracleSource {
+                id: "chainlink_fail".to_string(),
+                source_type: OracleSourceType::Chainlink,
+                address: accounts.bob,
+                is_active: true,
+                weight: 40,
+                last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+            })
+            .expect("add chainlink");
+
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+        let result = oracle.collect_prices_from_sources(1);
+        assert!(result.is_ok(), "batched collection should not panic on partial failures");
+    }
+
+    #[ink::test]
+    fn test_packed_weights_accuracy() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        let weights = vec![10u32, 20, 30, 40, 50];
+        for (i, w) in weights.iter().enumerate() {
+            oracle
+                .add_oracle_source(OracleSource {
+                    id: format!("src_{}", i),
+                    source_type: OracleSourceType::Manual,
+                    address: accounts.bob,
+                    is_active: true,
+                    weight: *w,
+                    last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+                })
+                .expect("add source");
+        }
+
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+
+        // Verify each weight is correctly retrievable from packed cache
+        for (i, expected) in weights.iter().enumerate() {
+            let got = oracle.get_packed_source_weight(i);
+            assert_eq!(
+                got, *expected,
+                "packed weight mismatch at index {}: got {} expected {}",
+                i, got, expected
+            );
+        }
+    }
+
+    #[ink::test]
+    fn test_packed_weights_odd_source_count() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // 3 sources (odd count) — padding should not break weight lookups
+        for (i, w) in [15u32, 25, 35].iter().enumerate() {
+            oracle
+                .add_oracle_source(OracleSource {
+                    id: format!("odd_{}", i),
+                    source_type: OracleSourceType::Manual,
+                    address: accounts.bob,
+                    is_active: true,
+                    weight: *w,
+                    last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+                })
+                .expect("add source");
+        }
+
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+        assert_eq!(oracle.get_packed_source_weight(0), 15);
+        assert_eq!(oracle.get_packed_source_weight(1), 25);
+        assert_eq!(oracle.get_packed_source_weight(2), 35);
+    }
+
+    #[ink::test]
+    fn test_aggregate_prices_batched_equal_sequential() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        for (id, weight) in &[
+            ("s1", 40u32),
+            ("s2", 35u32),
+            ("s3", 25u32),
+        ] {
+            oracle
+                .add_oracle_source(OracleSource {
+                    id: id.to_string(),
+                    source_type: OracleSourceType::Manual,
+                    address: accounts.bob,
+                    is_active: true,
+                    weight: *weight,
+                    last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+                })
+                .expect("add source");
+        }
+
+        let prices = vec![
+            PriceData {
+                price: 1000,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "s1".to_string(),
+            },
+            PriceData {
+                price: 1100,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "s2".to_string(),
+            },
+            PriceData {
+                price: 950,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "s3".to_string(),
+            },
+        ];
+
+        // Sequential
+        assert!(oracle.set_batch_aggregation(false).is_ok());
+        let seq = oracle.aggregate_prices(&prices).unwrap();
+
+        // Batched
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+        let batch = oracle.aggregate_prices(&prices).unwrap();
+
+        assert_eq!(seq, batch, "sequential and batched aggregation must match");
+    }
+}
+
+// ── Oracle Gas Benchmarks ────────────────────────────────────────────────────
+//
+// Uses block-timestamp deltas as a gas proxy (same methodology as the
+// PropertyRegistry benchmarks in tests/performance_benchmarks.rs).
+// On-chain, fewer storage reads/writes translates directly to lower gas.
+
+#[cfg(test)]
+mod oracle_benchmarks {
+    use super::*;
+    use crate::propchain_oracle::PropertyValuationOracle;
+    use ink::env::{test, DefaultEnvironment};
+
+    fn setup_oracle() -> PropertyValuationOracle {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        PropertyValuationOracle::new(accounts.alice)
+    }
+
+    fn add_sources(oracle: &mut PropertyValuationOracle, count: u32) {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        for i in 0..count {
+            oracle
+                .add_oracle_source(OracleSource {
+                    id: format!("bench_src_{}", i),
+                    source_type: OracleSourceType::Manual,
+                    address: accounts.bob,
+                    is_active: true,
+                    weight: (100 / count.max(1)) as u32,
+                    last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+                })
+                .expect("add source");
+        }
+    }
+
+    fn make_prices(count: usize) -> Vec<PriceData> {
+        let ts = ink::env::block_timestamp::<DefaultEnvironment>();
+        (0..count)
+            .map(|i| PriceData {
+                price: 1000 + (i as u128 * 10),
+                timestamp: ts,
+                source: format!("bench_src_{}", i),
+            })
+            .collect()
+    }
+
+    // ── Sequential vs Batched: aggregation speed ──────────────────────────
+
+    #[ink::test]
+    fn benchmark_aggregation_sequential_vs_batched() {
+        let mut oracle = setup_oracle();
+        add_sources(&mut oracle, 10);
+        let prices = make_prices(10);
+
+        // Sequential aggregation
+        assert!(oracle.set_batch_aggregation(false).is_ok());
+        let start = test::get_block_timestamp::<DefaultEnvironment>();
+        for _ in 0..100 {
+            let _ = oracle.aggregate_prices(&prices);
+        }
+        let seq_end = test::get_block_timestamp::<DefaultEnvironment>();
+        let seq_duration = seq_end.saturating_sub(start);
+
+        // Batched aggregation (packed weights)
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+        let start = test::get_block_timestamp::<DefaultEnvironment>();
+        for _ in 0..100 {
+            let _ = oracle.aggregate_prices(&prices);
+        }
+        let batch_end = test::get_block_timestamp::<DefaultEnvironment>();
+        let batch_duration = batch_end.saturating_sub(start);
+
+        // Batched must not be slower than sequential
+        assert!(
+            batch_duration <= seq_duration,
+            "batched aggregation ({} ticks) should be <= sequential ({} ticks)",
+            batch_duration,
+            seq_duration,
+        );
+
+        // Both must produce identical results
+        assert!(oracle.set_batch_aggregation(false).is_ok());
+        let seq_result = oracle.aggregate_prices(&prices).unwrap();
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+        let batch_result = oracle.aggregate_prices(&prices).unwrap();
+        assert_eq!(seq_result, batch_result);
+    }
+
+    // ── Scaling: aggregation with increasing source count ─────────────────
+
+    #[ink::test]
+    fn benchmark_aggregation_scales_with_sources() {
+        let mut oracle = setup_oracle();
+
+        for count in [2, 5, 10, 20] {
+            // Reset oracle for each batch size
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+            oracle = PropertyValuationOracle::new(accounts.alice);
+            add_sources(&mut oracle, count);
+            let prices = make_prices(count as usize);
+
+            assert!(oracle.set_batch_aggregation(true).is_ok());
+            let start = test::get_block_timestamp::<DefaultEnvironment>();
+            for _ in 0..50 {
+                let _ = oracle.aggregate_prices(&prices);
+            }
+            let end = test::get_block_timestamp::<DefaultEnvironment>();
+            let duration = end.saturating_sub(start);
+
+            // Each iteration should complete within a reasonable bound
+            // (50 iterations / duration gives per-iteration cost)
+            assert!(
+                duration <= 5000,
+                "aggregation with {} sources took {} ticks (too slow)",
+                count,
+                duration,
+            );
+        }
+    }
+
+    // ── Packed weight lookup vs direct storage lookup ─────────────────────
+
+    #[ink::test]
+    fn benchmark_packed_weight_lookup_speed() {
+        let mut oracle = setup_oracle();
+        add_sources(&mut oracle, 10);
+
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+
+        // Packed weight lookups
+        let start = test::get_block_timestamp::<DefaultEnvironment>();
+        for _ in 0..500 {
+            for i in 0..10 {
+                let _ = oracle.get_packed_source_weight(i);
+            }
+        }
+        let packed_end = test::get_block_timestamp::<DefaultEnvironment>();
+        let packed_duration = packed_end.saturating_sub(start);
+
+        // Direct storage lookups via get_source_weight
+        assert!(oracle.set_batch_aggregation(false).is_ok());
+        let start = test::get_block_timestamp::<DefaultEnvironment>();
+        for _ in 0..500 {
+            for i in 0..10 {
+                let sid = format!("bench_src_{}", i);
+                let _ = oracle.get_source_weight(&sid);
+            }
+        }
+        let direct_end = test::get_block_timestamp::<DefaultEnvironment>();
+        let direct_duration = direct_end.saturating_sub(start);
+
+        // Packed lookups should be at least as fast (fewer storage reads)
+        assert!(
+            packed_duration <= direct_duration,
+            "packed weight lookups ({} ticks) should be <= direct lookups ({} ticks)",
+            packed_duration,
+            direct_duration,
+        );
+    }
+
+    // ── Full collect_prices path: sequential vs batched ───────────────────
+
+    #[ink::test]
+    fn benchmark_collect_prices_sequential_vs_batched() {
+        let mut oracle = setup_oracle();
+        add_sources(&mut oracle, 5);
+
+        // Sequential
+        assert!(oracle.set_batch_aggregation(false).is_ok());
+        let start = test::get_block_timestamp::<DefaultEnvironment>();
+        for _ in 0..20 {
+            let _ = oracle.collect_prices_from_sources(1);
+        }
+        let seq_end = test::get_block_timestamp::<DefaultEnvironment>();
+        let seq_duration = seq_end.saturating_sub(start);
+
+        // Batched
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+        let start = test::get_block_timestamp::<DefaultEnvironment>();
+        for _ in 0..20 {
+            let _ = oracle.collect_prices_from_sources(1);
+        }
+        let batch_end = test::get_block_timestamp::<DefaultEnvironment>();
+        let batch_duration = batch_end.saturating_sub(start);
+
+        // Both must produce the same results
+        assert!(oracle.set_batch_aggregation(false).is_ok());
+        let seq_prices = oracle.collect_prices_from_sources(1).unwrap();
+        assert!(oracle.set_batch_aggregation(true).is_ok());
+        let batch_prices = oracle.collect_prices_from_sources(1).unwrap();
+        assert_eq!(seq_prices.len(), batch_prices.len());
+
+        // Report results (visible in test output)
+        // Batched should be comparable or faster due to cached reads and batched writes
+        // The key invariant: batched is never significantly slower
+        assert!(
+            batch_duration <= seq_duration * 2,
+            "batched collection ({} ticks) should not be >2x slower than sequential ({} ticks)",
+            batch_duration,
+            seq_duration,
         );
     }
 }

@@ -1,5 +1,6 @@
 [config]
 skip_core_tasks = true
+default_to_workspace = false
 
 [tasks.default]
 dependencies = ["build-all"]
@@ -70,3 +71,52 @@ platform = "mac"
 [tasks.setup]
 command = "bash"
 args = ["scripts/setup.sh"]
+
+# ── Build ──────────────────────────────────────────────────────────────────
+
+[tasks.build]
+description = "Build all workspace crates"
+command = "cargo"
+args = ["build", "--workspace"]
+
+[tasks.test]
+description = "Run all workspace tests"
+command = "cargo"
+args = ["test", "--workspace"]
+
+[tasks.check]
+description = "Check all workspace crates without producing artifacts"
+command = "cargo"
+args = ["check", "--workspace"]
+
+[tasks.clippy]
+description = "Run clippy lints across workspace"
+command = "cargo"
+args = ["clippy", "--workspace", "--", "-D", "warnings"]
+
+# ── Development ────────────────────────────────────────────────────────────
+
+[tasks.dev-watch]
+description = "Hot-reload: rebuild + retest on file changes in contracts/ and tests/"
+script = ["./scripts/dev-watch.sh"]
+
+[tasks.dev-watch-contract]
+description = "Hot-reload for a single contract (set CONTRACT=<name>)"
+script = ["CONTRACT=${CONTRACT:-} ./scripts/dev-watch.sh"]
+
+# ── Changelog ─────────────────────────────────────────────────────────────
+
+[tasks.generate-changelog]
+description = "Generate CHANGELOG.md from conventional commits using git-cliff"
+script = [
+    "if ! command -v git-cliff &>/dev/null; then cargo install git-cliff --locked; fi",
+    "git-cliff --config cliff.toml --output CHANGELOG.md",
+    "echo 'CHANGELOG.md updated'",
+]
+
+[tasks.generate-changelog-unreleased]
+description = "Preview unreleased changes without writing to CHANGELOG.md"
+script = [
+    "if ! command -v git-cliff &>/dev/null; then cargo install git-cliff --locked; fi",
+    "git-cliff --config cliff.toml --unreleased",
+]
