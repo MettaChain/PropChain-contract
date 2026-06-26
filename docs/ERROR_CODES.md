@@ -18,7 +18,8 @@ All PropChain contracts use a unified numeric error code system. Codes are globa
 | 9001–9010 | Staking | `staking` |
 | 10001–10005 | Monitoring | `monitoring` |
 | 11001–11006 | EventBus | `event_bus` |
-| — | (no numeric code) | `insurance`, `proxy`, `database`, `metadata`, `third-party`, `lending`, `crowdfunding`, `identity`, `prediction-market`, `zk-compliance`, `ai-valuation`, `property-management`, `ipfs-metadata`, `access_control`, `crypto`, `di` |
+| 13001–13004 | VersionRegistry | `version-registry` |
+| — | (no numeric code) | `insurance`, `proxy`, `database`, `metadata`, `third-party`, `lending`, `crowdfunding`, `identity`, `prediction-market`, `zk-compliance`, `ai-valuation`, `property-management`, `ipfs-metadata`, `access_control`, `crypto`, `di`, `factory`, `gdpr`, `analytics`, `fractional`, `sanctions`, `rental_income`, `subscription` |
 
 Errors without a numeric code are returned as typed Rust enums and are identified by variant name in client SDKs.
 
@@ -681,7 +682,135 @@ Trait: `contracts/traits/src/event_bus.rs` — `EventSubscriberError`
 | 9001–9010 | Staking variants | Staking |
 | 10001–10005 | Monitoring variants | Monitoring |
 | 11001–11006 | EventBus variants | EventBus |
+| 13001–13004 | VersionRegistry variants | VersionRegistry |
 
 ---
 
 *Source of truth: `contracts/traits/src/errors.rs` for all numeric codes. Contract-specific error enums are in each contract's `src/errors.rs` or `lib.rs`.*
+
+---
+
+## Version Registry Errors (13001–13004)
+
+Contract: `contracts/version-registry`
+
+| Code | Variant | Meaning | Recovery |
+|------|---------|---------|----------|
+| 13001 | `Unauthorized` | Caller is not the version registry admin | Use the admin account |
+| 13002 | `NameNotFound` | Requested contract name is not registered | Register the name before querying versions |
+| 13003 | `VersionAlreadyExists` | A deployment with this version already exists for the name | Use a different version string |
+| 13004 | `InvalidVersion` | Version string is malformed or out of range | Provide a valid semver-format version |
+
+---
+
+## Factory Errors (no numeric code)
+
+Contract: `contracts/factory` — `Error`
+
+| Variant | Meaning | Recovery |
+|---------|---------|----------|
+| `Unauthorized` | Caller is not the factory admin | Use the admin account |
+| `InvalidContractType` | The requested contract type is not recognized | Use a supported `ContractType` variant |
+| `DeploymentFailed` | Contract instantiation failed | Check code hash is set and parameters are valid |
+| `CodeHashNotSet` | No code hash registered for the requested contract type | Admin must register a code hash before deploying |
+| `ContractNotFound` | Deployment record does not exist | Verify deployment ID |
+| `InvalidParameters` | Instantiation parameters are invalid | Review parameter constraints and resubmit |
+
+---
+
+## GDPR Errors (no numeric code)
+
+Contract: `contracts/gdpr` — `Error`
+
+| Variant | Meaning | Recovery |
+|---------|---------|----------|
+| `NotAuthorized` | Caller lacks GDPR admin or data-subject permissions | Use an authorized account |
+| `ConsentNotFound` | Consent record does not exist | Submit a consent before referencing it |
+| `ConsentAlreadyExists` | Consent for this subject and purpose already recorded | Use `update_consent` instead of re-creating |
+| `DataSubjectNotFound` | Data subject is not registered | Register the data subject first |
+| `ProcessingPurposeNotFound` | Requested processing purpose is not configured | Use a supported `ProcessingPurpose` variant |
+| `RetentionPeriodExceeded` | Stored data has exceeded its retention window | Re-submit data or archive per GDPR policy |
+| `InvalidDuration` | Retention duration is zero or out of range | Provide a positive non-zero duration |
+| `DataRequestNotFound` | GDPR data access/erasure request does not exist | Verify request ID |
+
+---
+
+## Analytics Errors (no numeric code)
+
+Contract: `contracts/analytics` — `AnalyticsError`
+
+| Variant | Meaning | Recovery |
+|---------|---------|----------|
+| `Unauthorized` | Caller lacks analytics admin permissions | Use the admin account |
+| `KeyRotationCooldown` | Admin key rotation is in cooldown | Wait for cooldown to expire |
+| `KeyRotationExpired` | Key rotation request has expired | Submit a new rotation request |
+| `NoPendingRotation` | No pending rotation for this account | Initiate a rotation request first |
+| `RotationUnauthorized` | Caller is not authorized for this rotation | Use the account owner or guardian |
+| `RequestExpired` | Analytics request has exceeded its TTL | Re-submit the request |
+
+---
+
+## Fractional Ownership Errors (no numeric code)
+
+Contract: `contracts/fractional` — `FractionalError`
+
+| Variant | Meaning | Recovery |
+|---------|---------|----------|
+| `InsufficientShares` | Not enough shares available for the requested operation | Reduce share amount or wait for more to become available |
+| `ListingNotFound` | Share listing does not exist | Verify listing ID |
+| `AuctionNotFound` | Share auction does not exist | Verify auction ID |
+| `AuctionAlreadyBid` | Caller already placed a bid on this auction | Update bid using the bid update function |
+| `InsufficientPayment` | Payment amount is below the listing or minimum bid price | Increase payment amount |
+| `Unauthorized` | Caller lacks fractional ownership permissions | Use an authorized account |
+| `ReentrantCall` | Reentrant call detected and blocked | Do not call this function recursively |
+| `ZeroAmount` | Amount must be greater than zero | Provide a positive non-zero amount |
+| `PoolNotFound` | Liquidity pool does not exist | Verify pool ID |
+| `PoolAlreadyExists` | Pool for this token already exists | Use the existing pool |
+| `SlippageExceeded` | Trade output is below the slippage tolerance | Increase slippage tolerance or reduce trade size |
+| `InsufficientLiquidity` | Pool does not have enough liquidity | Add liquidity or reduce trade size |
+| `InsufficientLpShares` | Caller does not hold enough LP shares | Reduce the amount being withdrawn |
+| `KeyRotationCooldown` | Key rotation is in cooldown period | Wait for cooldown to expire |
+| `KeyRotationExpired` | Key rotation request has expired | Submit a new rotation request |
+| `NoPendingRotation` | No pending rotation for this account | Initiate a rotation request first |
+| `RotationUnauthorized` | Caller is not authorized for this rotation | Use the account owner or guardian |
+| `RequestExpired` | Request has exceeded its TTL | Re-submit the request |
+
+---
+
+## Sanctions Errors (no numeric code)
+
+Contract: `contracts/sanctions` — `Error`
+
+| Variant | Meaning | Recovery |
+|---------|---------|----------|
+| `NotAuthorized` | Caller lacks sanctions admin permissions | Use an authorized compliance account |
+| `EntityNotFound` | Sanctioned entity record does not exist | Verify entity ID |
+| `PropertyNotFound` | Property does not exist in the sanctions registry | Verify property ID |
+| `AlreadyScreened` | Entity or property has already been screened | Check existing screening results |
+| `ScreeningNotFound` | Screening record does not exist | Verify screening ID |
+| `SanctionListFull` | Maximum number of sanctions list entries reached | Admin must remove stale entries first |
+| `InvalidJurisdiction` | Jurisdiction code is not recognized | Use a valid jurisdiction code |
+| `ThresholdExceeded` | Risk threshold has been exceeded for this operation | Review risk assessment before proceeding |
+
+---
+
+## Rental Income Errors (no numeric code)
+
+Contract: `contracts/rental_income` — `Error`
+
+| Variant | Meaning | Recovery |
+|---------|---------|----------|
+| `ZeroAmount` | Distribution or payment amount must be greater than zero | Provide a positive non-zero amount |
+| `NoIncomeAvailable` | No rental income has accumulated to distribute | Wait for rental income to be deposited before distributing |
+
+---
+
+## Subscription Errors (no numeric code)
+
+Contract: `contracts/subscription` — `Error`
+
+| Variant | Meaning | Recovery |
+|---------|---------|----------|
+| `AlreadySubscribed` | Caller already has an active subscription with this merchant | Cancel the existing subscription before creating a new one |
+| `NotSubscribed` | Caller does not have an active subscription | Subscribe before calling subscription management functions |
+| `PaymentNotDue` | The next payment date has not yet been reached | Wait until the payment interval has elapsed |
