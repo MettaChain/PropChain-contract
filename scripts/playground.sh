@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# PropChain Contract Interaction Playground
+# PropChain Contract Interaction Playground & Scenario Generator
 #
 # Interactive CLI for exercising the most common contract calls against a
 # deployed PropChain stack (property registration, escrow, staking,
@@ -11,7 +11,10 @@
 # scripts/deploy.sh (deployments/<network>/<contract-dir>.json), so run
 # deploy.sh first (or pass an address manually when prompted).
 #
-# Addresses issue #517.
+# Automatically captures trace outputs to compile self-contained scenario
+# scripts compatible with the IDE playground (docs/playground.html).
+#
+# Addresses issue #517 and issue #652.
 
 set -euo pipefail
 
@@ -63,6 +66,8 @@ declare -A DEFAULT_ACCOUNTS=(
 
 SURI="${SURI:-${DEFAULT_ACCOUNTS[$NETWORK]:-}}"
 DEPLOYMENTS_DIR="$WORKSPACE_ROOT/deployments/$NETWORK"
+OUTPUT_SCENARIO="$WORKSPACE_ROOT/docs/playground_scenario.json"
+INTERACTION_LOG_TMP="/tmp/propchain_playground_session.log"
 
 # Menu option -> contract directory under contracts/
 declare -A CONTRACT_DIR=(
@@ -72,6 +77,10 @@ declare -A CONTRACT_DIR=(
     [4]="governance"
     [5]="insurance"
 )
+
+# Initialize/clear temp telemetry buffer for scenario tracking
+mkdir -p "$(dirname "$OUTPUT_SCENARIO")"
+: > "$INTERACTION_LOG_TMP"
 
 # ---------------------------------------------------------------------------
 # Usage
@@ -246,10 +255,51 @@ show_addresses() {
         local f="$DEPLOYMENTS_DIR/$dir.json"
         if [[ -f "$f" ]]; then
             echo "  $dir: $(jq -r '.address' "$f")"
-        else
+        | else
             echo "  $dir: (not deployed on $NETWORK)"
         fi
     done
+}
+
+# ---------------------------------------------------------------------------
+# Scenario Script Generator Pipeline (#652)
+# ---------------------------------------------------------------------------
+generate_playground_scenario() {
+    section "Compiling Playground Scenario Metadata File"
+    
+    if [ ! -s "$INTERACTION_LOG_TMP" ]; then
+        log_warning "No runtime interaction traces were captured during this playground session. Skipping scenario export."
+        return 0
+    fi
+
+    log_info "Extracting trace execution matrices..."
+
+    # Isolate cross-contract invocations and event elements
+    local contract_calls
+    local emitted_events
+    contract_calls=$(grep -E "invoking|called contract|Calling" "$INTERACTION_LOG_TMP" || echo "[]")
+    emitted_events=$(grep -E "event|emitted|Event" "$INTERACTION_LOG_TMP" || echo "[]")
+
+    log_info "Writing playground configuration to: $OUTPUT_SCENARIO"
+
+    cat << EOF > "$OUTPUT_SCENARIO"
+{
+  "meta": {
+    "generator": "scripts/playground.sh",
+    "timestamp": "$(date -u)",
+    "targetEnvironment": "PropChain Interactive Engine Stack"
+  },
+  "scenarioState": {
+    "network": "$NETWORK",
+    "signingUri": "$SURI",
+    "capturedTraces": {
+      "calls": $(echo "$contract_calls" | jq -R -s -c 'split("\n") | map(select(length > 0))' || echo "[]"),
+      "events": $(echo "$emitted_events" | jq -R -s -c 'split("\n") | map(select(length > 0))' || echo "[]")
+    }
+  }
+}
+EOF
+    log_success "Scenario generation complete. Compatible with docs/playground.html."
 }
 
 # ---------------------------------------------------------------------------
@@ -274,16 +324,19 @@ run_call() {
         cargo contract call \
             --contract "$address" \
             --message "$message" \
-            "${args[@]}" \
             --url "${NETWORKS[$NETWORK]}" \
             --suri "$SURI" \
             --execute \
-            --skip-confirm 2>&1
+            --skip-confirm \
+            "${args[@]}" 2>&1
     )
     local status=$?
     set -e
 
     echo "$output"
+    # Append to runtime trace log for downstream #652 generation logic
+    echo "--- Call Step: $message on $contract_dir ($address) ---" >> "$INTERACTION_LOG_TMP"
+    echo "$output" >> "$INTERACTION_LOG_TMP"
 
     if [[ $status -ne 0 ]]; then
         log_error "Call to $message failed (exit code $status). See output above for details."
@@ -423,7 +476,7 @@ main() {
         echo "  4) Vote on Proposal"
         echo "  5) Create Insurance Policy"
         echo "  6) Show resolved contract addresses"
-        echo "  0) Exit"
+        echo "  0) Exit & Export Scenario"
         echo
         local choice
         read -r -p "Select an option: " choice
@@ -435,7 +488,13 @@ main() {
             4) action_vote_on_proposal ;;
             5) action_create_insurance_policy ;;
             6) show_addresses ;;
-            0) log_info "Bye!"; exit 0 ;;
+            0) 
+                log_info "Terminating session loop..."
+                generate_playground_scenario
+                rm -f "$INTERACTION_LOG_TMP"
+                log_info "Bye!"
+                exit 0 
+                ;;
             *) log_warning "Unknown option: $choice" ;;
         esac
     done
