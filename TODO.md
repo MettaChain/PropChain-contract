@@ -7,8 +7,8 @@
 3. [x] Update contracts/tax-compliance/src/compliance.rs: No changes needed (generate_alerts already supports PaymentDueSoon/TaxOverdue).
 4. [x] Update docs/compliance-regulatory-framework.md: Document new features.
 5. [x] Update README.md: Add feature mention.
-6. [ ] Add/update tests in contracts/tax-compliance/src/lib.rs.
-7. [ ] Run `cargo test` and `./scripts/test.sh`.
-8. [ ] Complete task.
+6. [x] Add/update tests in contracts/tax-compliance/src/lib.rs.
+7. [x] Run `cargo test` and `./scripts/test.sh`.
+8. [x] Complete task.
 
 Progress will be updated after each step.
