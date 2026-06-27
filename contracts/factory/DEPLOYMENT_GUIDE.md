@@ -246,6 +246,130 @@ let address = factory.deploy_contract(config, "2.0.0".to_string())?;
 - Upload contract code first
 - Set code hash using `set_code_hash`
 
+## Pre-Deployment Checklist (Production)
+
+Complete all items in this checklist before deploying the factory to mainnet:
+
+### 📋 Smart Contract Audits
+- [ ] All factory contract dependencies have been audited by a reputable third party
+- [ ] Factory code itself has undergone a full security audit with all findings resolved
+- [ ] All template contracts (PropertyToken, Escrow, Oracle) have been independently audited
+- [ ] Audit reports are publicly disclosed and published in the repository
+- [ ] Reentrancy guards, access controls, and input validation have been verified by auditors
+
+### 🔐 Multisig & Access Control Configuration
+- [ ] Factory admin is set to a 2/3 or 3/5 multisig wallet
+- [ ] Multisig signers are distributed geographically and organizationally
+- [ ] Timelock is configured for all admin operations (minimum 48-hour delay)
+- [ ] Code hash update permissions are restricted to the multisig only
+- [ ] Emergency pause functionality is tested and operational
+- [ ] Admin key rotation process is documented and agreed upon by all signers
+
+### 🔮 Oracle Setup
+- [ ] Price oracle nodes are deployed and synced with major data providers
+- [ ] Oracle update intervals are set according to asset volatility requirements
+- [ ] Oracle dispute mechanisms are tested and operational
+- [ ] Fallback oracles are configured for redundancy
+- [ ] Minimum required oracle signatures are set to prevent single points of failure
+- [ ] Historical price data integrity has been verified
+
+### 🏛️ Governance Configuration
+- [ ] Proposal threshold is set to the required token supply percentage
+- [ ] Voting period duration is appropriate for the community size
+- [ ] Execution delay is configured to allow for review periods
+- [ ] Quorum requirements are tested and validated
+- [ ] All governance parameters are documented and communicated to stakeholders
+- [ ] Emergency governance procedures are in place
+
+## Post-Deployment Verification Script
+
+After deploying to production, run this comprehensive verification script to confirm everything is configured correctly:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+# Configuration
+FACTORY_ADDRESS="YOUR_FACTORY_ADDRESS"
+RPC_URL="YOUR_RPC_ENDPOINT"
+REQUIRED_CODE_HASHES=(
+  "PropertyToken:0xabc123..."
+  "Escrow:0xdef456..."
+  "Oracle:0xghi789..."
+)
+
+echo "🔍 Starting post-deployment verification for PropChain Factory"
+echo "Factory Address: $FACTORY_ADDRESS"
+echo "RPC URL: $RPC_URL"
+echo "========================================"
+
+# 1. Verify factory deployment exists
+echo -e "\n📦 Step 1: Verifying factory deployment exists..."
+cargo contract call \
+  --contract $FACTORY_ADDRESS \
+  --message get_deployment_count \
+  --url $RPC_URL
+echo "✅ Factory is deployed and responsive"
+
+# 2. Verify all code hashes are correctly set
+echo -e "\n🔑 Step 2: Verifying all contract code hashes..."
+for entry in "${REQUIRED_CODE_HASHES[@]}"; do
+  IFS=':' read -r contract_type expected_hash <<< "$entry"
+  stored_hash=$(cargo contract call \
+    --contract $FACTORY_ADDRESS \
+    --message get_code_hash \
+    --args $contract_type \
+    --url $RPC_URL | grep -o '0x[0-9a-f]*')
+  
+  if [ "$stored_hash" = "$expected_hash" ]; then
+    echo "  ✅ $contract_type: Code hash matches"
+  else
+    echo "  ❌ $contract_type: Code hash mismatch! Expected $expected_hash, got $stored_hash"
+    exit 1
+  fi
+done
+
+# 3. Verify admin configuration
+echo -e "\n👤 Step 3: Verifying admin configuration..."
+admin_address=$(cargo contract call \
+  --contract $FACTORY_ADDRESS \
+  --message get_admin \
+  --url $RPC_URL | grep -o '5[0-9a-zA-Z]*')
+
+# Check if admin is the expected multisig address
+EXPECTED_MULTISIG="YOUR_MULTISIG_ADDRESS"
+if [ "$admin_address" = "$EXPECTED_MULTISIG" ]; then
+  echo "  ✅ Admin is correctly set to multisig: $admin_address"
+else
+  echo "  ⚠️  Admin address ($admin_address) does not match expected multisig"
+fi
+
+# 4. Test contract deployment workflow
+echo -e "\n🧪 Step 4: Testing contract deployment workflow..."
+echo "  Deploying a test PropertyToken to verify factory functionality..."
+# This runs a test deployment to ensure the factory can create contracts successfully
+cargo contract call \
+  --contract $FACTORY_ADDRESS \
+  --message deploy_contract \
+  --args '{"contract_type":"PropertyToken","salt":"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef","init_params":"0x..."}' "1.0.0" \
+  --url $RPC_URL \
+  --suri //TestDeployer
+echo "  ✅ Test deployment completed successfully"
+
+# 5. Verify event emission
+echo -e "\n📡 Step 5: Verifying event emission..."
+cargo contract events --url $RPC_URL --contract $FACTORY_ADDRESS --limit 10 | grep -E "ContractDeployed|CodeHashUpdated"
+echo "✅ Factory events are being emitted correctly"
+
+echo -e "\n🎉 All post-deployment checks passed! Factory is ready for production use."
+```
+
+### Script Usage
+1. Save the script as `verify-deployment.sh`
+2. Update the configuration variables at the top
+3. Make it executable: `chmod +x verify-deployment.sh`
+4. Run it: `./verify-deployment.sh`
+
 ## Security Considerations
 
 1. **Admin Security**: Protect admin private keys
