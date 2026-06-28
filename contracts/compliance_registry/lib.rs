@@ -44,6 +44,52 @@ mod compliance_registry {
         Other,
     }
 
+    /// Supported operations that can be enabled/disabled per jurisdiction
+    #[derive(Debug, PartialEq, Eq, Clone, Copy, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub enum AllowedOperation {
+        Transfer,
+        ListForSale,
+        Purchase,
+        CreateEscrow,
+        ReleaseEscrow,
+        BridgeTransfer,
+        UpdateMetadata,
+        RegisterProperty,
+    }
+
+    /// Matrix of allowed operations for a jurisdiction
+    #[derive(Debug, Clone, Copy, scale::Encode, scale::Decode, Default)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub struct OperationsMatrix {
+        pub transfer: bool,
+        pub list_for_sale: bool,
+        pub purchase: bool,
+        pub create_escrow: bool,
+        pub release_escrow: bool,
+        pub bridge_transfer: bool,
+        pub update_metadata: bool,
+        pub register_property: bool,
+    }
+
+    /// Token jurisdiction configuration
+    #[derive(Debug, Clone, Copy, scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub struct TokenJurisdictionConfig {
+        pub jurisdiction: Jurisdiction,
+        pub operations: OperationsMatrix,
+        pub is_active: bool,
+    }
+
     /// Risk level assessment
     #[derive(Debug, PartialEq, Eq, Clone, Copy, scale::Encode, scale::Decode)]
     #[cfg_attr(
@@ -276,6 +322,10 @@ mod compliance_registry {
         screening_cache: Mapping<AccountId, ScreeningResult>,
         /// TTL for cached screening results in seconds
         screening_cache_ttl: u64,
+        /// Per-token jurisdiction configuration: tokenId -> TokenJurisdictionConfig
+        token_jurisdictions: Mapping<u64, TokenJurisdictionConfig>,
+        /// Operations matrix for each jurisdiction (default rules)
+        jurisdiction_operations: Mapping<Jurisdiction, OperationsMatrix>,
     }
 
     /// Errors
@@ -306,6 +356,12 @@ mod compliance_registry {
         JurisdictionNotSupported,
         /// Sanctions check failed
         SanctionsCheckFailed,
+        /// Operation not allowed for this token's jurisdiction
+        OperationNotAllowed,
+        /// Token not found in jurisdiction registry
+        TokenNotFound,
+        /// Invalid operation specified
+        InvalidOperation,
     }
 
     impl core::fmt::Display for Error {
@@ -396,6 +452,15 @@ mod compliance_registry {
                 }
                 Error::SanctionsCheckFailed => {
                     "The account has failed sanctions screening"
+                }
+                Error::OperationNotAllowed => {
+                    "The requested operation is not allowed for this token's jurisdiction"
+                }
+                Error::TokenNotFound => {
+                    "The specified token ID was not found in the jurisdiction registry"
+                }
+                Error::InvalidOperation => {
+                    "The specified operation is invalid or not recognized"
                 }
             }
         }
@@ -505,6 +570,22 @@ mod compliance_registry {
         merkle_root: [u8; 32],
         updated_by: AccountId,
         timestamp: u64,
+    }
+
+    #[ink(event)]
+    pub struct TokenJurisdictionUpdated {
+        #[ink(topic)]
+        token_id: u64,
+        jurisdiction: Jurisdiction,
+        is_active: bool,
+        timestamp: Timestamp,
+    }
+
+    #[ink(event)]
+    pub struct JurisdictionOperationsUpdated {
+        #[ink(topic)]
+        jurisdiction: Jurisdiction,
+        timestamp: Timestamp,
     }
 
     /// Compliance report for an account (audit trail and reporting - Issue #45)
@@ -655,6 +736,8 @@ mod compliance_registry {
 
             // Initialize default jurisdiction rules
             registry.init_default_jurisdiction_rules();
+            // Initialize default jurisdiction operations matrices
+            registry.init_default_jurisdiction_operations();
             registry
         }
 
@@ -722,6 +805,99 @@ mod compliance_registry {
                     minimum_verification_level: 4,
                     data_retention_days: 1825, // 5 years
                     requires_biometric: true,
+                },
+            );
+        }
+
+        /// Initialize default operation matrices for each jurisdiction
+        fn init_default_jurisdiction_operations(&mut self) {
+            // US: Most operations allowed except bridge transfers by default
+            self.jurisdiction_operations.insert(
+                &Jurisdiction::US,
+                &OperationsMatrix {
+                    transfer: true,
+                    list_for_sale: true,
+                    purchase: true,
+                    create_escrow: true,
+                    release_escrow: true,
+                    bridge_transfer: false, // Restrict cross-chain in US
+                    update_metadata: true,
+                    register_property: true,
+                },
+            );
+
+            // EU: All operations allowed with full compliance
+            self.jurisdiction_operations.insert(
+                &Jurisdiction::EU,
+                &OperationsMatrix {
+                    transfer: true,
+                    list_for_sale: true,
+                    purchase: true,
+                    create_escrow: true,
+                    release_escrow: true,
+                    bridge_transfer: true,
+                    update_metadata: true,
+                    register_property: true,
+                },
+            );
+
+            // UK: Similar to EU
+            self.jurisdiction_operations.insert(
+                &Jurisdiction::UK,
+                &OperationsMatrix {
+                    transfer: true,
+                    list_for_sale: true,
+                    purchase: true,
+                    create_escrow: true,
+                    release_escrow: true,
+                    bridge_transfer: true,
+                    update_metadata: true,
+                    register_property: true,
+                },
+            );
+
+            // Singapore: Bridge transfers restricted but others allowed
+            self.jurisdiction_operations.insert(
+                &Jurisdiction::Singapore,
+                &OperationsMatrix {
+                    transfer: true,
+                    list_for_sale: true,
+                    purchase: true,
+                    create_escrow: true,
+                    release_escrow: true,
+                    bridge_transfer: false, // MAS regulations restrict cross-chain
+                    update_metadata: true,
+                    register_property: true,
+                },
+            );
+
+            // UAE: Similar to Singapore
+            self.jurisdiction_operations.insert(
+                &Jurisdiction::UAE,
+                &OperationsMatrix {
+                    transfer: true,
+                    list_for_sale: true,
+                    purchase: true,
+                    create_escrow: true,
+                    release_escrow: true,
+                    bridge_transfer: false,
+                    update_metadata: true,
+                    register_property: true,
+                },
+            );
+
+            // Other jurisdictions: Conservative defaults
+            self.jurisdiction_operations.insert(
+                &Jurisdiction::Other,
+                &OperationsMatrix {
+                    transfer: true,
+                    list_for_sale: true,
+                    purchase: true,
+                    create_escrow: true,
+                    release_escrow: true,
+                    bridge_transfer: false,
+                    update_metadata: true,
+                    register_property: true,
                 },
             );
         }
@@ -1446,6 +1622,158 @@ mod compliance_registry {
                     }
                 }
             }
+            Ok(())
+        }
+
+        // ========== Jurisdiction-aware feature flags per tokenId ==========
+
+        /// Helper to convert AllowedOperation to the corresponding boolean in OperationsMatrix
+        fn get_operation_flag(matrix: &OperationsMatrix, operation: AllowedOperation) -> Result<bool> {
+            match operation {
+                AllowedOperation::Transfer => Ok(matrix.transfer),
+                AllowedOperation::ListForSale => Ok(matrix.list_for_sale),
+                AllowedOperation::Purchase => Ok(matrix.purchase),
+                AllowedOperation::CreateEscrow => Ok(matrix.create_escrow),
+                AllowedOperation::ReleaseEscrow => Ok(matrix.release_escrow),
+                AllowedOperation::BridgeTransfer => Ok(matrix.bridge_transfer),
+                AllowedOperation::UpdateMetadata => Ok(matrix.update_metadata),
+                AllowedOperation::RegisterProperty => Ok(matrix.register_property),
+            }
+        }
+
+        /// Set or update jurisdiction configuration for a token (admin only)
+        #[ink(message)]
+        pub fn set_token_jurisdiction(
+            &mut self,
+            token_id: u64,
+            jurisdiction: Jurisdiction,
+        ) -> Result<()> {
+            self.ensure_owner()?;
+
+            // Get default operations matrix for this jurisdiction
+            let operations = self.jurisdiction_operations.get(jurisdiction)
+                .ok_or(Error::JurisdictionNotSupported)?;
+
+            let config = TokenJurisdictionConfig {
+                jurisdiction,
+                operations,
+                is_active: true,
+            };
+
+            self.token_jurisdictions.insert(token_id, &config);
+
+            self.env().emit_event(TokenJurisdictionUpdated {
+                token_id,
+                jurisdiction,
+                is_active: true,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Update operations matrix for a jurisdiction (admin only)
+        #[ink(message)]
+        pub fn set_jurisdiction_operations(
+            &mut self,
+            jurisdiction: Jurisdiction,
+            operations: OperationsMatrix,
+        ) -> Result<()> {
+            self.ensure_owner()?;
+
+            self.jurisdiction_operations.insert(jurisdiction, &operations);
+
+            self.env().emit_event(JurisdictionOperationsUpdated {
+                jurisdiction,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Check if a specific operation is allowed for a token
+        #[ink(message)]
+        pub fn is_operation_allowed(
+            &self,
+            token_id: u64,
+            operation: AllowedOperation,
+        ) -> Result<bool> {
+            let config = self.token_jurisdictions.get(token_id)
+                .ok_or(Error::TokenNotFound)?;
+
+            if !config.is_active {
+                return Ok(false);
+            }
+
+            Self::get_operation_flag(&config.operations, operation)
+        }
+
+        /// Get the full allowed operations matrix for a token (for marketplace consumers)
+        #[ink(message)]
+        pub fn get_token_operations_matrix(
+            &self,
+            token_id: u64,
+        ) -> Result<OperationsMatrix> {
+            let config = self.token_jurisdictions.get(token_id)
+                .ok_or(Error::TokenNotFound)?;
+            Ok(config.operations)
+        }
+
+        /// Get token's jurisdiction configuration
+        #[ink(message)]
+        pub fn get_token_jurisdiction(
+            &self,
+            token_id: u64,
+        ) -> Result<TokenJurisdictionConfig> {
+            self.token_jurisdictions.get(token_id)
+                .ok_or(Error::TokenNotFound)
+        }
+
+        /// Deactivate a token's jurisdiction configuration (disable all operations)
+        #[ink(message)]
+        pub fn deactivate_token(
+            &mut self,
+            token_id: u64,
+        ) -> Result<()> {
+            self.ensure_owner()?;
+
+            let mut config = self.token_jurisdictions.get(token_id)
+                .ok_or(Error::TokenNotFound)?;
+            
+            config.is_active = false;
+            self.token_jurisdictions.insert(token_id, &config);
+
+            self.env().emit_event(TokenJurisdictionUpdated {
+                token_id,
+                jurisdiction: config.jurisdiction,
+                is_active: false,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Reactivate a previously deactivated token
+        #[ink(message)]
+        pub fn reactivate_token(
+            &mut self,
+            token_id: u64,
+        ) -> Result<()> {
+            self.ensure_owner()?;
+
+            let mut config = self.token_jurisdictions.get(token_id)
+                .ok_or(Error::TokenNotFound)?;
+            
+            config.is_active = true;
+            self.token_jurisdictions.insert(token_id, &config);
+
+            self.env().emit_event(TokenJurisdictionUpdated {
+                token_id,
+                jurisdiction: config.jurisdiction,
+                is_active: true,
+                timestamp: self.env().block_timestamp(),
+            });
+
             Ok(())
         }
 
