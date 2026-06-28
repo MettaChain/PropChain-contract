@@ -2679,5 +2679,33 @@ pub enum DeadlineAlertLevel {
             assert_eq!(summary.compliant_properties, 1); // property 8 has no record -> not overdue
             assert_eq!(summary.non_compliant_properties, 1); // property 7 has outstanding tax
         }
+
+        #[ink::test]
+        fn tax_deadline_events_emitted() {
+            let mut contract = TaxComplianceModule::new(None);
+            let owner = AccountId::from([0x09; 32]);
+
+            // Ensure rule with 30-day due period
+            contract
+                .configure_tax_rule(jurisdiction(), rule())
+                .expect("rule");
+
+            // Set property assessment
+            contract
+                .set_property_assessment(55, jurisdiction(), owner, 100_000, 0)
+                .expect("assessment");
+
+            // Set deterministic timestamp
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_000_000);
+
+            // Count events before
+            let before = ink::env::test::recorded_events().count();
+
+            // Calculate tax -> should emit TaxCalculated + TaxDeadlineApproaching + TaxDeadlineNotification
+            let _record = contract.calculate_tax(55, jurisdiction(), None).expect("tax");
+
+            let after = ink::env::test::recorded_events().count();
+            assert!(after >= before + 3, "expected at least 3 events emitted");
+        }
     }
 }
