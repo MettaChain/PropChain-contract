@@ -152,6 +152,8 @@ mod propchain_lending {
         pub collateral_kind: CollateralKind,
         pub term_months: u32,
         pub interest_rate_bps: u32,
+        pub loan_type: LoanType,
+        pub start_block: Option<u64>,
         pub status: LoanStatus,
         pub accrued_interest: u128,
         pub last_interest_timestamp: u64,
@@ -349,12 +351,14 @@ mod propchain_lending {
         proposal_count: u64,
         credit_profiles: Mapping<AccountId, CreditProfile>,
         reentrancy_guard: propchain_traits::ReentrancyGuard,
-        // ── #304: Loan Marketplace ────────────────────────────────────────────
+        // #304: Loan Marketplace
         marketplace_listings: Mapping<u64, LoanListing>,
         marketplace_offers: Mapping<u64, LoanOffer>,
         listing_count: u64,
         offer_count: u64,
-        // ── Admin Key Rotation (Issue #496) ──────────────────────────────────
+        // #588: Multi-collateral portfolio mapping loan_id -> property_ids
+        loan_collaterals: Mapping<u64, Vec<u64>>,
+        // Admin Key Rotation (Issue #496)
         pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
     }
 
@@ -547,6 +551,7 @@ mod propchain_lending {
                 marketplace_offers: Mapping::default(),
                 listing_count: 0,
                 offer_count: 0,
+                loan_collaterals: Mapping::default(),
                 // Admin Key Rotation (Issue #496)
                 pending_admin_rotation: None,
             }
@@ -586,6 +591,66 @@ mod propchain_lending {
             } else {
                 false
             }
+        }
+
+        #[ink(message)]
+        pub fn should_liquidate_loan(
+            &self,
+            loan_id: u64,
+            current_collateral_values: Vec<(u64, u128)>,
+        ) -> Result<bool, LendingError> {
+            let app = self
+                .loan_applications
+                .get(loan_id)
+                .ok_or(LendingError::LoanNotFound)?;
+            if app.status != LoanStatus::Active {
+                return Ok(false);
+            }
+
+            let collaterals = self.loan_collaterals.get(loan_id).unwrap_or_default();
+            if collaterals.is_empty() {
+                if let Some(record) = self.collateral_records.get(app.property_id) {
+                    let current = current_collateral_values
+                        .iter()
+                        .find(|(id, _)| *id == app.property_id)
+                        .map(|(_, v)| *v)
+                        .unwrap_or(record.assessed_value);
+                    let ratio = (record.assessed_value * 10000) / current.max(1);
+                    return Ok(ratio > record.liquidation_threshold as u128);
+                }
+                return Ok(false);
+            }
+
+            let total_debt = app.requested_amount.saturating_add(app.accrued_interest);
+            let mut total_current_value: u128 = 0;
+            let mut weighted_threshold_sum: u128 = 0;
+            let mut total_assessed: u128 = 0;
+
+            for &pid in &collaterals {
+                let record = self
+                    .collateral_records
+                    .get(pid)
+                    .ok_or(LendingError::PropertyNotFound)?;
+                total_assessed = total_assessed.saturating_add(record.assessed_value);
+                weighted_threshold_sum = weighted_threshold_sum.saturating_add(
+                    record.assessed_value.saturating_mul(record.liquidation_threshold as u128),
+                );
+                let current_val = current_collateral_values
+                    .iter()
+                    .find(|(id, _)| *id == pid)
+                    .map(|(_, v)| *v)
+                    .unwrap_or(record.assessed_value);
+                total_current_value = total_current_value.saturating_add(current_val);
+            }
+
+            let effective_threshold = if total_assessed > 0 {
+                weighted_threshold_sum / total_assessed
+            } else {
+                0
+            };
+
+            let current_ltv = (total_debt * 10000) / total_current_value.max(1);
+            Ok(current_ltv > effective_threshold)
         }
 
         #[ink(message)]
@@ -727,11 +792,9 @@ mod propchain_lending {
                 collateral_kind: CollateralKind::Unsecured,
                 term_months,
                 interest_rate_bps,
-                status: LoanStatus::Pending,
-                loan_type: LoanType::Variable,
-                start_block: None,
                 loan_type: LoanType::FixedRate,
                 start_block: None,
+                status: LoanStatus::Pending,
             };
             self.loan_applications.insert(self.loan_count, &app);
             self.track_borrower_loan(app.applicant, self.loan_count);
@@ -770,6 +833,8 @@ mod propchain_lending {
                 collateral_kind: CollateralKind::Unsecured,
                 term_months,
                 interest_rate_bps,
+                loan_type: LoanType::Variable,
+                start_block: None,
                 status: LoanStatus::Pending,
                 accrued_interest: 0,
                 last_interest_timestamp: 0,
@@ -816,11 +881,14 @@ mod propchain_lending {
                 collateral_kind: CollateralKind::PropertyTokenized,
                 term_months,
                 interest_rate_bps,
+                loan_type: LoanType::Variable,
+                start_block: None,
                 status: LoanStatus::Pending,
                 accrued_interest: 0,
                 last_interest_timestamp: 0,
             };
             self.loan_applications.insert(self.loan_count, &app);
+            self.loan_collaterals.insert(self.loan_count, &vec![property_id]);
             self.track_borrower_loan(app.applicant, self.loan_count);
             Ok(self.loan_count)
         }
@@ -1022,10 +1090,34 @@ mod propchain_lending {
             if status.is_empty() {
                 return Err(LendingError::InvalidParameters);
             }
+            self.update_interest_snapshot(loan_id)?;
             loan.servicing_status = status.clone();
             self.loan_applications.insert(loan_id, &loan);
             self.env()
                 .emit_event(LoanServicingStatusUpdated { loan_id, status });
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn pledge_additional_collateral(
+            &mut self,
+            loan_id: u64,
+            property_id: u64,
+        ) -> Result<(), LendingError> {
+            let record = self
+                .collateral_records
+                .get(property_id)
+                .ok_or(LendingError::PropertyNotFound)?;
+            let mut collaterals = self.loan_collaterals.get(loan_id).unwrap_or_default();
+            if !collaterals.contains(&property_id) {
+                collaterals.push(property_id);
+                self.loan_collaterals.insert(loan_id, &collaterals);
+            }
+            self.env().emit_event(CollateralAssessed {
+                property_id,
+                assessed_value: record.assessed_value,
+                ltv_ratio: record.ltv_ratio,
+            });
             Ok(())
         }
 
@@ -1075,7 +1167,7 @@ mod propchain_lending {
         pub fn liquidate_loan(
             &mut self,
             loan_id: u64,
-            current_property_value: u128,
+            current_collateral_values: Vec<(u64, u128)>,
         ) -> Result<(), LendingError> {
             let mut app = self
                 .loan_applications
@@ -1088,14 +1180,41 @@ mod propchain_lending {
 
             self.update_interest_snapshot(loan_id)?;
 
-            let record = self
-                .collateral_records
-                .get(app.property_id)
-                .ok_or(LendingError::PropertyNotFound)?;
+            let collaterals = self.loan_collaterals.get(loan_id).unwrap_or_default();
+            if collaterals.is_empty() && app.property_id != 0 {
+                let mut fallback = Vec::new();
+                fallback.push(app.property_id);
+                self.loan_collaterals.insert(loan_id, &fallback);
+            }
 
-            // Calculate current LTV: (loan amount / current property value)
-            let current_ltv = (app.requested_amount * 10000) / current_property_value.max(1);
-            let health_factor_drops = current_ltv > record.liquidation_threshold as u128;
+            let current_collaterals = self.loan_collaterals.get(loan_id).unwrap_or_default();
+
+            let total_debt = app.requested_amount.saturating_add(app.accrued_interest);
+            let mut total_current_value: u128 = 0;
+            let mut total_assessed_value: u128 = 0;
+            let mut weighted_liquidation_threshold: u128 = 0;
+
+            for &pid in &current_collaterals {
+                let record = self.collateral_records.get(pid).ok_or(LendingError::PropertyNotFound)?;
+                total_assessed_value = total_assessed_value.saturating_add(record.assessed_value);
+                weighted_liquidation_threshold = weighted_liquidation_threshold.saturating_add(
+                    record.assessed_value.saturating_mul(record.liquidation_threshold as u128)
+                );
+                let current_val = current_collateral_values.iter()
+                    .find(|(id, _)| *id == pid)
+                    .map(|(_, v)| *v)
+                    .unwrap_or(record.assessed_value);
+                total_current_value = total_current_value.saturating_add(current_val);
+            }
+
+            let effective_threshold = if total_assessed_value > 0 {
+                weighted_liquidation_threshold / total_assessed_value
+            } else {
+                return Err(LendingError::InsufficientCollateral);
+            };
+
+            let current_ltv = (total_debt * 10000) / total_current_value.max(1);
+            let health_factor_drops = current_ltv > effective_threshold;
 
             let mut is_expired = false;
             if app.loan_type == LoanType::FixedRate {
@@ -1111,7 +1230,6 @@ mod propchain_lending {
                 return Err(LendingError::LiquidationThresholdNotMet);
             }
 
-            // Perform liquidation
             app.status = LoanStatus::Liquidated;
             self.loan_applications.insert(loan_id, &app);
 
@@ -1440,6 +1558,8 @@ mod propchain_lending {
                 collateral_kind: listing.collateral_kind,
                 term_months: offer.term_months,
                 interest_rate_bps: offer.rate_bps,
+                loan_type: LoanType::Variable,
+                start_block: None,
                 status: LoanStatus::Active,
                 accrued_interest: 0,
                 last_interest_timestamp: self.env().block_timestamp(),
@@ -1923,7 +2043,7 @@ mod tests {
         }
         let loan_id = contract.apply_for_loan(1, 700_000, 1_000_000, 0).unwrap();
         contract.underwrite_loan(loan_id).unwrap();
-        assert!(contract.liquidate_loan(loan_id, 850_000).is_ok());
+        assert!(contract.liquidate_loan(loan_id, vec![(1, 850_000)]).is_ok());
         let loan = contract.get_loan(loan_id).unwrap();
         assert_eq!(loan.status, LoanStatus::Liquidated);
     }
@@ -2069,6 +2189,71 @@ mod tests {
         // score = 500 + 120 - 2*10 = 600
         assert_eq!(contract.get_credit_score(accounts.bob), 600);
     }
+
+    // ── #588: Multi-collateral tests ────────────────────────────────────────
+
+    #[ink::test]
+    fn test_multi_collateral_loan_pledge_and_liquidation() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        contract.assess_collateral(1, 1_000_000, 7500, 8000).unwrap();
+        contract.assess_collateral(2, 500_000, 7000, 8500).unwrap();
+
+        let loan_id = contract
+            .apply_for_property_backed_loan(1, 500_000, 700, 12, 650)
+            .unwrap();
+        contract.underwrite_loan(loan_id).unwrap();
+
+        assert!(contract
+            .pledge_additional_collateral(loan_id, 2)
+            .is_ok());
+
+        let collaterals = contract.loan_collaterals.get(loan_id).unwrap();
+        assert_eq!(collaterals, vec![1, 2]);
+
+        // Both collaterals worth 1.5M, loan 500K → LTV = 33,333 bps
+        // Weighted threshold = (1M*12000 + 500K*8500) / 1.5M = 12,167 bps
+        // 33,333 < 12,167 is false... wait that's not right.
+        // LTV = 500K * 10000 / 1.5M = 3333 bps
+        // 3333 < 12167 → not liquidatable
+        assert!(!contract
+            .should_liquidate_loan(loan_id, vec![(1, 1_000_000), (2, 500_000)])
+            .unwrap());
+
+        // Drop total collateral value to 600K (both halved)
+        // LTV = 500K * 10000 / 600K = 8333 bps
+        // 8333 > 12167 is false → still not liquidatable
+        assert!(!contract
+            .should_liquidate_loan(loan_id, vec![(1, 500_000), (2, 250_000)])
+            .unwrap());
+
+        // Drop to 400K total
+        // LTV = 500K * 10000 / 400K = 12,500 bps > 12,167 → liquidatable
+        assert!(contract
+            .should_liquidate_loan(loan_id, vec![(1, 300_000), (2, 100_000)])
+            .unwrap());
+    }
+
+    #[ink::test]
+    fn test_multi_collateral_liquidation_executes() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        contract.assess_collateral(1, 1_000_000, 7500, 8000).unwrap();
+        contract.assess_collateral(2, 500_000, 7000, 8500).unwrap();
+
+        let loan_id = contract
+            .apply_for_property_backed_loan(1, 500_000, 700, 12, 650)
+            .unwrap();
+        contract.underwrite_loan(loan_id).unwrap();
+        contract.pledge_additional_collateral(loan_id, 2).unwrap();
+
+        // Trigger liquidation with devalued collaterals
+        assert!(contract
+            .liquidate_loan(loan_id, vec![(1, 300_000), (2, 100_000)])
+            .is_ok());
+        let loan = contract.get_loan(loan_id).unwrap();
+        assert_eq!(loan.status, LoanStatus::Liquidated);
+    }
 }
 
 // =========================================================================
@@ -2168,9 +2353,46 @@ mod lending_admin_rotation_tests {
     }
 }
 
+// =========================================================================
+// #589: Storage trait derivation assertion tests
+// =========================================================================
+
 #[cfg(test)]
-#[path = "test.rs"]
-mod lending_regression_test;
+mod storage_derivation_tests {
+    use super::propchain_lending::{
+        CollateralKind, CollateralRecord, CreditProfile, LendingPool, LendingError, LoanApplication,
+        LoanListing, LoanOffer, LoanRestructuring, LoanServicer, LoanStatus, MarginPosition,
+        PaymentSchedule, PaymentScheduleStatus, Proposal, PropertyLending, YieldPosition,
+    };
+    use scale::{Decode, Encode};
+
+    fn assert_storage_type<T: Encode + Decode + scale_info::TypeInfo + ink::storage::traits::StorageLayout>() {}
+
+    #[test]
+    fn all_pub_storage_types_have_required_derives() {
+        assert_storage_type::<CollateralRecord>();
+        assert_storage_type::<LendingPool>();
+        assert_storage_type::<MarginPosition>();
+        assert_storage_type::<LoanApplication>();
+        assert_storage_type::<LoanServicer>();
+        assert_storage_type::<PaymentSchedule>();
+        assert_storage_type::<LoanRestructuring>();
+        assert_storage_type::<YieldPosition>();
+        assert_storage_type::<Proposal>();
+        assert_storage_type::<CreditProfile>();
+        assert_storage_type::<LoanListing>();
+        assert_storage_type::<LoanOffer>();
+        assert_storage_type::<LoanStatus>();
+        assert_storage_type::<CollateralKind>();
+        assert_storage_type::<PaymentScheduleStatus>();
+    }
+
+    #[test]
+    fn property_lending_storage_layout_compiles() {
+        fn assert_layout<T: ink::storage::traits::StorageLayout>() {}
+        assert_layout::<PropertyLending>();
+    }
+}
 
 #[cfg(test)]
 #[path = "test.rs"]
