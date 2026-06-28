@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "propchain-tests"
 version = "1.0.0"
 authors = ["PropChain Team <dev@propchain.io>"]
@@ -32,6 +32,7 @@ fractional = { path = "../contracts/fractional", default-features = false }
 governance = { path = "../contracts/governance", default-features = false }
 staking = { path = "../contracts/staking", default-features = false }
 propchain-bridge = { path = "../contracts/bridge", default-features = false }
+oracle = { path = "../contracts/oracle", default-features = false }
 propchain-insurance = { path = "../contracts/insurance", default-features = false }
 
 # Async runtime
@@ -74,4 +75,6 @@ std = [
 e2e-tests = ["std", "ink_e2e"]
 security-tests = ["std"]
 disabled_test = []
+
+
 

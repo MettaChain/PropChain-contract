@@ -1,4 +1,4 @@
-//! PropChain Test Suite
+﻿//! PropChain Test Suite
 //!
 //! This module provides the test library for PropChain contracts,
 //! including shared utilities, fixtures, and test helpers.
@@ -15,7 +15,7 @@ pub mod test_utils; // Load testing framework
 pub use load_tests::{LoadTestConfig, LoadTestMetrics};
 pub use test_utils::*;
 
-// ── Security Test Modules ─────────────────────────────────────────────────
+// â”€â”€ Security Test Modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 pub mod security_access_control_tests;
 pub mod security_audit_runner;
 pub mod security_bridge_tests;
@@ -24,14 +24,14 @@ pub mod security_fuzzing_tests;
 pub mod security_governance_tests;
 pub mod security_overflow_tests;
 
-// ── Integration Test Modules ─────────────────────────────────────────────
-/// Issue #488: Cross-contract integration tests for governance ↔ staking
+// â”€â”€ Integration Test Modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/// Issue #488: Cross-contract integration tests for governance â†” staking
 pub mod integration_governance_staking;
 
-// ── Bridge Chaos Engineering Tests ───────────────────────────────────────
+// â”€â”€ Bridge Chaos Engineering Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 /// Issue #489: Chaos engineering tests for bridge failure scenarios
 pub mod bridge_chaos;
 
-// ── Regression Test Suite ─────────────────────────────────────────────────
+// â”€â”€ Regression Test Suite â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 /// Issue #487: Regression test suite for all previously fixed bugs
 pub mod regression;
