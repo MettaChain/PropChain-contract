@@ -136,6 +136,8 @@ mod propchain_analytics {
         portfolio_positions: ink::storage::Mapping<AccountId, Vec<PortfolioPosition>>,
         /// Property-type specific market trends for rebalancing
         property_type_trends: ink::storage::Mapping<propchain_traits::PropertyType, MarketTrend>,
+        /// Benchmark performance for property types against a basket of reference indices
+        benchmark_indices: ink::storage::Mapping<propchain_traits::PropertyType, i32>,
         /// Pending admin key rotation request (Issue #496)
         pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
     }
@@ -206,6 +208,7 @@ mod propchain_analytics {
                 },
                 portfolio_positions: ink::storage::Mapping::default(),
                 property_type_trends: ink::storage::Mapping::default(),
+                benchmark_indices: ink::storage::Mapping::default(),
                 pending_admin_rotation: None,
             }
         }
@@ -407,6 +410,29 @@ mod propchain_analytics {
                 })
         }
 
+        /// Update the benchmark index for a property type against a basket of reference indices.
+        #[ink(message)]
+        pub fn update_benchmark_index(
+            &mut self,
+            property_type: propchain_traits::PropertyType,
+            performance_change_percentage: i32,
+        ) {
+            self.ensure_admin();
+            self.benchmark_indices
+                .insert(property_type, &performance_change_percentage);
+        }
+
+        /// Get the stored benchmark index for a property type.
+        #[ink(message)]
+        pub fn get_benchmark_index(
+            &self,
+            property_type: propchain_traits::PropertyType,
+        ) -> i32 {
+            self.benchmark_indices
+                .get(property_type)
+                .unwrap_or(0)
+        }
+
         /// Get portfolio rebalancing suggestions for an owner.
         #[ink(message)]
         pub fn get_rebalancing_suggestions(&self, owner: AccountId) -> Vec<RebalancingSuggestion> {
@@ -420,10 +446,14 @@ mod propchain_analytics {
             let mut total_score: u128 = 0;
             for position in positions.iter() {
                 let trend = self.get_property_type_trend(position.property_type.clone());
+                let benchmark_change = self.get_benchmark_index(position.property_type.clone());
                 let normalized_trend = 100i128
                     + (trend.price_change_percentage as i128 * 2)
                     + (trend.volume_change_percentage as i128 / 5);
-                let score = normalized_trend.clamp(50, 150) as u128;
+                let benchmark_gap = (trend.price_change_percentage as i128 - benchmark_change as i128)
+                    .saturating_mul(3)
+                    + (trend.volume_change_percentage as i128 / 2);
+                let score = (normalized_trend - benchmark_gap).clamp(50, 150) as u128;
                 target_scores.push((position.property_type.clone(), score));
                 total_score = total_score.saturating_add(score);
             }
@@ -443,16 +473,26 @@ mod propchain_analytics {
                         .unwrap_or(0);
                     let current_bips = ((current_value * 10000) / total_value) as u32;
                     let diff = current_bips as i32 - target_bips as i32;
+                    let benchmark_change = self.get_benchmark_index(property_type.clone());
+                    let benchmark_gap = (self
+                        .get_property_type_trend(property_type.clone())
+                        .price_change_percentage as i32
+                        - benchmark_change)
+                        .abs();
                     let recommendation = if diff > 200 {
                         String::from(
-                            "Overweight: consider reducing exposure for this property type.",
+                            "Overweight: reduce exposure because this allocation is above the benchmark-based target.",
                         )
                     } else if diff < -200 {
                         String::from(
-                            "Underweight: consider increasing exposure for this property type.",
+                            "Underweight: increase exposure because this allocation is below the benchmark-based target.",
+                        )
+                    } else if benchmark_gap > 4 {
+                        String::from(
+                            "Benchmark lag: rebalance toward stronger-performing segments.",
                         )
                     } else {
-                        String::from("Aligned with target allocation.")
+                        String::from("Aligned with target allocation and benchmark index.")
                     };
                     RebalancingSuggestion {
                         property_type,
@@ -476,6 +516,7 @@ mod propchain_analytics {
             let mut distinct_types: Vec<propchain_traits::PropertyType> = Vec::new();
             let mut max_share_bips: u32 = 0;
             let mut trend_total: i32 = 0;
+            let mut benchmark_penalty: i32 = 0;
             for position in positions.iter() {
                 if !distinct_types.contains(&position.property_type) {
                     distinct_types.push(position.property_type.clone());
@@ -483,7 +524,10 @@ mod propchain_analytics {
                 let share_bips = ((position.value * 10000) / total_value) as u32;
                 max_share_bips = max_share_bips.max(share_bips);
                 let trend = self.get_property_type_trend(position.property_type.clone());
+                let benchmark_change = self.get_benchmark_index(position.property_type.clone());
                 trend_total += trend.price_change_percentage as i32;
+                benchmark_penalty += ((trend.price_change_percentage as i32 - benchmark_change).abs() / 2)
+                    .min(15);
             }
 
             let distinct_bonus = (distinct_types.len() as u8).saturating_mul(10).min(40);
@@ -494,8 +538,11 @@ mod propchain_analytics {
             };
             let trend_bonus =
                 ((trend_total as i32) / (distinct_types.len().max(1) as i32)).clamp(-10, 10) as i8;
-            let mut score =
-                50i32 + distinct_bonus as i32 - concentration_penalty as i32 + trend_bonus as i32;
+            let mut score = 50i32
+                + distinct_bonus as i32
+                - concentration_penalty as i32
+                + trend_bonus as i32
+                - benchmark_penalty;
             score = score.clamp(0, 100);
             score as u8
         }
@@ -829,6 +876,55 @@ mod propchain_analytics {
                 residential_second.target_allocation_bips
                     < residential_first.target_allocation_bips
             );
+        }
+
+        #[ink::test]
+        fn benchmark_indices_shape_rebalancing_and_health_score() {
+            let mut contract = AnalyticsDashboard::new();
+            let owner = contract.env().caller();
+            let positions = vec![
+                PortfolioPosition {
+                    property_type: propchain_traits::PropertyType::Residential,
+                    value: 700,
+                },
+                PortfolioPosition {
+                    property_type: propchain_traits::PropertyType::Commercial,
+                    value: 300,
+                },
+            ];
+
+            contract.set_portfolio_positions(owner, positions);
+            contract.update_property_type_trend(
+                propchain_traits::PropertyType::Residential,
+                MarketTrend {
+                    period_start: 0,
+                    period_end: 0,
+                    price_change_percentage: 4,
+                    volume_change_percentage: 1,
+                },
+            );
+            contract.update_property_type_trend(
+                propchain_traits::PropertyType::Commercial,
+                MarketTrend {
+                    period_start: 0,
+                    period_end: 0,
+                    price_change_percentage: 10,
+                    volume_change_percentage: 2,
+                },
+            );
+            contract.update_benchmark_index(propchain_traits::PropertyType::Residential, -3);
+            contract.update_benchmark_index(propchain_traits::PropertyType::Commercial, 12);
+
+            let suggestions = contract.get_rebalancing_suggestions(owner);
+            let residential = suggestions
+                .iter()
+                .find(|s| s.property_type == propchain_traits::PropertyType::Residential)
+                .expect("Residential suggestion exists");
+            assert!(residential.recommendation.contains("benchmark"));
+            assert!(residential.target_allocation_bips < residential.current_allocation_bips);
+
+            let score = contract.get_portfolio_health_score(owner);
+            assert!(score < 80, "Benchmarked underperformance should reduce health score");
         }
 
         #[ink::test]
