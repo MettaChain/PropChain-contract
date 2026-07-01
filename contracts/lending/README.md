@@ -71,7 +71,7 @@ let approved = contract.underwrite_loan(loan_id)?;
 ### Liquidate Loan
 
 ```rust
-contract.liquidate_loan(loan_id, current_property_value)?;
+contract.liquidate_loan(loan_id, vec![(property_id, current_property_value)])?;
 ```
 
 ### Stake for Yield
