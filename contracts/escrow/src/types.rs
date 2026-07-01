@@ -224,3 +224,23 @@ pub struct EscrowAnalytics {
     /// Number of unique participants (buyers + sellers)
     pub unique_participants: u64,
 }
+
+impl Default for EscrowAnalytics {
+    fn default() -> Self {
+        Self {
+            total_created: 0,
+            total_released: 0,
+            total_refunded: 0,
+            total_disputed: 0,
+            total_active: 0,
+            total_volume: 0,
+            total_released_volume: 0,
+            total_fees_collected: 0,
+            average_escrow_amount: 0,
+            average_dispute_resolution_time: 0,
+            total_disputes_resolved: 0,
+            unique_participants: 0,
+        }
+    }
+}
+}

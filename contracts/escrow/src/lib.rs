@@ -78,6 +78,9 @@ mod propchain_escrow {
         fee_rate_bps: u16,
         /// Fee recipient account
         fee_recipient: Option<AccountId>,
+        /// Escrow analytics data
+        analytics: EscrowAnalytics,
+        /// Unique participant tracking for analytics
         /// Aggregated escrow analytics for dashboard display
         analytics: EscrowAnalytics,
         /// Tracks unique participants: AccountId -> bool
@@ -344,12 +347,12 @@ mod propchain_escrow {
                 large_transfer_requests: Mapping::default(),
                 large_transfer_request_count: 0,
                 escrow_active_large_transfer: Mapping::default(),
-                // 0 means "use global constant from propchain_traits::constants"
                 large_transfer_threshold: 0,
                 very_large_transfer_threshold: 0,
                 tax_compliance_contract,
                 fee_rate_bps: 0,
                 fee_recipient: None,
+                analytics: EscrowAnalytics::default(),
                 analytics: EscrowAnalytics {
                     total_created: 0,
                     total_released: 0,
