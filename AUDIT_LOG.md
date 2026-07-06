@@ -1,5 +1,5 @@
 # 🛡️ Automated Security & Mutation Audit Log
-Generated on: Sun Jul  5 06:10:27 UTC 2026
+Generated on: Mon Jul  6 06:41:43 UTC 2026
 ---
 ## 📦 Dependency License & Advisory Checks (cargo-deny)
 ```text
@@ -144,6 +144,14 @@ cargo-deny failed or flagged warnings
 [0m[0m[1m[33mDate:     [0m 2026-06-25
 [0m[0m[1m[33mID:       [0m RUSTSEC-2026-0190
 [0m[0m[1m[33mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0190
+
+[0m[0m[1m[33mCrate:    [0m cxx
+[0m[0m[1m[33mVersion:  [0m 1.0.194
+[0m[0m[1m[33mWarning:  [0m unsound
+[0m[0m[1m[33mTitle:    [0m `let_cxx_string!` uses uninitialized value due to exception safety violations
+[0m[0m[1m[33mDate:     [0m 2026-07-05
+[0m[0m[1m[33mID:       [0m RUSTSEC-2026-0202
+[0m[0m[1m[33mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0202
 
 [0m[0m[1m[33mCrate:    [0m lru
 [0m[0m[1m[33mVersion:  [0m 0.12.5
