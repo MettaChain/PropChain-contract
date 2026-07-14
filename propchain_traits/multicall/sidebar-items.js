@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MulticallError"],"struct":["CallRequest","CallResult"]};

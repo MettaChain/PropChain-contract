@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ContractTemplate","TemplateError"],"struct":["BridgeTemplate","CrowdfundingTemplate","DexTemplate","EscrowTemplate","FractionalTemplate","GovernanceTemplate","InsuranceTemplate","LendingTemplate","OracleTemplate","PropertyTokenTemplate"],"trait":["DeploymentTemplate"]};

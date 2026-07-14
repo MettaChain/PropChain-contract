@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["AlertType","HealthStatus","MonitoringError","OperationType"],"struct":["AlertConfig","HealthCheckResult","MetricsSnapshot","PerformanceMetrics"],"trait":["MonitoringSystem"]};
+window.SIDEBAR_ITEMS = {"enum":["AlertType","HealthStatus","MonitoringError","OperationType"],"struct":["AlertConfig","HealthCheckResult","HealthReport","MetricsSnapshot","PerformanceMetrics"],"trait":["HealthEndpoint","MonitoringSystem"]};

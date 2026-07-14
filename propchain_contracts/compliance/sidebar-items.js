@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["ComplianceOperation","EventCategory","LogLevel"],"trait":["ComplianceChecker"]};
+window.SIDEBAR_ITEMS = {"enum":["ComplianceOperation","EventCategory","LogLevel"],"struct":["Jurisdiction"],"trait":["ComplianceChecker","TaxWithholder"]};

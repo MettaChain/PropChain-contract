@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["load_tests","tax_compliance","test_utils"]};
+window.SIDEBAR_ITEMS = {"mod":["bridge_load_tests","regression","test_utils"]};

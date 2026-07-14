@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"static":["__SPEC_XDR_TYPE_LOANSTATS"],"struct":["LoanAnalyticsContract","LoanAnalyticsContractArgs","LoanAnalyticsContractClient","LoanStats"]};

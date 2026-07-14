@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["health","list_contracts","list_events"],"struct":["ApiState","EventsParams"]};
