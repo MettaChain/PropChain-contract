@@ -22,9 +22,7 @@ ink_env = { version = "5.0.0", default-features = false }
 # Contract dependencies
 propchain-traits = { path = "../contracts/traits", default-features = false }
 propchain-contracts = { path = "../contracts/lib", default-features = false }
-property-token = { path = "../contracts/property-token", default-features = false }
 propchain-monitoring = { path = "../contracts/monitoring", default-features = false, features = ["ink-as-dependency"] }
-tax-compliance = { path = "../contracts/tax-compliance", default-features = false }
 compliance_registry = { path = "../contracts/compliance_registry", default-features = false }
 
 # Issue #488 / #487 / #489: contract crates needed for new test modules
@@ -46,9 +44,7 @@ rand = "0.8"
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
 propchain-contracts = { path = "../contracts/lib", default-features = false }
-property-token = { path = "../contracts/property-token", default-features = false }
 propchain-monitoring = { path = "../contracts/monitoring", default-features = false, features = ["ink-as-dependency"] }
-tax-compliance = { path = "../contracts/tax-compliance", default-features = false }
 compliance_registry = { path = "../contracts/compliance_registry", default-features = false }
 proptest = { version = "1.4", features = ["std"] }
 
@@ -59,9 +55,7 @@ std = [
     "scale/std",
     "scale-info/std",
     "propchain-contracts/std",
-    "property-token/std",
     "propchain-monitoring/std",
-    "tax-compliance/std",
     "compliance_registry/std",
     "fractional/std",
     "governance/std",

@@ -22,4 +22,6 @@ pub enum Error {
     SelectorAlreadyExists,
     FacetNotFound,
     SelectorNotFound,
+    Paused,
+    VersionIncompatible,
 }

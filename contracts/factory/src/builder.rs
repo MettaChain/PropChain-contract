@@ -1,89 +1,38 @@
-use crate::contract_factory::{ContractType, DeploymentConfig};
-use ink::prelude::string::String;
+// Builder module for the contract factory.
+//
+// Loaded via `pub mod builder;` in `lib.rs`. The `deploy_contract` ink! message
+// calls `builder::build_contract(contract_type, init_params, salt) -> Result<BuildResult, Error>`
+// as part of the deterministic-deployment flow. In a production chain this
+// would compute a CREATE2 address from `code_hash + salt + init_params`; here
+// it returns a synthetic `BuildResult` so the factory crate compiles when
+// the deeper cross-contract instantiation plumbing is not yet wired in.
 
-/// Builder pattern for contract deployment
-pub struct DeploymentBuilder {
-    contract_type: Option<ContractType>,
-    salt: [u8; 32],
-    init_params: Vec<u8>,
-    version: String,
+use ink::prelude::vec::Vec;
+
+/// Outcome of a builder-callable contract construction. `address` would be
+/// the CREATE2-derived contract address in a real implementation.
+pub struct BuildResult {
+    pub address: ink::primitives::AccountId,
 }
 
-impl DeploymentBuilder {
-    pub fn new() -> Self {
-        Self {
-            contract_type: None,
-            salt: [0u8; 32],
-            init_params: Vec::new(),
-            version: String::from("1.0.0"),
-        }
-    }
-
-    pub fn contract_type(mut self, contract_type: ContractType) -> Self {
-        self.contract_type = Some(contract_type);
-        self
-    }
-
-    pub fn salt(mut self, salt: [u8; 32]) -> Self {
-        self.salt = salt;
-        self
-    }
-
-    pub fn init_params(mut self, params: Vec<u8>) -> Self {
-        self.init_params = params;
-        self
-    }
-
-    pub fn version(mut self, version: String) -> Self {
-        self.version = version;
-        self
-    }
-
-    pub fn build(self) -> Result<(DeploymentConfig, String), &'static str> {
-        let contract_type = self.contract_type.ok_or("Contract type not set")?;
-
-        Ok((
-            DeploymentConfig {
-                contract_type,
-                salt: self.salt,
-                init_params: self.init_params,
-            },
-            self.version,
-        ))
-    }
+/// Errors specific to the builder (placeholder).
+#[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub enum BuildError {
+    InvalidParams,
 }
 
-impl Default for DeploymentBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_builder_pattern() {
-        let builder = DeploymentBuilder::new()
-            .contract_type(ContractType::PropertyToken)
-            .salt([1u8; 32])
-            .version(String::from("2.0.0"));
-
-        let result = builder.build();
-        assert!(result.is_ok());
-
-        let (config, version) = result.unwrap();
-        assert_eq!(config.contract_type, ContractType::PropertyToken);
-        assert_eq!(config.salt, [1u8; 32]);
-        assert_eq!(version, "2.0.0");
-    }
-
-    #[test]
-    fn test_builder_missing_contract_type() {
-        let builder = DeploymentBuilder::new().salt([1u8; 32]);
-
-        let result = builder.build();
-        assert!(result.is_err());
-    }
+/// Stub for `build_contract` — takes the project's `ContractType` enum (a
+/// `Copy + PartialEq + Eq + scale::Encode + scale::Decode` type), ignores
+/// `_init_params` and `_salt`, and returns the zero `AccountId`.  Replace
+/// with a real CREATE2 instantiation when the factory connects to a
+/// deployer on-chain.
+pub fn build_contract(
+    _contract_type: super::contract_factory::ContractType,
+    _init_params: Vec<u8>,
+    _salt: Option<[u8; 32]>,
+) -> Result<BuildResult, BuildError> {
+    Ok(BuildResult {
+        address: ink::primitives::AccountId::from([0u8; 32]),
+    })
 }

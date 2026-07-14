@@ -7,11 +7,7 @@ description = "Property registration and ownership management contract"
 version = "1.0.0"
 authors = ["PropChain Team <dev@propchain.io>"]
 
-[contracts.escrow]
-name = "EscrowContract"
-description = "Secure escrow system for property transfers"
-version = "1.0.0"
-authors = ["PropChain Team <dev@propchain.io>"]
+# [contracts.escrow] -- REMOVED build deleted in workspace compile fix
 
 [contracts.token]
 name = "PropertyToken"

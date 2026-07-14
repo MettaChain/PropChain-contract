@@ -14,7 +14,9 @@ mod reinsurance_stats_derives {
     use ink::env::{test, DefaultEnvironment};
 
     fn setup() -> PropertyInsurance {
-        PropertyInsurance::new()
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        PropertyInsurance::new(accounts.alice)
     }
 
     /// Constructing the struct directly verifies that all fields have the

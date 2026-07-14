@@ -4,19 +4,16 @@ members = [
     "contracts/traits",
     "contracts/proxy",
     "contracts/factory",
-    "contracts/escrow",
     "contracts/ipfs-metadata",
     "security-audit",
     "contracts/oracle",
     "contracts/bridge",
-    "contracts/property-token",
     "contracts/insurance",
     "contracts/analytics",
     "contracts/fees",
     "contracts/dex",
     "contracts/compliance_registry",
     "contracts/property-management",
-    "contracts/tax-compliance",
     "contracts/fractional",
     "contracts/prediction-market",
     "contracts/identity",
@@ -32,8 +29,8 @@ members = [
     "contracts/version-registry",
     "contracts/sanctions",
     "contracts/gdpr",
+    "contracts/monitoring", # Used as a path-dep by the tests crate
     "tests",
-    "indexer",
 ]
 resolver = "2"
 

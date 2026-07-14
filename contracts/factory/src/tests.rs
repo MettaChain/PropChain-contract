@@ -1,7 +1,6 @@
-#[cfg(test)]
-mod tests {
-    use super::contract_factory::*;
-    use ink::env::test;
+use crate::contract_factory::*;
+use ink::env::test;
+use ink::primitives::Hash;
 
     #[ink::test]
     fn test_factory_initialization() {
@@ -56,4 +55,3 @@ mod tests {
         let contracts = factory.get_deployer_contracts(accounts.alice);
         assert_eq!(contracts.len(), 0);
     }
-}

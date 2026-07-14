@@ -79,14 +79,6 @@ pub enum Error {
     /// The requested per-chain status transition is not allowed from the
     /// current state.
     InvalidStatusTransition,
-    /// The targeted operation class is currently paused (emergency stop).
-    OperationPaused,
-    /// Caller is not a registered guardian (and not the admin).
-    NotGuardian,
-    /// Bridge execution requires travel rule data that has not been submitted.
-    TravelRuleDataRequired,
-    /// Travel rule data for this request has already been submitted.
-    TravelRuleDataAlreadySubmitted,
     /// Caller is not an emergency signer.
     NotEmergencySigner,
     /// Emergency request has already been executed.
@@ -137,32 +129,17 @@ impl Error {
     /// Broad severity classification for logging and alerting pipelines.
     pub fn severity(&self) -> Severity {
         match self {
-            Error::Unauthorized => write!(f, "Caller is not authorized"),
-            Error::TokenNotFound => write!(f, "Token does not exist"),
-            Error::InvalidChain => write!(f, "Invalid chain ID"),
-            Error::BridgeNotSupported => write!(f, "Bridge not supported for this token"),
-            Error::InsufficientSignatures => write!(f, "Insufficient signatures collected"),
-            Error::RequestExpired => write!(f, "Bridge request has expired"),
-            Error::AlreadySigned => write!(f, "Already signed this request"),
-            Error::InvalidRequest => write!(f, "Invalid bridge request"),
-            Error::BridgePaused => write!(f, "Bridge operations are paused"),
-            Error::InvalidMetadata => write!(f, "Invalid metadata"),
-            Error::DuplicateRequest => write!(f, "Duplicate bridge request"),
-            Error::GasLimitExceeded => write!(f, "Gas limit exceeded"),
-            Error::RateLimitExceeded => write!(f, "Rate limit exceeded"),
-            Error::ReentrantCall => write!(f, "Reentrant call"),
-            Error::TransactionNotFound => write!(f, "Cross-chain transaction not found"),
-            Error::InvalidStatusTransition => write!(f, "Invalid cross-chain status transition"),
-            Error::OperationPaused => write!(f, "Operation is currently paused"),
-            Error::NotGuardian => write!(f, "Caller is not a guardian"),
-            Error::TravelRuleDataRequired => write!(f, "Travel rule data required before bridge execution"),
-            Error::TravelRuleDataAlreadySubmitted => write!(f, "Travel rule data already submitted for this request"),
-            Error::NotEmergencySigner => write!(f, "Caller is not an emergency signer"),
-            Error::EmergencyRequestAlreadyExecuted => write!(f, "Emergency request has already been executed"),
-            Error::EmergencyRequestExpired => write!(f, "Emergency request has expired"),
-            Error::AssetAlreadyFrozen => write!(f, "Asset is already frozen"),
-            Error::AssetNotFrozen => write!(f, "Asset is not frozen"),
-            Error::InsufficientEmergencySignatures => write!(f, "Insufficient emergency signatures"),
+            Error::RateLimitExceeded
+            | Error::BridgePaused
+            | Error::OperationPaused
+            | Error::InsufficientSignatures
+            | Error::InsufficientEmergencySignatures => Severity::Transient,
+            Error::ReentrantCall
+            | Error::AlreadySigned
+            | Error::DuplicateRequest
+            | Error::InvalidStatusTransition
+            | Error::TravelRuleDataAlreadySubmitted => Severity::Fatal,
+            _ => Severity::User,
         }
     }
 
@@ -358,7 +335,10 @@ impl core::fmt::Display for ErrorContext {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "[bridge_error code={}", ContractError::error_code(&self.error))?;
         if let Some(ref id) = self.request_id {
-            write!(f, " request_id={}", hex::encode(id))?;
+            write!(f, " request_id=0x")?;
+            for byte in id.iter() {
+                write!(f, "{:02x}", byte)?;
+            }
         }
         if let Some(chain) = self.chain_id {
             write!(f, " chain_id={chain}")?;
@@ -396,7 +376,7 @@ impl From<scale::Error> for Error {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
+mod error_tests {
     use super::*;
 
     #[test]

@@ -1739,7 +1739,7 @@ mod tests {
 
     #[ink::test]
     fn test_share_nonexistent_campaign_fails() {
-        let contract = setup();
+        let mut contract = setup();
         assert_eq!(
             contract.share_campaign(999, "Facebook".into()),
             Err(CrowdfundingError::CampaignNotFound)

@@ -33,6 +33,7 @@ pub enum Error {
     DelegationNotFound,
     AlreadyUnbonding,
     UnbondingPeriodActive,
+    NoSlashingCoordinator,
 }
 
 impl core::fmt::Display for Error {
@@ -67,6 +68,7 @@ impl core::fmt::Display for Error {
             Error::DelegationNotFound => write!(f, "Delegation not found"),
             Error::AlreadyUnbonding => write!(f, "Already unbonding from this validator"),
             Error::UnbondingPeriodActive => write!(f, "Unbonding period still active"),
+            Error::NoSlashingCoordinator => write!(f, "Slashing coordinator has not been configured"),
         }
     }
 }
@@ -103,6 +105,7 @@ impl ContractError for Error {
             Error::DelegationNotFound => staking_codes::STAKING_LOCK_ACTIVE + 8,
             Error::AlreadyUnbonding => staking_codes::STAKING_LOCK_ACTIVE + 9,
             Error::UnbondingPeriodActive => staking_codes::STAKING_LOCK_ACTIVE + 10,
+            Error::NoSlashingCoordinator => staking_codes::STAKING_LOCK_ACTIVE + 11,
         }
     }
 
@@ -137,6 +140,7 @@ impl ContractError for Error {
             Error::DelegationNotFound => "No delegation found for this pair",
             Error::AlreadyUnbonding => "Already unbonding from this validator",
             Error::UnbondingPeriodActive => "Unbonding period is still active for this delegation",
+            Error::NoSlashingCoordinator => "Slashing coordinator has not been configured; call set_slashing_coordinator first",
         }
     }
 

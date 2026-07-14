@@ -16,7 +16,9 @@ mod risk_assessment;
 mod fraud_detection;
 
 // Premium calculation engine
-mod premium_engine;
+// Note: `premium_engine.rs` is include!()-ed inside `mod propchain_insurance`
+// below. Do NOT also `mod premium_engine;` here — the dual declaration
+// triggers E0255 "defined multiple times" for every type the file references.
 
 /// Decentralized Property Insurance Platform
 #[ink::contract]

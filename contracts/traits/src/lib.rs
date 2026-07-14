@@ -401,9 +401,7 @@ pub struct ChainBridgeInfo {
 #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
 #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub struct Equivocation {
-    #[cfg_attr(feature = "std", ink::topic)]
     pub operator: AccountId,
-    #[cfg_attr(feature = "std", ink::topic)]
     pub contract_type: ContractType,
     pub evidence: Vec<u8>,
 }

@@ -198,7 +198,7 @@ mod tests {
         };
 
         let result = bridge.initiate_bridge_multisig(
-            AccountId::from([1u8; 32]), // Frozen asset
+            1u64, // Frozen asset token_id
             2,
             accounts.bob,
             2,

@@ -1346,7 +1346,7 @@ mod staking {
         #[ink(message)]
         pub fn slash_validator(&mut self, validator: AccountId) -> Result<(), Error> {
             propchain_traits::non_reentrant!(self, {
-                self.ensure_slashing_coordinator()?;
+                self.slashing_coordinator.ok_or(Error::NoSlashingCoordinator)?;
                 if !self.validators.contains(validator) {
                     return Err(Error::ValidatorNotFound);
                 }

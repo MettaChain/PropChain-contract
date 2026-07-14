@@ -379,6 +379,9 @@ mod compliance_registry {
                 Error::InvalidDocumentType => write!(f, "Invalid document type"),
                 Error::JurisdictionNotSupported => write!(f, "Jurisdiction not supported"),
                 Error::SanctionsCheckFailed => write!(f, "Sanctions check failed"),
+                Error::OperationNotAllowed => write!(f, "Operation not allowed for this token's jurisdiction"),
+                Error::TokenNotFound => write!(f, "Token not found in jurisdiction registry"),
+                Error::InvalidOperation => write!(f, "Invalid operation specified"),
             }
         }
     }
@@ -421,6 +424,15 @@ mod compliance_registry {
                 }
                 Error::SanctionsCheckFailed => {
                     propchain_traits::errors::compliance_codes::COMPLIANCE_SANCTIONS_CHECK_FAILED
+                }
+                Error::OperationNotAllowed => {
+                    propchain_traits::errors::compliance_codes::COMPLIANCE_SANCTIONS_CHECK_FAILED + 1
+                }
+                Error::TokenNotFound => {
+                    propchain_traits::errors::compliance_codes::COMPLIANCE_SANCTIONS_CHECK_FAILED + 2
+                }
+                Error::InvalidOperation => {
+                    propchain_traits::errors::compliance_codes::COMPLIANCE_SANCTIONS_CHECK_FAILED + 3
                 }
             }
         }
@@ -483,6 +495,9 @@ mod compliance_registry {
                 Error::InvalidDocumentType => "compliance.invalid_document_type",
                 Error::JurisdictionNotSupported => "compliance.jurisdiction_not_supported",
                 Error::SanctionsCheckFailed => "compliance.sanctions_check_failed",
+                Error::OperationNotAllowed => "compliance.operation_not_allowed",
+                Error::TokenNotFound => "compliance.token_not_found",
+                Error::InvalidOperation => "compliance.invalid_operation",
             }
         }
     }
@@ -732,6 +747,8 @@ mod compliance_registry {
                 sanctions_list_merkle_root: [0u8; 32],
                 screening_cache: Mapping::default(),
                 screening_cache_ttl: 3600,
+                token_jurisdictions: Mapping::default(),
+                jurisdiction_operations: Mapping::default(),
             };
 
             // Initialize default jurisdiction rules

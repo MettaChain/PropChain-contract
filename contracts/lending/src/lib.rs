@@ -357,7 +357,7 @@ mod propchain_lending {
         listing_count: u64,
         offer_count: u64,
         // #588: Multi-collateral portfolio mapping loan_id -> property_ids
-        loan_collaterals: Mapping<u64, Vec<u64>>,
+        pub loan_collaterals: Mapping<u64, Vec<u64>>,
         // Admin Key Rotation (Issue #496)
         pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
     }
@@ -795,6 +795,8 @@ mod propchain_lending {
                 loan_type: LoanType::FixedRate,
                 start_block: None,
                 status: LoanStatus::Pending,
+                accrued_interest: 0,
+                last_interest_timestamp: 0,
             };
             self.loan_applications.insert(self.loan_count, &app);
             self.track_borrower_loan(app.applicant, self.loan_count);
@@ -961,6 +963,8 @@ mod propchain_lending {
                 term_months: 0,
                 interest_rate_bps: 0,
                 status: LoanStatus::Active,
+                loan_type: LoanType::FixedRate,
+                start_block: None,
             };
             self.loan_servicers.insert(self.servicer_count, &servicer);
             self.env().emit_event(LoanServicerRegistered {
