@@ -2381,45 +2381,44 @@
 <a href=#2381 id=2381 data-nosnippet>2381</a></span><span class="attr">#[cfg(test)]
 <a href=#2382 id=2382 data-nosnippet>2382</a></span><span class="kw">mod </span>storage_derivation_tests {
 <a href=#2383 id=2383 data-nosnippet>2383</a>    <span class="kw">use </span><span class="kw">super</span>::propchain_lending::{
-<a href=#2384 id=2384 data-nosnippet>2384</a>        CollateralKind, CollateralRecord, CreditProfile, LendingPool,
-<a href=#2385 id=2385 data-nosnippet>2385</a>        LoanApplication, LoanListing, LoanOffer, LoanRestructuring, LoanServicer, LoanStatus,
-<a href=#2386 id=2386 data-nosnippet>2386</a>        MarginPosition, PaymentSchedule, PaymentScheduleStatus, PropertyLending, Proposal,
-<a href=#2387 id=2387 data-nosnippet>2387</a>        YieldPosition,
-<a href=#2388 id=2388 data-nosnippet>2388</a>    };
-<a href=#2389 id=2389 data-nosnippet>2389</a>    <span class="kw">use </span>scale::{Decode, Encode};
-<a href=#2390 id=2390 data-nosnippet>2390</a>
-<a href=#2391 id=2391 data-nosnippet>2391</a>    <span class="kw">fn </span>assert_storage_type&lt;
-<a href=#2392 id=2392 data-nosnippet>2392</a>        T: Encode + Decode + scale_info::TypeInfo + ink::storage::traits::StorageLayout,
-<a href=#2393 id=2393 data-nosnippet>2393</a>    &gt;() {
-<a href=#2394 id=2394 data-nosnippet>2394</a>    }
-<a href=#2395 id=2395 data-nosnippet>2395</a>
-<a href=#2396 id=2396 data-nosnippet>2396</a>    <span class="attr">#[test]
-<a href=#2397 id=2397 data-nosnippet>2397</a>    </span><span class="kw">fn </span>all_pub_storage_types_have_required_derives() {
-<a href=#2398 id=2398 data-nosnippet>2398</a>        assert_storage_type::&lt;CollateralRecord&gt;();
-<a href=#2399 id=2399 data-nosnippet>2399</a>        assert_storage_type::&lt;LendingPool&gt;();
-<a href=#2400 id=2400 data-nosnippet>2400</a>        assert_storage_type::&lt;MarginPosition&gt;();
-<a href=#2401 id=2401 data-nosnippet>2401</a>        assert_storage_type::&lt;LoanApplication&gt;();
-<a href=#2402 id=2402 data-nosnippet>2402</a>        assert_storage_type::&lt;LoanServicer&gt;();
-<a href=#2403 id=2403 data-nosnippet>2403</a>        assert_storage_type::&lt;PaymentSchedule&gt;();
-<a href=#2404 id=2404 data-nosnippet>2404</a>        assert_storage_type::&lt;LoanRestructuring&gt;();
-<a href=#2405 id=2405 data-nosnippet>2405</a>        assert_storage_type::&lt;YieldPosition&gt;();
-<a href=#2406 id=2406 data-nosnippet>2406</a>        assert_storage_type::&lt;Proposal&gt;();
-<a href=#2407 id=2407 data-nosnippet>2407</a>        assert_storage_type::&lt;CreditProfile&gt;();
-<a href=#2408 id=2408 data-nosnippet>2408</a>        assert_storage_type::&lt;LoanListing&gt;();
-<a href=#2409 id=2409 data-nosnippet>2409</a>        assert_storage_type::&lt;LoanOffer&gt;();
-<a href=#2410 id=2410 data-nosnippet>2410</a>        assert_storage_type::&lt;LoanStatus&gt;();
-<a href=#2411 id=2411 data-nosnippet>2411</a>        assert_storage_type::&lt;CollateralKind&gt;();
-<a href=#2412 id=2412 data-nosnippet>2412</a>        assert_storage_type::&lt;PaymentScheduleStatus&gt;();
-<a href=#2413 id=2413 data-nosnippet>2413</a>    }
-<a href=#2414 id=2414 data-nosnippet>2414</a>
-<a href=#2415 id=2415 data-nosnippet>2415</a>    <span class="attr">#[test]
-<a href=#2416 id=2416 data-nosnippet>2416</a>    </span><span class="kw">fn </span>property_lending_storage_layout_compiles() {
-<a href=#2417 id=2417 data-nosnippet>2417</a>        <span class="kw">fn </span>assert_layout&lt;T: ink::storage::traits::StorageLayout&gt;() {}
-<a href=#2418 id=2418 data-nosnippet>2418</a>        assert_layout::&lt;PropertyLending&gt;();
-<a href=#2419 id=2419 data-nosnippet>2419</a>    }
-<a href=#2420 id=2420 data-nosnippet>2420</a>}
-<a href=#2421 id=2421 data-nosnippet>2421</a>
-<a href=#2422 id=2422 data-nosnippet>2422</a><span class="attr">#[cfg(test)]
-<a href=#2423 id=2423 data-nosnippet>2423</a>#[path = <span class="string">"test.rs"</span>]
-<a href=#2424 id=2424 data-nosnippet>2424</a></span><span class="kw">mod </span>lending_regression_test;
+<a href=#2384 id=2384 data-nosnippet>2384</a>        CollateralKind, CollateralRecord, CreditProfile, LendingPool, LoanApplication, LoanListing,
+<a href=#2385 id=2385 data-nosnippet>2385</a>        LoanOffer, LoanRestructuring, LoanServicer, LoanStatus, MarginPosition, PaymentSchedule,
+<a href=#2386 id=2386 data-nosnippet>2386</a>        PaymentScheduleStatus, PropertyLending, Proposal, YieldPosition,
+<a href=#2387 id=2387 data-nosnippet>2387</a>    };
+<a href=#2388 id=2388 data-nosnippet>2388</a>    <span class="kw">use </span>scale::{Decode, Encode};
+<a href=#2389 id=2389 data-nosnippet>2389</a>
+<a href=#2390 id=2390 data-nosnippet>2390</a>    <span class="kw">fn </span>assert_storage_type&lt;
+<a href=#2391 id=2391 data-nosnippet>2391</a>        T: Encode + Decode + scale_info::TypeInfo + ink::storage::traits::StorageLayout,
+<a href=#2392 id=2392 data-nosnippet>2392</a>    &gt;() {
+<a href=#2393 id=2393 data-nosnippet>2393</a>    }
+<a href=#2394 id=2394 data-nosnippet>2394</a>
+<a href=#2395 id=2395 data-nosnippet>2395</a>    <span class="attr">#[test]
+<a href=#2396 id=2396 data-nosnippet>2396</a>    </span><span class="kw">fn </span>all_pub_storage_types_have_required_derives() {
+<a href=#2397 id=2397 data-nosnippet>2397</a>        assert_storage_type::&lt;CollateralRecord&gt;();
+<a href=#2398 id=2398 data-nosnippet>2398</a>        assert_storage_type::&lt;LendingPool&gt;();
+<a href=#2399 id=2399 data-nosnippet>2399</a>        assert_storage_type::&lt;MarginPosition&gt;();
+<a href=#2400 id=2400 data-nosnippet>2400</a>        assert_storage_type::&lt;LoanApplication&gt;();
+<a href=#2401 id=2401 data-nosnippet>2401</a>        assert_storage_type::&lt;LoanServicer&gt;();
+<a href=#2402 id=2402 data-nosnippet>2402</a>        assert_storage_type::&lt;PaymentSchedule&gt;();
+<a href=#2403 id=2403 data-nosnippet>2403</a>        assert_storage_type::&lt;LoanRestructuring&gt;();
+<a href=#2404 id=2404 data-nosnippet>2404</a>        assert_storage_type::&lt;YieldPosition&gt;();
+<a href=#2405 id=2405 data-nosnippet>2405</a>        assert_storage_type::&lt;Proposal&gt;();
+<a href=#2406 id=2406 data-nosnippet>2406</a>        assert_storage_type::&lt;CreditProfile&gt;();
+<a href=#2407 id=2407 data-nosnippet>2407</a>        assert_storage_type::&lt;LoanListing&gt;();
+<a href=#2408 id=2408 data-nosnippet>2408</a>        assert_storage_type::&lt;LoanOffer&gt;();
+<a href=#2409 id=2409 data-nosnippet>2409</a>        assert_storage_type::&lt;LoanStatus&gt;();
+<a href=#2410 id=2410 data-nosnippet>2410</a>        assert_storage_type::&lt;CollateralKind&gt;();
+<a href=#2411 id=2411 data-nosnippet>2411</a>        assert_storage_type::&lt;PaymentScheduleStatus&gt;();
+<a href=#2412 id=2412 data-nosnippet>2412</a>    }
+<a href=#2413 id=2413 data-nosnippet>2413</a>
+<a href=#2414 id=2414 data-nosnippet>2414</a>    <span class="attr">#[test]
+<a href=#2415 id=2415 data-nosnippet>2415</a>    </span><span class="kw">fn </span>property_lending_storage_layout_compiles() {
+<a href=#2416 id=2416 data-nosnippet>2416</a>        <span class="kw">fn </span>assert_layout&lt;T: ink::storage::traits::StorageLayout&gt;() {}
+<a href=#2417 id=2417 data-nosnippet>2417</a>        assert_layout::&lt;PropertyLending&gt;();
+<a href=#2418 id=2418 data-nosnippet>2418</a>    }
+<a href=#2419 id=2419 data-nosnippet>2419</a>}
+<a href=#2420 id=2420 data-nosnippet>2420</a>
+<a href=#2421 id=2421 data-nosnippet>2421</a><span class="attr">#[cfg(test)]
+<a href=#2422 id=2422 data-nosnippet>2422</a>#[path = <span class="string">"test.rs"</span>]
+<a href=#2423 id=2423 data-nosnippet>2423</a></span><span class="kw">mod </span>lending_regression_test;
 </code></pre></div></section></main></body></html>
