@@ -1,5 +1,14 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(unexpected_cfgs)]
+#![allow(
+    clippy::too_many_arguments,
+    clippy::result_large_err,
+    dead_code,
+    clippy::needless_borrows_for_generic_args,
+    clippy::type_complexity,
+    clippy::vec_init_then_push,
+    clippy::match_like_matches_macro
+)]
 
 use ink::prelude::string::String;
 use ink::storage::Mapping;
@@ -284,7 +293,7 @@ mod bridge {
         feature = "std",
         derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
     )]
-    enum EmergencyRequestType {
+    pub enum EmergencyRequestType {
         PauseBridge,
         FreezeAsset,
     }
@@ -1362,7 +1371,8 @@ mod bridge {
             if self.env().caller() != self.admin {
                 return Err(Error::Unauthorized);
             }
-            self.travel_rule_thresholds.insert(chain_id, &threshold_amount);
+            self.travel_rule_thresholds
+                .insert(chain_id, &threshold_amount);
             self.env().emit_event(TravelRuleThresholdUpdated {
                 chain_id,
                 threshold_amount,
@@ -1375,7 +1385,9 @@ mod bridge {
         /// Defaults to `u128::MAX` (disabled) when no threshold has been configured.
         #[ink(message)]
         pub fn get_travel_rule_threshold(&self, chain_id: ChainId) -> u128 {
-            self.travel_rule_thresholds.get(chain_id).unwrap_or(u128::MAX)
+            self.travel_rule_thresholds
+                .get(chain_id)
+                .unwrap_or(u128::MAX)
         }
 
         // ── #201: Transaction rollback mechanism ─────────────────────────────────
@@ -1532,12 +1544,17 @@ mod bridge {
             _source_chain: ChainId,
         ) -> bool {
             // Check if transaction is individually verified
-            if self.verified_transactions.get(transaction_hash).unwrap_or(false) {
+            if self
+                .verified_transactions
+                .get(transaction_hash)
+                .unwrap_or(false)
+            {
                 return true;
             }
 
             // Check if transaction is in a verified batch
-            if let Some((source_chain, window_id)) = self.transaction_to_batch.get(transaction_hash) {
+            if let Some((source_chain, window_id)) = self.transaction_to_batch.get(transaction_hash)
+            {
                 let batch_key = (source_chain, window_id);
                 if let Some(_merkle_root) = self.batch_merkle_roots.get(batch_key) {
                     // Transaction is in a batch that has a Merkle root submitted
@@ -2171,7 +2188,7 @@ mod bridge {
             &mut self,
             asset_address: AccountId,
             reason: String,
-            affects_inflight: bool,
+            _affects_inflight: bool,
             timeout_blocks: Option<u64>,
         ) -> Result<u64, Error> {
             let caller = self.env().caller();
@@ -2417,7 +2434,8 @@ mod bridge {
             // Check if we need to create a new window
             if window_start == 0 || current_time >= window_start + window_duration {
                 let window_counter = self.batch_window_counter.get(source_chain).unwrap_or(0) + 1;
-                self.batch_window_counter.insert(source_chain, &window_counter);
+                self.batch_window_counter
+                    .insert(source_chain, &window_counter);
                 self.batch_window_start.insert(source_chain, &current_time);
 
                 self.env().emit_event(BatchWindowCreated {

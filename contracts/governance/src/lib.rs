@@ -1,4 +1,10 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
+#![allow(
+    clippy::too_many_arguments,
+    dead_code,
+    clippy::needless_borrows_for_generic_args,
+    clippy::manual_checked_ops
+)]
 
 #[ink::contract]
 mod governance {
@@ -433,7 +439,7 @@ mod governance {
         /// Returns all comments for a proposal.
         #[ink(message)]
         pub fn get_proposal_comments(&self, proposal_id: u64) -> Vec<DiscussionComment> {
-            self.proposal_comments.get(&proposal_id).unwrap_or_default()
+            self.proposal_comments.get(proposal_id).unwrap_or_default()
         }
 
         /// Returns the participation rate for a specific proposal in basis points.

@@ -1,11 +1,10 @@
+#![allow(clippy::module_inception, dead_code)]
+
 // Risk Assessment Model Implementation (Task #254)
 // Provides comprehensive risk pricing model for accurate insurance premium calculation
 
-use ink::prelude::{string::String, vec::Vec};
-
 /// Risk assessment model functions for property insurance
 pub mod risk_model {
-    use super::*;
 
     const MODEL_VERSION: u32 = 1;
     const ASSESSMENT_VALIDITY_DAYS: u64 = 365; // 365 days validity
@@ -122,10 +121,8 @@ pub mod risk_model {
         has_fire_extinguisher: bool,
         has_alarm_system: bool,
     ) -> u32 {
-        let mut safety_score = 0u32;
-
         // Start with base risk
-        safety_score = 600;
+        let mut safety_score = 600u32;
 
         // Each safety feature reduces risk
         if has_security_system {
@@ -138,7 +135,7 @@ pub mod risk_model {
             safety_score = safety_score.saturating_sub(150);
         }
 
-        safety_score.min(900).max(100)
+        safety_score.clamp(100, 900)
     }
 
     /// Calculate overall risk score from component scores

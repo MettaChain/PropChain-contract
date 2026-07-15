@@ -1,5 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
-#![allow(clippy::needless_borrows_for_generic_args, clippy::too_many_arguments, clippy::upper_case_acronyms)]
+#![allow(
+    clippy::needless_borrows_for_generic_args,
+    clippy::too_many_arguments,
+    clippy::upper_case_acronyms
+)]
 
 #[ink::contract]
 mod gdpr_consent {
@@ -26,7 +30,10 @@ mod gdpr_consent {
     // ── Types ───────────────────────────────────────────────────────────────
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub enum ConsentStatus {
         Granted,
         Withdrawn,
@@ -34,7 +41,10 @@ mod gdpr_consent {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub enum ProcessingPurpose {
         KYC,
         TaxReporting,
@@ -47,7 +57,10 @@ mod gdpr_consent {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub struct ConsentRecord {
         pub consent_id: u64,
         pub data_subject: AccountId,
@@ -60,7 +73,10 @@ mod gdpr_consent {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub struct DataRetentionPolicy {
         pub purpose: ProcessingPurpose,
         pub retention_days: u64,
@@ -68,7 +84,10 @@ mod gdpr_consent {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub struct DataAccessRequest {
         pub request_id: u64,
         pub data_subject: AccountId,
@@ -275,11 +294,7 @@ mod gdpr_consent {
         }
 
         #[ink(message)]
-        pub fn check_consent(
-            &self,
-            data_subject: AccountId,
-            purpose: ProcessingPurpose,
-        ) -> bool {
+        pub fn check_consent(&self, data_subject: AccountId, purpose: ProcessingPurpose) -> bool {
             match self.subject_consents.get(data_subject) {
                 Some(ids) => {
                     for id in ids {
@@ -347,7 +362,10 @@ mod gdpr_consent {
         }
 
         #[ink(message)]
-        pub fn get_retention_policy(&self, purpose: ProcessingPurpose) -> Option<DataRetentionPolicy> {
+        pub fn get_retention_policy(
+            &self,
+            purpose: ProcessingPurpose,
+        ) -> Option<DataRetentionPolicy> {
             self.retention_policies.get(Self::purpose_key(&purpose))
         }
 
@@ -541,7 +559,8 @@ mod gdpr_consent {
         #[ink::test]
         fn test_invalid_duration_rejected() {
             let mut contract = default_contract();
-            let result = contract.grant_consent(AccountId::from([0x02; 32]), ProcessingPurpose::KYC, 0);
+            let result =
+                contract.grant_consent(AccountId::from([0x02; 32]), ProcessingPurpose::KYC, 0);
             assert_eq!(result, Err(Error::InvalidDuration));
         }
 

@@ -1,3 +1,5 @@
+#![allow(clippy::needless_borrows_for_generic_args, dead_code, unused_imports)]
+
 //! Security Audit Runner
 //!
 //! This module acts as an automated security audit harness. It aggregates
@@ -181,6 +183,12 @@ impl SecurityAudit {
             critical_found.len(),
             critical_found.iter().map(|f| &f.id).collect::<Vec<_>>()
         );
+    }
+}
+
+impl Default for SecurityAudit {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

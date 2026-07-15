@@ -129,8 +129,8 @@ pub mod contract_factory {
         ) -> Result<(), Error> {
             self.ensure_admin()?;
 
-            let old_hash = self.code_hashes.get(&contract_type);
-            self.code_hashes.insert(&contract_type, &code_hash);
+            let old_hash = self.code_hashes.get(contract_type);
+            self.code_hashes.insert(contract_type, &code_hash);
 
             self.env().emit_event(CodeHashUpdated {
                 contract_type,
@@ -146,7 +146,7 @@ pub mod contract_factory {
         /// Gets the code hash for a contract type
         #[ink(message)]
         pub fn get_code_hash(&self, contract_type: ContractType) -> Option<Hash> {
-            self.code_hashes.get(&contract_type)
+            self.code_hashes.get(contract_type)
         }
 
         /// Deploys a new contract instance
@@ -158,7 +158,7 @@ pub mod contract_factory {
         ) -> Result<AccountId, Error> {
             let code_hash = self
                 .code_hashes
-                .get(&config.contract_type)
+                .get(config.contract_type)
                 .ok_or(Error::CodeHashNotSet)?;
 
             let deployer = self.env().caller();
@@ -186,13 +186,13 @@ pub mod contract_factory {
             };
 
             self.deployed_contracts
-                .insert(&deployment_id, &deployed_contract);
+                .insert(deployment_id, &deployed_contract);
             self.deployment_count += 1;
 
             // Update deployer's contract list
-            let mut deployer_list = self.deployer_contracts.get(&deployer).unwrap_or_default();
+            let mut deployer_list = self.deployer_contracts.get(deployer).unwrap_or_default();
             deployer_list.push(deployment_id);
-            self.deployer_contracts.insert(&deployer, &deployer_list);
+            self.deployer_contracts.insert(deployer, &deployer_list);
 
             self.env().emit_event(ContractDeployed {
                 deployment_id,
@@ -208,13 +208,13 @@ pub mod contract_factory {
         /// Gets deployment information by ID
         #[ink(message)]
         pub fn get_deployment(&self, deployment_id: u64) -> Option<DeployedContract> {
-            self.deployed_contracts.get(&deployment_id)
+            self.deployed_contracts.get(deployment_id)
         }
 
         /// Gets all deployments by a deployer
         #[ink(message)]
         pub fn get_deployer_contracts(&self, deployer: AccountId) -> Vec<u64> {
-            self.deployer_contracts.get(&deployer).unwrap_or_default()
+            self.deployer_contracts.get(deployer).unwrap_or_default()
         }
 
         /// Gets total deployment count

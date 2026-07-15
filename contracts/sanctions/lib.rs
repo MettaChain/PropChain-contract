@@ -1,5 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
-#![allow(clippy::needless_borrows_for_generic_args, clippy::too_many_arguments, clippy::upper_case_acronyms)]
+#![allow(
+    clippy::needless_borrows_for_generic_args,
+    clippy::too_many_arguments,
+    clippy::upper_case_acronyms
+)]
 
 #[ink::contract]
 mod sanctions_screening {
@@ -26,7 +30,10 @@ mod sanctions_screening {
     // ── Types ───────────────────────────────────────────────────────────────
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub enum EntityType {
         Individual,
         Corporation,
@@ -36,7 +43,10 @@ mod sanctions_screening {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub enum SanctionLevel {
         None,
         Monitored,
@@ -45,7 +55,10 @@ mod sanctions_screening {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub struct SanctionedEntity {
         pub entity_id: u64,
         pub entity_name: Vec<u8>,
@@ -58,7 +71,10 @@ mod sanctions_screening {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub struct SanctionedProperty {
         pub property_id: u64,
         pub jurisdiction_code: u32,
@@ -69,7 +85,10 @@ mod sanctions_screening {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
     pub struct ScreeningResult {
         pub screening_id: u64,
         pub property_id: u64,
@@ -286,7 +305,9 @@ mod sanctions_screening {
             if let Some(prop) = self.sanctioned_properties.get(property_id) {
                 if prop.active {
                     let screening_id = self.next_screening_id;
-                    self.next_screening_id = screening_id.checked_add(1).ok_or(Error::ThresholdExceeded)?;
+                    self.next_screening_id = screening_id
+                        .checked_add(1)
+                        .ok_or(Error::ThresholdExceeded)?;
                     let now = self.env().block_timestamp();
                     let result = ScreeningResult {
                         screening_id,
@@ -314,7 +335,9 @@ mod sanctions_screening {
                 if let Some(entity) = self.sanctioned_entities.get(eid) {
                     if entity.active && entity.jurisdiction_code == jurisdiction_code {
                         let screening_id = self.next_screening_id;
-                        self.next_screening_id = screening_id.checked_add(1).ok_or(Error::ThresholdExceeded)?;
+                        self.next_screening_id = screening_id
+                            .checked_add(1)
+                            .ok_or(Error::ThresholdExceeded)?;
                         let now = self.env().block_timestamp();
                         let result = ScreeningResult {
                             screening_id,
@@ -340,7 +363,9 @@ mod sanctions_screening {
 
             // No match found — property passes screening
             let screening_id = self.next_screening_id;
-            self.next_screening_id = screening_id.checked_add(1).ok_or(Error::ThresholdExceeded)?;
+            self.next_screening_id = screening_id
+                .checked_add(1)
+                .ok_or(Error::ThresholdExceeded)?;
             let now = self.env().block_timestamp();
             let result = ScreeningResult {
                 screening_id,
@@ -363,7 +388,10 @@ mod sanctions_screening {
         }
 
         fn record_screening(&mut self, property_id: u64, screening_id: u64) {
-            let mut existing = self.property_screenings.get(property_id).unwrap_or_default();
+            let mut existing = self
+                .property_screenings
+                .get(property_id)
+                .unwrap_or_default();
             existing.push(screening_id);
             self.property_screenings.insert(property_id, &existing);
         }
@@ -474,9 +502,7 @@ mod sanctions_screening {
         #[ink::test]
         fn test_screen_property_clean() {
             let mut contract = default_contract();
-            let result = contract
-                .screen_property(42, 1001, None)
-                .expect("screen");
+            let result = contract.screen_property(42, 1001, None).expect("screen");
             assert!(result.passed);
             assert_eq!(result.sanction_level, SanctionLevel::None);
         }
@@ -530,9 +556,7 @@ mod sanctions_screening {
         #[ink::test]
         fn test_screen_property_unknown_jurisdiction_still_passes() {
             let mut contract = default_contract();
-            let result = contract
-                .screen_property(50, 9999, None)
-                .expect("screen");
+            let result = contract.screen_property(50, 9999, None).expect("screen");
             assert!(result.passed);
             assert_eq!(result.sanction_level, SanctionLevel::None);
         }

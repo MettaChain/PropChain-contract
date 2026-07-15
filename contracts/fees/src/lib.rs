@@ -6,7 +6,6 @@ use ink::prelude::vec::Vec;
 use ink::storage::Mapping;
 use propchain_traits::DynamicFeeProvider;
 use propchain_traits::FeeOperation;
-use propchain_traits::*;
 
 /// Dynamic Fee and Market Mechanism contract for PropChain.
 /// Implements congestion-based fees, premium listing auctions, validator incentives,
@@ -164,9 +163,9 @@ mod propchain_fees {
                 validator_share_bp: 5000, // 50% to validators
                 treasury_share_bp: 5000,  // 50% to treasury
                 dynamic_fee_config: DynamicFeeConfig {
-                    base_fee_bps: 30,    // 0.30 % base
+                    base_fee_bps: 30,           // 0.30 % base
                     congestion_multiplier: 300, // up to 3× at full utilisation
-                    max_fee_bps: 200,    // hard cap at 2.00 %
+                    max_fee_bps: 200,           // hard cap at 2.00 %
                 },
             }
         }
@@ -642,10 +641,7 @@ mod propchain_fees {
         /// Update the dynamic fee configuration (admin only).
         /// Emits `FeeRateUpdated` with the old and new effective rates.
         #[ink(message)]
-        pub fn set_dynamic_fee_config(
-            &mut self,
-            config: DynamicFeeConfig,
-        ) -> Result<(), FeeError> {
+        pub fn set_dynamic_fee_config(&mut self, config: DynamicFeeConfig) -> Result<(), FeeError> {
             self.ensure_admin()?;
             if config.base_fee_bps > config.max_fee_bps {
                 return Err(FeeError::InvalidConfig);
@@ -684,7 +680,8 @@ mod propchain_fees {
             let cm = config.congestion_multiplier as u64;
             // effective = base * (100 + util * (cm - 100) / 100) / 100
             let multiplier_pct = 100u64.saturating_add(
-                util.saturating_mul(cm.saturating_sub(100)).saturating_div(100),
+                util.saturating_mul(cm.saturating_sub(100))
+                    .saturating_div(100),
             );
             let effective = base.saturating_mul(multiplier_pct).saturating_div(100);
             (effective as u32).min(config.max_fee_bps)

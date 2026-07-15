@@ -3,7 +3,12 @@
     clippy::arithmetic_side_effects,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    clippy::needless_borrows_for_generic_args
+    clippy::needless_borrows_for_generic_args,
+    clippy::too_many_arguments,
+    dead_code,
+    clippy::type_complexity,
+    clippy::manual_checked_ops,
+    clippy::manual_clamp
 )]
 
 use ink::prelude::*;
@@ -22,7 +27,6 @@ mod propchain_oracle {
     use super::*;
     include!("types.rs");
     use ink::prelude::{
-        collections::BTreeSet,
         string::{String, ToString},
         vec::Vec,
     };
@@ -47,9 +51,9 @@ mod propchain_oracle {
         TrimmedMean,
     }
 
-#[ink(storage)]
-pub struct PropertyValuationOracle {
-    aggregation_mode: AggregationMode,
+    #[ink(storage)]
+    pub struct PropertyValuationOracle {
+        aggregation_mode: AggregationMode,
         /// Admin account
         admin: AccountId,
         access_control: AccessControl,
@@ -216,8 +220,6 @@ pub struct PropertyValuationOracle {
         cached_median_prices: Mapping<(u64, String), (u128, u64)>,
         /// Per-asset, per-source-class TTL for the cache (in seconds)
         cache_ttls: Mapping<(u64, String), u64>,
-
-
     }
 
     /// A pending multi-sig proposal for a critical oracle operation.
@@ -2443,10 +2445,7 @@ pub struct PropertyValuationOracle {
             let mut cached_sources: Vec<(String, OracleSource, u64)> = Vec::new();
             for source_id in &self.active_sources {
                 if let Some(source) = self.oracle_sources.get(source_id) {
-                    let last_update = self
-                        .last_source_update
-                        .get(source_id)
-                        .unwrap_or(0);
+                    let last_update = self.last_source_update.get(source_id).unwrap_or(0);
                     cached_sources.push((source_id.clone(), source, last_update));
                 }
             }
@@ -2526,7 +2525,7 @@ pub struct PropertyValuationOracle {
             for source_id in &self.active_sources {
                 if let Some(source) = self.oracle_sources.get(source_id) {
                     // Frequency control check
-                    if let Err(e) = self.enforce_frequency_check(source_id) {
+                    if let Err(_e) = self.enforce_frequency_check(source_id) {
                         self.env().emit_event(UpdateThrottled {
                             source_id: source_id.clone(),
                             last_update: self.last_source_update.get(source_id).unwrap_or(0),
@@ -2678,9 +2677,7 @@ pub struct PropertyValuationOracle {
                             self.active_sources
                                 .iter()
                                 .enumerate()
-                                .map(|(i, sid)| {
-                                    (sid.clone(), self.get_packed_source_weight(i))
-                                })
+                                .map(|(i, sid)| (sid.clone(), self.get_packed_source_weight(i)))
                                 .collect()
                         } else {
                             ink::prelude::collections::BTreeMap::new()
@@ -2941,11 +2938,7 @@ pub struct PropertyValuationOracle {
                 return TrendDirection::Stable;
             }
 
-            let difference = if current_price >= ema_7d {
-                current_price - ema_7d
-            } else {
-                ema_7d - current_price
-            };
+            let difference = current_price.abs_diff(ema_7d);
             let threshold = (current_price * 100) / 10000; // 1% threshold
 
             if difference <= threshold {
@@ -3273,11 +3266,7 @@ pub struct PropertyValuationOracle {
             // Calculate volatility (simplified standard deviation)
             let mut variance_sum: u128 = 0;
             for snapshot in &relevant_data {
-                let diff = if snapshot.valuation > average_valuation {
-                    snapshot.valuation - average_valuation
-                } else {
-                    average_valuation - snapshot.valuation
-                };
+                let diff = snapshot.valuation.abs_diff(average_valuation);
                 variance_sum = variance_sum.saturating_add(diff * diff);
             }
 
@@ -3341,9 +3330,7 @@ pub struct PropertyValuationOracle {
         #[ink(message)]
         pub fn set_history_retention_ms(&mut self, retention_ms: u64) -> Result<(), OracleError> {
             self.ensure_admin()?;
-            if retention_ms < HISTORY_MIN_RETENTION_MS
-                || retention_ms > HISTORY_MAX_RETENTION_MS
-            {
+            if !(HISTORY_MIN_RETENTION_MS..=HISTORY_MAX_RETENTION_MS).contains(&retention_ms) {
                 return Err(OracleError::InvalidParameters);
             }
             self.history_retention_ms = retention_ms;

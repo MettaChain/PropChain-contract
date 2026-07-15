@@ -7,8 +7,6 @@
 )]
 
 use ink::storage::Mapping;
-use propchain_traits::*;
-use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
 #[ink::contract]
 mod propchain_crowdfunding {
@@ -974,11 +972,11 @@ mod propchain_crowdfunding {
             campaign_id: u64,
         ) -> Option<CampaignSuccessMetrics> {
             let campaign = self.campaigns.get(campaign_id)?;
-            let funding_progress_bps = if campaign.target_amount == 0 {
-                0
-            } else {
-                ((campaign.raised_amount.saturating_mul(10_000)) / campaign.target_amount) as u32
-            };
+            let funding_progress_bps = campaign
+                .raised_amount
+                .saturating_mul(10_000)
+                .checked_div(campaign.target_amount)
+                .unwrap_or(0) as u32;
             let average_investment = if campaign.investor_count == 0 {
                 0
             } else {
@@ -1012,11 +1010,11 @@ mod propchain_crowdfunding {
         // ── Search & Discovery ───────────────────────────────
 
         fn campaign_to_summary(&self, campaign: &Campaign) -> CampaignSummary {
-            let funded_pct = if campaign.target_amount == 0 {
-                0u32
-            } else {
-                ((campaign.raised_amount * 100) / campaign.target_amount) as u32
-            };
+            let funded_pct = campaign
+                .raised_amount
+                .saturating_mul(100)
+                .checked_div(campaign.target_amount)
+                .unwrap_or(0) as u32;
             let risk_rating = self
                 .risk_profiles
                 .get(campaign.campaign_id)
@@ -1120,7 +1118,8 @@ mod propchain_crowdfunding {
                 .filter_map(|id| self.campaigns.get(*id))
                 .map(|c| self.campaign_to_summary(&c))
                 .collect();
-            summaries.sort_by(|a, b| b.raised_amount.cmp(&a.raised_amount));
+            summaries.sort_by_key(|s| s.raised_amount);
+            summaries.reverse();
             summaries.into_iter().take(n).collect()
         }
 
@@ -1200,11 +1199,10 @@ mod propchain_crowdfunding {
 
             let total_investors = campaign.investor_count;
             let total_investment = campaign.raised_amount;
-            let funding_progress = if campaign.target_amount == 0 {
-                0
-            } else {
-                ((total_investment * 10_000) / campaign.target_amount) as u32
-            };
+            let funding_progress = total_investment
+                .saturating_mul(10_000)
+                .checked_div(campaign.target_amount)
+                .unwrap_or(0) as u32;
 
             let average_investment = if total_investors == 0 {
                 0
@@ -1213,6 +1211,7 @@ mod propchain_crowdfunding {
             };
 
             // Find largest investment
+            #[allow(unused_assignments)]
             let mut largest_investment = 0u128;
             for id in self.campaign_ids.iter() {
                 if let Some(investor) = self.campaigns.get(*id) {
@@ -1230,11 +1229,10 @@ mod propchain_crowdfunding {
 
             let total_milestones = self.campaign_milestone_counts.get(campaign_id).unwrap_or(0);
             let released_milestones = self.released_milestone_counts.get(campaign_id).unwrap_or(0);
-            let milestone_completion_rate = if total_milestones == 0 {
-                0
-            } else {
-                ((released_milestones as u32 * 10_000) / total_milestones) as u32
-            };
+            let milestone_completion_rate = released_milestones
+                .saturating_mul(10_000)
+                .checked_div(total_milestones)
+                .unwrap_or(0);
 
             // Placeholder values for time-based metrics
             // In a real implementation, we'd track timestamps
@@ -1257,12 +1255,11 @@ mod propchain_crowdfunding {
                 })
                 .unwrap_or(5_000);
 
-            let projected_completion_days = if funding_velocity == 0 {
-                0
-            } else {
-                ((campaign.target_amount.saturating_sub(total_investment)) / funding_velocity)
-                    as u32
-            };
+            let projected_completion_days = campaign
+                .target_amount
+                .saturating_sub(total_investment)
+                .checked_div(funding_velocity)
+                .unwrap_or(0) as u32;
 
             Some(CampaignAnalytics {
                 campaign_id,
@@ -1291,9 +1288,9 @@ mod propchain_crowdfunding {
             let total_investors = campaign.investor_count;
             let mut accredited_investors = 0u32;
             let mut total_investment = 0u128;
-            let mut max_investment = 0u128;
-            let mut jurisdiction_counts = Mapping::<u32, u32>::default();
-            let mut investment_ranges = Mapping::<u32, u32>::default(); // 0-1k, 1k-10k, 10k-100k, 100k+
+            let max_investment = 0u128;
+            let _jurisdiction_counts = Mapping::<u32, u32>::default();
+            let _investment_ranges = Mapping::<u32, u32>::default(); // 0-1k, 1k-10k, 10k-100k, 100k+
 
             // This is a simplified implementation
             // In practice, we'd need to iterate through all investments
@@ -1319,16 +1316,16 @@ mod propchain_crowdfunding {
             let jurisdictions = vec![
                 ("US".to_string(), total_investors * 6 / 10),
                 ("CA".to_string(), total_investors * 2 / 10),
-                ("EU".to_string(), total_investors * 1 / 10),
-                ("Other".to_string(), total_investors * 1 / 10),
+                ("EU".to_string(), total_investors / 10),
+                ("Other".to_string(), total_investors / 10),
             ];
 
             // Placeholder investment distribution
             let investment_distribution = vec![
-                (1_000, total_investors * 3 / 10),     // 0-1k
-                (10_000, total_investors * 4 / 10),    // 1k-10k
-                (100_000, total_investors * 2 / 10),   // 10k-100k
-                (1_000_000, total_investors * 1 / 10), // 100k+
+                (1_000, total_investors * 3 / 10),   // 0-1k
+                (10_000, total_investors * 4 / 10),  // 1k-10k
+                (100_000, total_investors * 2 / 10), // 10k-100k
+                (1_000_000, total_investors / 10),   // 100k+
             ];
 
             Some(InvestorDemographics {
@@ -1360,7 +1357,7 @@ mod propchain_crowdfunding {
                 (500_000, u128::MAX)
             };
 
-            let mut similar_campaigns = 0u32;
+            let _similar_campaigns = 0u32;
             let mut better_performing = 0u32;
             let mut total_similar = 0u32;
 
@@ -1372,16 +1369,16 @@ mod propchain_crowdfunding {
                         && c.status == CampaignStatus::Funded
                     {
                         total_similar += 1;
-                        let their_progress = if c.target_amount == 0 {
-                            0
-                        } else {
-                            ((c.raised_amount * 100) / c.target_amount) as u32
-                        };
-                        let our_progress = if campaign.target_amount == 0 {
-                            0
-                        } else {
-                            ((campaign.raised_amount * 100) / campaign.target_amount) as u32
-                        };
+                        let their_progress = c
+                            .raised_amount
+                            .saturating_mul(100)
+                            .checked_div(c.target_amount)
+                            .unwrap_or(0) as u32;
+                        let our_progress = campaign
+                            .raised_amount
+                            .saturating_mul(100)
+                            .checked_div(campaign.target_amount)
+                            .unwrap_or(0) as u32;
                         if their_progress > our_progress {
                             better_performing += 1;
                         }
@@ -1432,6 +1429,7 @@ pub use crate::propchain_crowdfunding::{CrowdfundingError, RealEstateCrowdfundin
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused_imports)]
     use ink::env::{test, DefaultEnvironment};
     use propchain_crowdfunding::{
         CampaignAnalytics, CampaignFilter, CampaignStatus, CampaignSummary, CrowdfundingError,

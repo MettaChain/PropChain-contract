@@ -1,6 +1,6 @@
-use ink::prelude::vec::Vec;
 use ink::prelude::string::String;
-use scale::{Encode, Decode};
+use ink::prelude::vec::Vec;
+use scale::{Decode, Encode};
 
 /// Errors that can occur when validating a deployment template.
 #[derive(Debug, Encode, Decode, PartialEq, Eq, Clone)]
@@ -400,13 +400,19 @@ mod tests {
 
     #[test]
     fn dex_rejects_fee_over_100_percent() {
-        let t = DexTemplate { admin: acc(1), fee_bps: 10_001 };
+        let t = DexTemplate {
+            admin: acc(1),
+            fee_bps: 10_001,
+        };
         assert_eq!(t.validate(), Err(TemplateError::PercentageOutOfRange));
     }
 
     #[test]
     fn encode_params_matches_tuple_order() {
-        let t = OracleTemplate { admin: acc(1), update_interval: 600 };
+        let t = OracleTemplate {
+            admin: acc(1),
+            update_interval: 600,
+        };
         assert_eq!(t.encode_params(), (t.admin, t.update_interval).encode());
     }
 }

@@ -174,7 +174,7 @@ impl core::fmt::Display for Error {
 
 impl ContractError for Error {
     fn error_code(&self) -> u32 {
-        use bridge_codes::*;
+        
         match self {
             Error::Unauthorized => bridge_codes::BRIDGE_UNAUTHORIZED,
             Error::TokenNotFound => bridge_codes::BRIDGE_TOKEN_NOT_FOUND,

@@ -2,7 +2,8 @@
 #![allow(
     clippy::needless_borrows_for_generic_args,
     clippy::too_many_arguments,
-    clippy::upper_case_acronyms
+    clippy::upper_case_acronyms,
+    dead_code
 )]
 
 use propchain_traits::ComplianceChecker;
@@ -379,7 +380,9 @@ mod compliance_registry {
                 Error::InvalidDocumentType => write!(f, "Invalid document type"),
                 Error::JurisdictionNotSupported => write!(f, "Jurisdiction not supported"),
                 Error::SanctionsCheckFailed => write!(f, "Sanctions check failed"),
-                Error::OperationNotAllowed => write!(f, "Operation not allowed for this token's jurisdiction"),
+                Error::OperationNotAllowed => {
+                    write!(f, "Operation not allowed for this token's jurisdiction")
+                }
                 Error::TokenNotFound => write!(f, "Token not found in jurisdiction registry"),
                 Error::InvalidOperation => write!(f, "Invalid operation specified"),
             }
@@ -462,18 +465,14 @@ mod compliance_registry {
                 Error::JurisdictionNotSupported => {
                     "The specified jurisdiction is not currently supported"
                 }
-                Error::SanctionsCheckFailed => {
-                    "The account has failed sanctions screening"
-                }
+                Error::SanctionsCheckFailed => "The account has failed sanctions screening",
                 Error::OperationNotAllowed => {
                     "The requested operation is not allowed for this token's jurisdiction"
                 }
                 Error::TokenNotFound => {
                     "The specified token ID was not found in the jurisdiction registry"
                 }
-                Error::InvalidOperation => {
-                    "The specified operation is invalid or not recognized"
-                }
+                Error::InvalidOperation => "The specified operation is invalid or not recognized",
             }
         }
 
@@ -1645,7 +1644,10 @@ mod compliance_registry {
         // ========== Jurisdiction-aware feature flags per tokenId ==========
 
         /// Helper to convert AllowedOperation to the corresponding boolean in OperationsMatrix
-        fn get_operation_flag(matrix: &OperationsMatrix, operation: AllowedOperation) -> Result<bool> {
+        fn get_operation_flag(
+            matrix: &OperationsMatrix,
+            operation: AllowedOperation,
+        ) -> Result<bool> {
             match operation {
                 AllowedOperation::Transfer => Ok(matrix.transfer),
                 AllowedOperation::ListForSale => Ok(matrix.list_for_sale),
@@ -1668,7 +1670,9 @@ mod compliance_registry {
             self.ensure_owner()?;
 
             // Get default operations matrix for this jurisdiction
-            let operations = self.jurisdiction_operations.get(jurisdiction)
+            let operations = self
+                .jurisdiction_operations
+                .get(jurisdiction)
                 .ok_or(Error::JurisdictionNotSupported)?;
 
             let config = TokenJurisdictionConfig {
@@ -1698,7 +1702,8 @@ mod compliance_registry {
         ) -> Result<()> {
             self.ensure_owner()?;
 
-            self.jurisdiction_operations.insert(jurisdiction, &operations);
+            self.jurisdiction_operations
+                .insert(jurisdiction, &operations);
 
             self.env().emit_event(JurisdictionOperationsUpdated {
                 jurisdiction,
@@ -1715,7 +1720,9 @@ mod compliance_registry {
             token_id: u64,
             operation: AllowedOperation,
         ) -> Result<bool> {
-            let config = self.token_jurisdictions.get(token_id)
+            let config = self
+                .token_jurisdictions
+                .get(token_id)
                 .ok_or(Error::TokenNotFound)?;
 
             if !config.is_active {
@@ -1727,36 +1734,32 @@ mod compliance_registry {
 
         /// Get the full allowed operations matrix for a token (for marketplace consumers)
         #[ink(message)]
-        pub fn get_token_operations_matrix(
-            &self,
-            token_id: u64,
-        ) -> Result<OperationsMatrix> {
-            let config = self.token_jurisdictions.get(token_id)
+        pub fn get_token_operations_matrix(&self, token_id: u64) -> Result<OperationsMatrix> {
+            let config = self
+                .token_jurisdictions
+                .get(token_id)
                 .ok_or(Error::TokenNotFound)?;
             Ok(config.operations)
         }
 
         /// Get token's jurisdiction configuration
         #[ink(message)]
-        pub fn get_token_jurisdiction(
-            &self,
-            token_id: u64,
-        ) -> Result<TokenJurisdictionConfig> {
-            self.token_jurisdictions.get(token_id)
+        pub fn get_token_jurisdiction(&self, token_id: u64) -> Result<TokenJurisdictionConfig> {
+            self.token_jurisdictions
+                .get(token_id)
                 .ok_or(Error::TokenNotFound)
         }
 
         /// Deactivate a token's jurisdiction configuration (disable all operations)
         #[ink(message)]
-        pub fn deactivate_token(
-            &mut self,
-            token_id: u64,
-        ) -> Result<()> {
+        pub fn deactivate_token(&mut self, token_id: u64) -> Result<()> {
             self.ensure_owner()?;
 
-            let mut config = self.token_jurisdictions.get(token_id)
+            let mut config = self
+                .token_jurisdictions
+                .get(token_id)
                 .ok_or(Error::TokenNotFound)?;
-            
+
             config.is_active = false;
             self.token_jurisdictions.insert(token_id, &config);
 
@@ -1772,15 +1775,14 @@ mod compliance_registry {
 
         /// Reactivate a previously deactivated token
         #[ink(message)]
-        pub fn reactivate_token(
-            &mut self,
-            token_id: u64,
-        ) -> Result<()> {
+        pub fn reactivate_token(&mut self, token_id: u64) -> Result<()> {
             self.ensure_owner()?;
 
-            let mut config = self.token_jurisdictions.get(token_id)
+            let mut config = self
+                .token_jurisdictions
+                .get(token_id)
                 .ok_or(Error::TokenNotFound)?;
-            
+
             config.is_active = true;
             self.token_jurisdictions.insert(token_id, &config);
 
@@ -1933,15 +1935,10 @@ mod compliance_registry {
         }
 
         /// Perform the actual screening logic
-        fn perform_screening(
-            &self,
-            account: AccountId,
-            now: u64,
-        ) -> Result<ScreeningResult> {
+        fn perform_screening(&self, account: AccountId, now: u64) -> Result<ScreeningResult> {
             if let Some(data) = self.compliance_data.get(account) {
-                let status = if !data.sanctions_checked {
-                    ScreeningStatus::Blocked
-                } else if data.risk_level == RiskLevel::Prohibited {
+                let status = if !data.sanctions_checked || data.risk_level == RiskLevel::Prohibited
+                {
                     ScreeningStatus::Blocked
                 } else if data.risk_level == RiskLevel::High {
                     ScreeningStatus::Flagged

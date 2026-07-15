@@ -1,12 +1,11 @@
 #![cfg(test)]
+#![allow(unused_variables)]
 
 use ink::env::test::{default_accounts, DefaultAccounts};
 use ink::primitives::AccountId;
 use propchain_identity::propchain_identity::{
     IdentityError, IdentityRegistry, PrivacySettings, VerificationLevel,
 };
-use propchain_traits::ChainId;
-
 #[ink::test]
 fn test_create_identity() {
     let accounts: DefaultAccounts<ink::env::DefaultEnvironment> = default_accounts();
@@ -323,7 +322,7 @@ fn test_assess_trust() {
     let trust_assessment = identity_registry.assess_trust(accounts.bob).unwrap();
 
     assert_eq!(trust_assessment.target_account, accounts.bob);
-    assert!(trust_assessment.trust_score >= 0 && trust_assessment.trust_score <= 100);
+    assert!(trust_assessment.trust_score <= 100);
     assert_eq!(trust_assessment.verification_level, VerificationLevel::None);
     assert_eq!(trust_assessment.reputation_score, 500); // Default reputation
 }

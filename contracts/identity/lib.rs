@@ -76,7 +76,14 @@ pub mod propchain_identity {
 
     /// Reason for identity revocation
     #[derive(
-        Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum RevocationReason {
@@ -146,7 +153,13 @@ pub mod propchain_identity {
 
     /// Single verification history entry for data export
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct VerificationHistoryEntry {
@@ -157,7 +170,13 @@ pub mod propchain_identity {
 
     /// Status of a GDPR data deletion request
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum DataDeletionStatus {
@@ -168,7 +187,13 @@ pub mod propchain_identity {
 
     /// GDPR data deletion request with cooldown tracking
     #[derive(
-        Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct DataDeletionRequest {
@@ -322,6 +347,7 @@ pub mod propchain_identity {
         ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    #[allow(non_camel_case_types)]
     pub enum KycTier {
         Tier0Unverified,  // No KYC, basic access only
         Tier1Basic,       // Basic identity verification
@@ -765,11 +791,15 @@ pub mod propchain_identity {
             }
 
             // Check if identity exists
-            let mut identity = self.identities.get(&account).ok_or(IdentityError::IdentityNotFound)?;
+            let mut identity = self
+                .identities
+                .get(&account)
+                .ok_or(IdentityError::IdentityNotFound)?;
 
             // Update identity status
             identity.is_verified = false;
             identity.verification_level = VerificationLevel::None;
+            identity.trust_score = 0;
             self.identities.insert(&account, &identity);
 
             // Create revocation record
@@ -1987,7 +2017,7 @@ pub mod propchain_identity {
             // Build verification history from audit trail
             let mut verification_history: Vec<VerificationHistoryEntry> = Vec::new();
             let audit_count = self.account_audit_count.get(caller).unwrap_or(0);
-            let start = if audit_count > 20 { audit_count - 20 } else { 0 };
+            let start = audit_count.saturating_sub(20);
             for i in start..audit_count {
                 if let Some(entry_id) = self.account_audit_index.get((caller, i)) {
                     if let Some(entry) = self.audit_trail.get(entry_id) {
@@ -2108,5 +2138,4 @@ pub mod propchain_identity {
             self.data_deletion_requests.get(caller)
         }
     }
-
 }

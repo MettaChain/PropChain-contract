@@ -391,7 +391,13 @@ pub mod propchain_contracts {
 
     /// Cached analytics for efficient aggregate queries
     #[derive(
-        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Default,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct CachedAnalytics {
@@ -401,36 +407,21 @@ pub mod propchain_contracts {
         pub last_updated: u64,
     }
 
-    impl Default for CachedAnalytics {
-        fn default() -> Self {
-            Self {
-                total_valuation: 0,
-                total_size: 0,
-                property_count: 0,
-                last_updated: 0,
-            }
-        }
-    }
-
     /// Load time metrics for monitoring
     #[derive(
-        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        PartialEq,
+        Default,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct LoadMetrics {
         pub last_load_time: u64,
         pub average_load_time: u64,
         pub total_operations: u64,
-    }
-
-    impl Default for LoadMetrics {
-        fn default() -> Self {
-            Self {
-                last_load_time: 0,
-                average_load_time: 0,
-                total_operations: 0,
-            }
-        }
     }
 
     /// Gas metrics for monitoring

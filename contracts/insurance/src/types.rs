@@ -487,7 +487,7 @@ pub struct PropertyRiskModel {
 // =========================================================================
 
 /// Types of fraud indicators detected in claims
-// REINSURANCE DISTRIBUTION TYPES
+/// REINSURANCE DISTRIBUTION TYPES
 // =========================================================================
 
 /// Treaty type determines how risk is shared with the reinsurer

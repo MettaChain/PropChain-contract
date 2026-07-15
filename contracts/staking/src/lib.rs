@@ -1,4 +1,10 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
+#![allow(
+    unused_imports,
+    dead_code,
+    clippy::needless_borrows_for_generic_args,
+    clippy::too_many_arguments
+)]
 
 #[ink::contract]
 mod staking {
@@ -703,7 +709,7 @@ mod staking {
                 let mut stake = self.stakes.get(caller).ok_or(Error::StakeNotFound)?;
 
                 // Determine how much can be claimed
-                let claimable_amount = if let Some(mut vesting) = stake.vesting_schedule {
+                let claimable_amount = if let Some(vesting) = stake.vesting_schedule {
                     let now = self.env().block_number() as u64;
                     let total_vested = vesting.calculate_vested_at_block(now);
                     let claimable = total_vested.saturating_sub(vesting.vested_amount);
@@ -1346,7 +1352,8 @@ mod staking {
         #[ink(message)]
         pub fn slash_validator(&mut self, validator: AccountId) -> Result<(), Error> {
             propchain_traits::non_reentrant!(self, {
-                self.slashing_coordinator.ok_or(Error::NoSlashingCoordinator)?;
+                self.slashing_coordinator
+                    .ok_or(Error::NoSlashingCoordinator)?;
                 if !self.validators.contains(validator) {
                     return Err(Error::ValidatorNotFound);
                 }

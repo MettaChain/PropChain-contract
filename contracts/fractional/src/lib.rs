@@ -1,4 +1,10 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
+#![allow(
+    clippy::needless_borrows_for_generic_args,
+    clippy::too_many_arguments,
+    dead_code,
+    clippy::manual_checked_ops
+)]
 
 #[ink::contract]
 mod fractional {
@@ -398,18 +404,18 @@ mod fractional {
         /// Mint shares to an owner (used in tests / by the property token contract)
         #[ink(message)]
         pub fn mint_shares(&mut self, owner: AccountId, token_id: u64, amount: u128) {
-            let current = self.balances.get(&(owner, token_id)).unwrap_or(0);
+            let current = self.balances.get((owner, token_id)).unwrap_or(0);
             self.balances
-                .insert(&(owner, token_id), &current.saturating_add(amount));
-            let total = self.total_shares.get(&token_id).unwrap_or(0);
+                .insert((owner, token_id), &current.saturating_add(amount));
+            let total = self.total_shares.get(token_id).unwrap_or(0);
             self.total_shares
-                .insert(&token_id, &total.saturating_add(amount));
+                .insert(token_id, &total.saturating_add(amount));
         }
 
         /// Get the share balance of an owner for a given token
         #[ink(message)]
         pub fn balance_of(&self, owner: AccountId, token_id: u64) -> u128 {
-            self.balances.get(&(owner, token_id)).unwrap_or(0)
+            self.balances.get((owner, token_id)).unwrap_or(0)
         }
 
         /// Consolidate an owner's share balance for a token into the canonical balance slot.
@@ -419,12 +425,12 @@ mod fractional {
             owner: AccountId,
             token_id: u64,
         ) -> Result<u128, FractionalError> {
-            let shares = self.balances.get(&(owner, token_id)).unwrap_or(0);
+            let shares = self.balances.get((owner, token_id)).unwrap_or(0);
             if shares == 0 {
                 return Err(FractionalError::InsufficientShares);
             }
 
-            self.balances.insert(&(owner, token_id), &shares);
+            self.balances.insert((owner, token_id), &shares);
             Ok(shares)
         }
 
@@ -441,7 +447,7 @@ mod fractional {
                 return Err(FractionalError::ZeroAmount);
             }
             let caller = self.env().caller();
-            let held = self.balances.get(&(caller, token_id)).unwrap_or(0);
+            let held = self.balances.get((caller, token_id)).unwrap_or(0);
             if held < shares {
                 return Err(FractionalError::InsufficientShares);
             }
@@ -452,7 +458,7 @@ mod fractional {
                 shares,
                 price_per_share,
             };
-            self.listings.insert(&(caller, token_id), &listing);
+            self.listings.insert((caller, token_id), &listing);
             self.last_prices.insert(token_id, &price_per_share);
 
             self.env().emit_event(SharesListed {
@@ -468,10 +474,10 @@ mod fractional {
         #[ink(message)]
         pub fn cancel_listing(&mut self, token_id: u64) -> Result<(), FractionalError> {
             let caller = self.env().caller();
-            if self.listings.get(&(caller, token_id)).is_none() {
+            if self.listings.get((caller, token_id)).is_none() {
                 return Err(FractionalError::ListingNotFound);
             }
-            self.listings.remove(&(caller, token_id));
+            self.listings.remove((caller, token_id));
             self.env().emit_event(ListingCancelled {
                 seller: caller,
                 token_id,
@@ -497,7 +503,7 @@ mod fractional {
 
                 let listing = self
                     .listings
-                    .get(&(seller, token_id))
+                    .get((seller, token_id))
                     .ok_or(FractionalError::ListingNotFound)?;
 
                 if shares > listing.shares {
@@ -510,24 +516,24 @@ mod fractional {
                 }
 
                 // Transfer shares: deduct from seller, credit buyer
-                let seller_held = self.balances.get(&(seller, token_id)).unwrap_or(0);
+                let seller_held = self.balances.get((seller, token_id)).unwrap_or(0);
                 self.balances
-                    .insert(&(seller, token_id), &seller_held.saturating_sub(shares));
+                    .insert((seller, token_id), &seller_held.saturating_sub(shares));
 
-                let buyer_held = self.balances.get(&(buyer, token_id)).unwrap_or(0);
+                let buyer_held = self.balances.get((buyer, token_id)).unwrap_or(0);
                 self.balances
-                    .insert(&(buyer, token_id), &buyer_held.saturating_add(shares));
+                    .insert((buyer, token_id), &buyer_held.saturating_add(shares));
 
                 // Update or remove listing
                 let remaining = listing.shares.saturating_sub(shares);
                 if remaining == 0 {
-                    self.listings.remove(&(seller, token_id));
+                    self.listings.remove((seller, token_id));
                 } else {
                     let updated = ShareListing {
                         shares: remaining,
                         ..listing
                     };
-                    self.listings.insert(&(seller, token_id), &updated);
+                    self.listings.insert((seller, token_id), &updated);
                 }
 
                 // Pay the seller
@@ -561,7 +567,7 @@ mod fractional {
                     return Err(FractionalError::ZeroAmount);
                 }
                 let caller = self.env().caller();
-                let held = self.balances.get(&(caller, token_id)).unwrap_or(0);
+                let held = self.balances.get((caller, token_id)).unwrap_or(0);
                 if held < shares {
                     return Err(FractionalError::InsufficientShares);
                 }
@@ -571,10 +577,10 @@ mod fractional {
 
                 // Burn shares
                 self.balances
-                    .insert(&(caller, token_id), &held.saturating_sub(shares));
-                let total = self.total_shares.get(&token_id).unwrap_or(0);
+                    .insert((caller, token_id), &held.saturating_sub(shares));
+                let total = self.total_shares.get(token_id).unwrap_or(0);
                 self.total_shares
-                    .insert(&token_id, &total.saturating_sub(shares));
+                    .insert(token_id, &total.saturating_sub(shares));
 
                 // Pay out (best-effort in unit tests)
                 if payout > 0 {
@@ -596,7 +602,7 @@ mod fractional {
         /// Get an active listing
         #[ink(message)]
         pub fn get_listing(&self, seller: AccountId, token_id: u64) -> Option<ShareListing> {
-            self.listings.get(&(seller, token_id))
+            self.listings.get((seller, token_id))
         }
 
         // ── Issue #269: AMM-style dynamic share pricing ──────────────────────
@@ -621,7 +627,7 @@ mod fractional {
                     return Err(FractionalError::ZeroAmount);
                 }
 
-                let held = self.balances.get(&(caller, token_id)).unwrap_or(0);
+                let held = self.balances.get((caller, token_id)).unwrap_or(0);
                 if held < share_amount {
                     return Err(FractionalError::InsufficientShares);
                 }
@@ -663,7 +669,7 @@ mod fractional {
 
                 // Lock shares in pool (deduct from caller balance)
                 self.balances
-                    .insert(&(caller, token_id), &held.saturating_sub(share_amount));
+                    .insert((caller, token_id), &held.saturating_sub(share_amount));
 
                 // Update spot price
                 if updated.share_reserve > 0 {
@@ -672,9 +678,9 @@ mod fractional {
                 }
 
                 self.amm_pools.insert(token_id, &updated);
-                let lp_held = self.lp_balances.get(&(caller, token_id)).unwrap_or(0);
+                let lp_held = self.lp_balances.get((caller, token_id)).unwrap_or(0);
                 self.lp_balances
-                    .insert(&(caller, token_id), &lp_held.saturating_add(lp_minted));
+                    .insert((caller, token_id), &lp_held.saturating_add(lp_minted));
 
                 self.env().emit_event(LiquidityAdded {
                     provider: caller,
@@ -701,7 +707,7 @@ mod fractional {
                     return Err(FractionalError::ZeroAmount);
                 }
                 let caller = self.env().caller();
-                let lp_held = self.lp_balances.get(&(caller, token_id)).unwrap_or(0);
+                let lp_held = self.lp_balances.get((caller, token_id)).unwrap_or(0);
                 if lp_held < lp_amount {
                     return Err(FractionalError::InsufficientLpShares);
                 }
@@ -730,12 +736,12 @@ mod fractional {
                 };
 
                 // Return shares to caller
-                let bal = self.balances.get(&(caller, token_id)).unwrap_or(0);
+                let bal = self.balances.get((caller, token_id)).unwrap_or(0);
                 self.balances
-                    .insert(&(caller, token_id), &bal.saturating_add(shares_out));
+                    .insert((caller, token_id), &bal.saturating_add(shares_out));
 
                 self.lp_balances
-                    .insert(&(caller, token_id), &lp_held.saturating_sub(lp_amount));
+                    .insert((caller, token_id), &lp_held.saturating_sub(lp_amount));
                 self.amm_pools.insert(token_id, &updated);
 
                 // Update spot price
@@ -775,7 +781,7 @@ mod fractional {
                     return Err(FractionalError::ZeroAmount);
                 }
                 let caller = self.env().caller();
-                let held = self.balances.get(&(caller, token_id)).unwrap_or(0);
+                let held = self.balances.get((caller, token_id)).unwrap_or(0);
                 if held < shares_in {
                     return Err(FractionalError::InsufficientShares);
                 }
@@ -811,7 +817,7 @@ mod fractional {
 
                 // Deduct shares from caller
                 self.balances
-                    .insert(&(caller, token_id), &held.saturating_sub(shares_in));
+                    .insert((caller, token_id), &held.saturating_sub(shares_in));
                 // Burn shares from total supply
                 let total = self.total_shares.get(token_id).unwrap_or(0);
                 self.total_shares
@@ -867,7 +873,7 @@ mod fractional {
         /// Returns the LP token balance of `provider` for `token_id`.
         #[ink(message)]
         pub fn lp_balance_of(&self, provider: AccountId, token_id: u64) -> u128 {
-            self.lp_balances.get(&(provider, token_id)).unwrap_or(0)
+            self.lp_balances.get((provider, token_id)).unwrap_or(0)
         }
 
         // ── Dutch Auction ────────────────────────────────────────────────────
@@ -917,7 +923,7 @@ mod fractional {
                 return Err(FractionalError::ZeroAmount);
             }
 
-            let held = self.balances.get(&(caller, token_id)).unwrap_or(0);
+            let held = self.balances.get((caller, token_id)).unwrap_or(0);
             if held < shares {
                 return Err(FractionalError::InsufficientShares);
             }
@@ -997,16 +1003,16 @@ mod fractional {
             // Transfer shares from seller to buyer
             let seller_held = self
                 .balances
-                .get(&(auction.seller, auction.token_id))
+                .get((auction.seller, auction.token_id))
                 .unwrap_or(0);
             self.balances.insert(
-                &(auction.seller, auction.token_id),
+                (auction.seller, auction.token_id),
                 &seller_held.saturating_sub(auction.shares),
             );
 
-            let buyer_held = self.balances.get(&(caller, auction.token_id)).unwrap_or(0);
+            let buyer_held = self.balances.get((caller, auction.token_id)).unwrap_or(0);
             self.balances.insert(
-                &(caller, auction.token_id),
+                (caller, auction.token_id),
                 &buyer_held.saturating_add(auction.shares),
             );
 

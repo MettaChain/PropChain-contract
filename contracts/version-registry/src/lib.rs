@@ -64,9 +64,7 @@ mod version_registry {
 
         fn error_description(&self) -> &'static str {
             match self {
-                Error::Unauthorized => {
-                    "Caller does not have permission to perform this operation"
-                }
+                Error::Unauthorized => "Caller does not have permission to perform this operation",
                 Error::NameNotFound => {
                     "The specified name is not registered in the version registry"
                 }
@@ -139,11 +137,7 @@ mod version_registry {
 
             let version = self.next_version.get(&name).unwrap_or(1);
 
-            if self
-                .deployments
-                .get(&(name.clone(), version))
-                .is_some()
-            {
+            if self.deployments.get(&(name.clone(), version)).is_some() {
                 return Err(Error::VersionAlreadyExists);
             }
 
@@ -159,14 +153,13 @@ mod version_registry {
                 deployer: caller,
             };
 
-            self.deployments
-                .insert(&(name.clone(), version), &record);
+            self.deployments.insert(&(name.clone(), version), &record);
             self.latest_versions.insert(&name, &version);
             self.next_version.insert(&name, &(version + 1));
 
             if is_new_name {
                 self.name_count += 1;
-                self.name_index.insert(&self.name_count, &name.clone());
+                self.name_index.insert(self.name_count, &name.clone());
             }
 
             self.env().emit_event(ContractDeployed {
@@ -193,11 +186,7 @@ mod version_registry {
                 return Err(Error::InvalidVersion);
             }
 
-            if self
-                .deployments
-                .get(&(name.clone(), version))
-                .is_some()
-            {
+            if self.deployments.get(&(name.clone(), version)).is_some() {
                 return Err(Error::VersionAlreadyExists);
             }
 
@@ -213,8 +202,7 @@ mod version_registry {
                 deployer: caller,
             };
 
-            self.deployments
-                .insert(&(name.clone(), version), &record);
+            self.deployments.insert(&(name.clone(), version), &record);
 
             let current_latest = self.latest_versions.get(&name).unwrap_or(0);
             if version > current_latest {
@@ -228,7 +216,7 @@ mod version_registry {
 
             if is_new_name {
                 self.name_count += 1;
-                self.name_index.insert(&self.name_count, &name.clone());
+                self.name_index.insert(self.name_count, &name.clone());
             }
 
             self.env().emit_event(ContractDeployed {
@@ -248,11 +236,7 @@ mod version_registry {
         }
 
         #[ink(message)]
-        pub fn get_deployment(
-            &self,
-            name: String,
-            version: u32,
-        ) -> Option<DeploymentRecord> {
+        pub fn get_deployment(&self, name: String, version: u32) -> Option<DeploymentRecord> {
             self.deployments.get(&(name, version))
         }
 
@@ -276,7 +260,7 @@ mod version_registry {
         pub fn get_all_names(&self) -> Vec<String> {
             let mut names = Vec::with_capacity(self.name_count as usize);
             for i in 1..=self.name_count {
-                if let Some(name) = self.name_index.get(&i) {
+                if let Some(name) = self.name_index.get(i) {
                     names.push(name);
                 }
             }
@@ -302,9 +286,7 @@ mod version_registry {
                 .unwrap();
             assert_eq!(version, 1);
 
-            let record = registry
-                .get_deployment("test_contract".into(), 1)
-                .unwrap();
+            let record = registry.get_deployment("test_contract".into(), 1).unwrap();
             assert_eq!(record.version, 1);
             assert_eq!(record.code_hash, hash);
             assert_eq!(record.contract_name, "test_contract");
@@ -331,9 +313,7 @@ mod version_registry {
             let hashes = [[1u8; 32], [2u8; 32], [3u8; 32]];
 
             for hash in &hashes {
-                registry
-                    .register_deployment("test".into(), *hash)
-                    .unwrap();
+                registry.register_deployment("test".into(), *hash).unwrap();
             }
 
             let history = registry.get_deployment_history("test".into());
@@ -349,8 +329,7 @@ mod version_registry {
             let accounts = test::default_accounts::<ink::env::DefaultEnvironment>();
             test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
 
-            let result =
-                registry.register_deployment("test".into(), [1u8; 32]);
+            let result = registry.register_deployment("test".into(), [1u8; 32]);
             assert_eq!(result, Err(Error::Unauthorized));
         }
 
@@ -361,8 +340,7 @@ mod version_registry {
             registry
                 .register_deployment_with_version("test".into(), 1, [1u8; 32])
                 .unwrap();
-            let result = registry
-                .register_deployment_with_version("test".into(), 1, [2u8; 32]);
+            let result = registry.register_deployment_with_version("test".into(), 1, [2u8; 32]);
             assert_eq!(result, Err(Error::VersionAlreadyExists));
         }
 
@@ -399,12 +377,8 @@ mod version_registry {
         #[ink::test]
         fn test_get_nonexistent_deployment() {
             let registry = default_registry();
-            assert!(registry
-                .get_deployment("nonexistent".into(), 1)
-                .is_none());
-            assert!(registry
-                .get_latest_version("nonexistent".into())
-                .is_none());
+            assert!(registry.get_deployment("nonexistent".into(), 1).is_none());
+            assert!(registry.get_latest_version("nonexistent".into()).is_none());
         }
     }
 }

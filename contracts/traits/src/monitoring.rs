@@ -239,4 +239,3 @@ pub trait HealthEndpoint {
     #[ink(message)]
     fn health(&self) -> HealthReport;
 }
-

@@ -1,5 +1,10 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(unexpected_cfgs)]
+#![allow(
+    clippy::too_many_arguments,
+    dead_code,
+    clippy::needless_borrows_for_generic_args
+)]
 
 use ink::prelude::{string::String, vec::Vec};
 use ink::storage::Mapping;
@@ -894,7 +899,7 @@ mod dex {
             let participants = self
                 .competition_participants
                 .get(competition_id)
-                .unwrap_or_else(Vec::new);
+                .unwrap_or_default();
             let mut total_score = 0u128;
             for participant in participants.iter() {
                 total_score = total_score.saturating_add(
@@ -964,7 +969,7 @@ mod dex {
                     let mut participants = self
                         .competition_participants
                         .get(competition_id)
-                        .unwrap_or_else(Vec::new);
+                        .unwrap_or_default();
                     if !participants.contains(&trader) {
                         participants.push(trader);
                         self.competition_participants
@@ -984,7 +989,7 @@ mod dex {
         pub fn list_competition_participants(&self, competition_id: u64) -> Vec<AccountId> {
             self.competition_participants
                 .get(competition_id)
-                .unwrap_or_else(Vec::new)
+                .unwrap_or_default()
         }
 
         #[ink(message)]
@@ -1010,7 +1015,7 @@ mod dex {
             let participants = self
                 .competition_participants
                 .get(competition_id)
-                .unwrap_or_else(Vec::new);
+                .unwrap_or_default();
             for participant in participants.iter() {
                 let score = self
                     .competition_scores
@@ -1473,7 +1478,8 @@ mod dex {
         #[ink(message)]
         pub fn get_competition_rank(&self, competition_id: u64, trader: AccountId) -> Option<u64> {
             let mut leaderboard = self.get_competition_leaderboard(competition_id);
-            leaderboard.sort_by(|a, b| b.1.cmp(&a.1));
+            leaderboard.sort_by_key(|a| a.1);
+            leaderboard.reverse();
             for (idx, (account, _score)) in leaderboard.iter().enumerate() {
                 if *account == trader {
                     return Some((idx + 1) as u64);
@@ -2118,8 +2124,11 @@ mod dex {
                 }
             }
             match side {
-                OrderSide::Buy => levels.sort_by(|a, b| b.price.cmp(&a.price)),
-                OrderSide::Sell => levels.sort_by(|a, b| a.price.cmp(&b.price)),
+                OrderSide::Buy => {
+                    levels.sort_by_key(|a| a.price);
+                    levels.reverse();
+                }
+                OrderSide::Sell => levels.sort_by_key(|a| a.price),
             }
             if max_levels > 0 && (max_levels as usize) < levels.len() {
                 levels.truncate(max_levels as usize);
@@ -2163,11 +2172,8 @@ mod dex {
                 }
             }
 
-            let average_volatility_bips = if pairs_with_volatility > 0 {
-                total_volatility / pairs_with_volatility
-            } else {
-                0
-            };
+            let average_volatility_bips =
+                total_volatility.checked_div(pairs_with_volatility).unwrap_or(0);
 
             TradingStatistics {
                 total_pairs: self.pair_counter,
@@ -2454,7 +2460,7 @@ mod dex {
             emission_rate: u128,
             start_block: u64,
             end_block: u64,
-            reward_token_symbol: &String,
+            reward_token_symbol: &str,
         ) -> Result<(), Error> {
             if emission_rate == 0 || start_block >= end_block || reward_token_symbol.is_empty() {
                 return Err(Error::InvalidRequest);

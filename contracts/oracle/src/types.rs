@@ -105,17 +105,14 @@ pub struct TrendMetrics {
     feature = "std",
     derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
 )]
+#[derive(Default)]
 pub enum AggregationMethod {
+    #[default]
     WeightedMean,
     Median,
     TrimmedMean(u32),
 }
 
-impl Default for AggregationMethod {
-    fn default() -> Self {
-        AggregationMethod::WeightedMean
-    }
-}
 
 // ── Slashing Infrastructure (existing infrastructure) ─────────────────────────
 

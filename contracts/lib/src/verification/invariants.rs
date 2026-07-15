@@ -1,4 +1,4 @@
-﻿//! Formal verification harnesses using Kani.
+//! Formal verification harnesses using Kani.
 //!
 //! These proofs cover three invariants required by the security issue:
 //!   1. Balance conservation  — tokens cannot be created or destroyed
@@ -48,7 +48,10 @@ mod balance_proofs {
         // Prevent integer overflow in the total — a realistic contract constraint
         kani::assume(sender_balance.checked_add(receiver_balance).is_some());
 
-        let mut ledger = TokenLedger { sender_balance, receiver_balance };
+        let mut ledger = TokenLedger {
+            sender_balance,
+            receiver_balance,
+        };
         let total_before = ledger.total();
 
         // Whether the transfer succeeds or fails, the total must not change
@@ -123,7 +126,7 @@ mod access_control_proofs {
 
         let caller_role = match role % 3 {
             0 => Role::None,
-            _ => Role::User,   // covers 1 and any other non-admin value
+            _ => Role::User, // covers 1 and any other non-admin value
         };
 
         let ac = AccessControl { caller_role };
@@ -137,7 +140,9 @@ mod access_control_proofs {
 
     #[kani::proof]
     fn prove_admin_always_accepted() {
-        let ac = AccessControl { caller_role: Role::Admin };
+        let ac = AccessControl {
+            caller_role: Role::Admin,
+        };
         let result = ac.admin_only_action();
         assert!(result.is_ok(), "Admin was incorrectly rejected");
     }

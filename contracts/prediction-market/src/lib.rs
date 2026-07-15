@@ -1,5 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
-#![allow(clippy::new_without_default, clippy::needless_borrows_for_generic_args)]
+#![allow(
+    clippy::new_without_default,
+    clippy::needless_borrows_for_generic_args,
+    clippy::manual_checked_ops
+)]
 
 #[ink::contract]
 mod propchain_prediction_market {
@@ -628,10 +632,7 @@ mod propchain_prediction_market {
                 let winning_dir = market.winning_direction.as_ref().unwrap();
 
                 let key = (market_id, caller);
-                let mut stake = self
-                    .oracle_stakes
-                    .get(&key)
-                    .ok_or(Error::StakeNotFound)?;
+                let mut stake = self.oracle_stakes.get(&key).ok_or(Error::StakeNotFound)?;
 
                 if stake.claimed {
                     return Err(Error::RewardAlreadyClaimed);
@@ -697,6 +698,7 @@ mod propchain_prediction_market {
     }
 
     #[cfg(test)]
+    #[allow(unused_variables)]
     mod tests {
         use super::*;
 
@@ -726,8 +728,7 @@ mod propchain_prediction_market {
             PredictionMarket,
             ink::env::test::DefaultAccounts<ink::env::DefaultEnvironment>,
         ) {
-            let accounts =
-                ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
             let mut contract = PredictionMarket::new(accounts.alice, 100);
             contract.set_oracle(accounts.eve).unwrap();
@@ -736,7 +737,7 @@ mod propchain_prediction_market {
 
         #[ink::test]
         fn oracle_market_creation_works() {
-            let (mut contract, accounts) = setup_with_oracle();
+            let (mut contract, _) = setup_with_oracle();
 
             let market_id = contract
                 .create_oracle_market(1, String::from("property.valuation"), 500_000, 9999)
@@ -754,8 +755,8 @@ mod propchain_prediction_market {
             let (mut contract, accounts) = setup_with_oracle();
 
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
-            let result = contract
-                .create_oracle_market(1, String::from("property.valuation"), 500_000, 9999);
+            let result =
+                contract.create_oracle_market(1, String::from("property.valuation"), 500_000, 9999);
             assert_eq!(result, Err(Error::Unauthorized));
         }
 
@@ -774,9 +775,7 @@ mod propchain_prediction_market {
                 .unwrap();
 
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.eve);
-            contract
-                .submit_oracle_data(market_id, 600_000)
-                .unwrap();
+            contract.submit_oracle_data(market_id, 600_000).unwrap();
 
             let market = contract.get_oracle_market(market_id).unwrap();
             assert!(market.resolved);
@@ -793,9 +792,7 @@ mod propchain_prediction_market {
                 .unwrap();
 
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.eve);
-            contract
-                .submit_oracle_data(market_id, 400_000)
-                .unwrap();
+            contract.submit_oracle_data(market_id, 400_000).unwrap();
 
             let market = contract.get_oracle_market(market_id).unwrap();
             assert!(market.resolved);

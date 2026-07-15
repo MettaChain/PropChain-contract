@@ -3,7 +3,6 @@
 #[cfg(test)]
 mod fuzz_tests {
     use super::*;
-    use ink::env::{test, DefaultEnvironment};
 
     fn setup_dex() -> PropertyDex {
         let mut dex = PropertyDex::new(String::from("PCG"), 1_000_000, 25, 1_000);
@@ -29,7 +28,7 @@ mod fuzz_tests {
 
         for amount_in in [100u128, 500, 1000, 5000] {
             let result = dex.swap_exact_base_for_quote(pair_id, amount_in, 0);
-            if let Ok(_) = result {
+            if result.is_ok() {
                 let pool = dex.get_pool(pair_id).expect("pool exists");
                 let k = pool.reserve_base * pool.reserve_quote;
                 assert!(
@@ -44,7 +43,7 @@ mod fuzz_tests {
 
         for amount_in in [100u128, 500, 1000, 5000] {
             let result = dex.swap_exact_quote_for_base(pair_id, amount_in, 0);
-            if let Ok(_) = result {
+            if result.is_ok() {
                 let pool = dex.get_pool(pair_id).expect("pool exists");
                 let k = pool.reserve_base * pool.reserve_quote;
                 assert!(

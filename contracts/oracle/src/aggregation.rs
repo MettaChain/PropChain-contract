@@ -1,3 +1,9 @@
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::needless_borrows_for_generic_args,
+    clippy::ptr_arg
+)]
+
 use ink::prelude::vec::Vec;
 
 /// Simple (unweighted) median of a sample.

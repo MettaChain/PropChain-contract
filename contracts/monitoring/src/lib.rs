@@ -430,7 +430,10 @@ mod monitoring {
 
         /// Register a contract for health-check aggregation. Admin only.
         #[ink(message)]
-        pub fn register_health_contract(&mut self, contract: AccountId) -> Result<(), MonitoringError> {
+        pub fn register_health_contract(
+            &mut self,
+            contract: AccountId,
+        ) -> Result<(), MonitoringError> {
             self.ensure_admin()?;
             if !self.health_check_contracts.contains(&contract) {
                 self.health_check_contracts.push(contract);
@@ -440,7 +443,10 @@ mod monitoring {
 
         /// Unregister a contract from health-check aggregation. Admin only.
         #[ink(message)]
-        pub fn unregister_health_contract(&mut self, contract: AccountId) -> Result<(), MonitoringError> {
+        pub fn unregister_health_contract(
+            &mut self,
+            contract: AccountId,
+        ) -> Result<(), MonitoringError> {
             self.ensure_admin()?;
             self.health_check_contracts.retain(|c| c != &contract);
             Ok(())

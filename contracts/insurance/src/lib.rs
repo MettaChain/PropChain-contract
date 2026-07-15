@@ -4,7 +4,9 @@
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::needless_borrows_for_generic_args,
-    clippy::too_many_arguments
+    clippy::too_many_arguments,
+    clippy::empty_line_after_doc_comments,
+    dead_code
 )]
 
 use ink::storage::Mapping;
@@ -2868,10 +2870,9 @@ mod propchain_insurance {
                 if fraud_score > fraud_detection::get_high_fraud_risk_threshold() {
                     stats.high_risk_claims = stats.high_risk_claims.saturating_add(1);
                 }
-                stats.average_fraud_score = (stats.average_fraud_score
-                    * (stats.total_assessments - 1) as u32
-                    + fraud_score)
-                    / stats.total_assessments as u32;
+                stats.average_fraud_score =
+                    (stats.average_fraud_score * (stats.total_assessments - 1) + fraud_score)
+                        / stats.total_assessments;
                 stats.last_update = now;
                 self.fraud_detection_stats = Some(stats);
             }
@@ -3284,7 +3285,7 @@ mod propchain_insurance {
         pub fn health(&self) -> propchain_traits::monitoring::HealthReport {
             let total_operations = self.policy_count.saturating_add(self.claim_count);
             let error_rate_bips = 0u32; // Insurance contract tracks claims, not errors
-            
+
             propchain_traits::monitoring::HealthReport {
                 contract_name: String::from("insurance"),
                 status: propchain_traits::monitoring::HealthStatus::Healthy,

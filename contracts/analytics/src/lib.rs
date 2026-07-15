@@ -4,7 +4,6 @@
 
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
-use propchain_traits;
 
 #[ink::contract]
 mod propchain_analytics {
@@ -424,13 +423,8 @@ mod propchain_analytics {
 
         /// Get the stored benchmark index for a property type.
         #[ink(message)]
-        pub fn get_benchmark_index(
-            &self,
-            property_type: propchain_traits::PropertyType,
-        ) -> i32 {
-            self.benchmark_indices
-                .get(property_type)
-                .unwrap_or(0)
+        pub fn get_benchmark_index(&self, property_type: propchain_traits::PropertyType) -> i32 {
+            self.benchmark_indices.get(property_type).unwrap_or(0)
         }
 
         /// Get portfolio rebalancing suggestions for an owner.
@@ -450,7 +444,8 @@ mod propchain_analytics {
                 let normalized_trend = 100i128
                     + (trend.price_change_percentage as i128 * 2)
                     + (trend.volume_change_percentage as i128 / 5);
-                let benchmark_gap = (trend.price_change_percentage as i128 - benchmark_change as i128)
+                let benchmark_gap = (trend.price_change_percentage as i128
+                    - benchmark_change as i128)
                     .saturating_mul(3)
                     + (trend.volume_change_percentage as i128 / 2);
                 let score = (normalized_trend - benchmark_gap).clamp(50, 150) as u128;
@@ -476,7 +471,7 @@ mod propchain_analytics {
                     let benchmark_change = self.get_benchmark_index(property_type.clone());
                     let benchmark_gap = (self
                         .get_property_type_trend(property_type.clone())
-                        .price_change_percentage as i32
+                        .price_change_percentage
                         - benchmark_change)
                         .abs();
                     let recommendation = if diff > 200 {
@@ -525,9 +520,9 @@ mod propchain_analytics {
                 max_share_bips = max_share_bips.max(share_bips);
                 let trend = self.get_property_type_trend(position.property_type.clone());
                 let benchmark_change = self.get_benchmark_index(position.property_type.clone());
-                trend_total += trend.price_change_percentage as i32;
-                benchmark_penalty += ((trend.price_change_percentage as i32 - benchmark_change).abs() / 2)
-                    .min(15);
+                trend_total += trend.price_change_percentage;
+                benchmark_penalty +=
+                    ((trend.price_change_percentage - benchmark_change).abs() / 2).min(15);
             }
 
             let distinct_bonus = (distinct_types.len() as u8).saturating_mul(10).min(40);
@@ -537,10 +532,8 @@ mod propchain_analytics {
                 0
             };
             let trend_bonus =
-                ((trend_total as i32) / (distinct_types.len().max(1) as i32)).clamp(-10, 10) as i8;
-            let mut score = 50i32
-                + distinct_bonus as i32
-                - concentration_penalty as i32
+                (trend_total / (distinct_types.len().max(1) as i32)).clamp(-10, 10) as i8;
+            let mut score = 50i32 + distinct_bonus as i32 - concentration_penalty as i32
                 + trend_bonus as i32
                 - benchmark_penalty;
             score = score.clamp(0, 100);
@@ -676,5 +669,4 @@ mod propchain_analytics {
             self.pending_admin_rotation.clone()
         }
     }
-
 }
