@@ -2172,8 +2172,9 @@ mod dex {
                 }
             }
 
-            let average_volatility_bips =
-                total_volatility.checked_div(pairs_with_volatility).unwrap_or(0);
+            let average_volatility_bips = total_volatility
+                .checked_div(pairs_with_volatility)
+                .unwrap_or(0);
 
             TradingStatistics {
                 total_pairs: self.pair_counter,

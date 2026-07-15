@@ -2381,10 +2381,9 @@ mod lending_admin_rotation_tests {
 #[cfg(test)]
 mod storage_derivation_tests {
     use super::propchain_lending::{
-        CollateralKind, CollateralRecord, CreditProfile, LendingPool,
-        LoanApplication, LoanListing, LoanOffer, LoanRestructuring, LoanServicer, LoanStatus,
-        MarginPosition, PaymentSchedule, PaymentScheduleStatus, PropertyLending, Proposal,
-        YieldPosition,
+        CollateralKind, CollateralRecord, CreditProfile, LendingPool, LoanApplication, LoanListing,
+        LoanOffer, LoanRestructuring, LoanServicer, LoanStatus, MarginPosition, PaymentSchedule,
+        PaymentScheduleStatus, PropertyLending, Proposal, YieldPosition,
     };
     use scale::{Decode, Encode};
 

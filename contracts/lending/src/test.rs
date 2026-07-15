@@ -1,8 +1,10 @@
 #![cfg(test)]
 
 use super::*;
-use ink::env::{test, DefaultEnvironment};    #[ink::test]
-    fn test_loan_interest_accrual_is_jit_only_on_loan_modification() {
+use ink::env::{test, DefaultEnvironment};
+
+#[ink::test]
+fn test_loan_interest_accrual_is_jit_only_on_loan_modification() {
     let accounts = test::default_accounts::<DefaultEnvironment>();
     test::set_caller::<DefaultEnvironment>(accounts.alice);
     let mut contract = PropertyLending::new(accounts.alice);
