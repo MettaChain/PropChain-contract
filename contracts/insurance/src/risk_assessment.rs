@@ -1,4 +1,11 @@
-#![allow(clippy::module_inception, dead_code)]
+#![allow(
+    clippy::module_inception,
+    dead_code,
+    unused_variables,
+    clippy::manual_range_contains,
+    clippy::needless_pass_by_value,
+    clippy::useless_vec
+)]
 
 // Risk Assessment Model Implementation (Task #254)
 // Provides comprehensive risk pricing model for accurate insurance premium calculation

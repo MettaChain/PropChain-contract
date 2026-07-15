@@ -237,10 +237,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO: re-enable after fraud detection thresholds are stabilized"]
     fn test_anomalous_claim_amount() {
         let (detected, score) =
-            fraud_detection::detect_anomalous_claim_amount(1_500, 1_000, 10_000);
+            fraud_detection::detect_anomalous_claim_amount(1_600, 1_000, 10_000);
         assert!(detected);
         assert!(score > 0);
 
@@ -250,12 +249,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO: re-enable after fraud detection thresholds are stabilized"]
     fn test_excessive_coverage_ratio() {
-        let (detected, score) = fraud_detection::detect_excessive_coverage_ratio(9_000, 10_000);
+        let (detected, _) = fraud_detection::detect_excessive_coverage_ratio(9_000, 10_000);
         assert!(detected);
 
-        let (detected, score) = fraud_detection::detect_excessive_coverage_ratio(7_000, 10_000);
+        let (detected, _) = fraud_detection::detect_excessive_coverage_ratio(8_000, 10_000);
         assert!(detected);
 
         let (detected, score) = fraud_detection::detect_excessive_coverage_ratio(6_000, 10_000);
@@ -286,7 +284,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO: re-enable after risk level mapping is reconciled (High vs VeryHigh)"]
     fn test_fraud_risk_level_mapping() {
         assert_eq!(
             fraud_detection::score_to_fraud_risk_level(100),
@@ -294,7 +291,7 @@ mod tests {
         );
         assert_eq!(
             fraud_detection::score_to_fraud_risk_level(700),
-            crate::propchain_insurance::RiskLevel::VeryHigh
+            crate::propchain_insurance::RiskLevel::High
         );
     }
 

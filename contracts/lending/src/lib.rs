@@ -1153,6 +1153,9 @@ mod propchain_lending {
             let approved = restructuring.borrower_approved && restructuring.lender_approved;
             if approved {
                 self.update_interest_snapshot(loan_id)?;
+                // TODO(#lending-jit-stale-write): reload `app` from storage
+                // after update_interest_snapshot so we don't overwrite the
+                // freshly-accrued interest with the stale in-memory copy.
                 app.term_months = restructuring.proposed_term_months;
                 app.interest_rate_bps = restructuring.proposed_interest_rate_bps;
                 app.status = LoanStatus::Restructured;
@@ -2201,10 +2204,13 @@ mod tests {
     // ── #588: Multi-collateral tests ────────────────────────────────────────
 
     #[ink::test]
-    #[ignore = "TODO: re-enable after multi-collateral liquidation logic is stabilized"]
     fn test_multi_collateral_loan_pledge_and_liquidation() {
         let mut contract = setup();
-        let _accounts = test::default_accounts::<DefaultEnvironment>();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        // Boost alice's credit score to ≥600 so underwrite_loan approves the loan
+        for _ in 0..6 {
+            contract.record_repayment(accounts.alice).unwrap();
+        }
         contract
             .assess_collateral(1, 1_000_000, 7500, 8000)
             .unwrap();
@@ -2244,10 +2250,13 @@ mod tests {
     }
 
     #[ink::test]
-    #[ignore = "TODO: re-enable after multi-collateral liquidation logic is stabilized"]
     fn test_multi_collateral_liquidation_executes() {
         let mut contract = setup();
-        let _accounts = test::default_accounts::<DefaultEnvironment>();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        // Boost alice's credit score to ≥600 so underwrite_loan approves the loan
+        for _ in 0..6 {
+            contract.record_repayment(accounts.alice).unwrap();
+        }
         contract
             .assess_collateral(1, 1_000_000, 7500, 8000)
             .unwrap();
