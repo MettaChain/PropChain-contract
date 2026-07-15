@@ -278,16 +278,15 @@ impl ContractError for Error {
 ///
 /// Use this inside contract internals for richer logging; return the plain
 /// [`Error`] across the ABI boundary.
-///
-/// # Example
-///
-/// ```rust
-/// let ctx = ErrorContext::new(Error::RateLimitExceeded)
-///     .with_request_id(request_id)
-///     .with_detail("limit=100,window=86400s");
-/// log::warn!("{ctx}");
-/// return Err(ctx.into_error());
-/// ```
+///    /// # Example
+    ///
+    /// ```ignore
+    /// let ctx = ErrorContext::new(Error::RateLimitExceeded)
+    ///     .with_request_id(request_id)
+    ///     .with_detail("limit=100,window=86400s");
+    /// log::warn!("{ctx}");
+    /// return Err(ctx.into_error());
+    /// ```
 #[derive(Debug)]
 pub struct ErrorContext {
     error: Error,
