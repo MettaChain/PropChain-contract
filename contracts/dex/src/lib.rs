@@ -1905,4 +1905,828 @@ mod dex {
                     self.apply_set_liquidity_mining(
                         action.payload.emission_rate,
                         action.payload.start_block,
-        
+                        action.payload.end_block,
+                        action.payload.reward_token_symbol.clone(),
+                    )?;
+                }
+                AdminActionKind::UpdateTimelockDelay => {
+                    self.admin_timelock_delay = action.payload.timelock_delay_blocks;
+                }
+            }
+            action.status = AdminActionStatus::Executed;
+            let kind = action.kind;
+            self.pending_admin_actions.insert(action_id, &action);
+            self.env()
+                .emit_event(AdminActionExecuted { action_id, kind });
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn cancel_admin_action(&mut self, action_id: u64) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            let mut action = self
+                .pending_admin_actions
+                .get(action_id)
+                .ok_or(Error::AdminActionNotFound)?;
+            if !matches!(action.status, AdminActionStatus::Scheduled) {
+                return Err(Error::AdminActionAlreadyFinalized);
+            }
+            action.status = AdminActionStatus::Cancelled;
+            self.pending_admin_actions.insert(action_id, &action);
+            self.env().emit_event(AdminActionCancelled { action_id });
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn get_scheduled_admin_action(&self, action_id: u64) -> Option<PendingAdminAction> {
+            self.pending_admin_actions.get(action_id)
+        }
+
+        fn schedule_admin_action_internal(
+            &mut self,
+            kind: AdminActionKind,
+            payload: AdminActionPayload,
+        ) -> Result<u64, Error> {
+            let caller = self.env().caller();
+            if caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            self.pending_admin_action_counter = self.pending_admin_action_counter.saturating_add(1);
+            let action_id = self.pending_admin_action_counter;
+            let scheduled_at = u64::from(self.env().block_number());
+            let executable_at = scheduled_at.saturating_add(self.admin_timelock_delay);
+            let action = PendingAdminAction {
+                action_id,
+                kind,
+                payload,
+                proposer: caller,
+                scheduled_at,
+                executable_at,
+                status: AdminActionStatus::Scheduled,
+            };
+            self.pending_admin_actions.insert(action_id, &action);
+            self.env().emit_event(AdminActionScheduled {
+                action_id,
+                proposer: caller,
+                kind,
+                executable_at,
+            });
+            Ok(action_id)
+        }
+
+        fn apply_configure_bridge_route(
+            &mut self,
+            destination_chain: ChainId,
+            gas_estimate: u64,
+            protocol_fee: u128,
+        ) {
+            self.bridge_quotes.insert(
+                destination_chain,
+                &BridgeFeeQuote {
+                    destination_chain,
+                    gas_estimate,
+                    protocol_fee,
+                    total_fee: protocol_fee.saturating_add(gas_estimate as u128),
+                },
+            );
+        }
+
+        fn apply_set_liquidity_mining(
+            &mut self,
+            emission_rate: u128,
+            start_block: u64,
+            end_block: u64,
+            reward_token_symbol: String,
+        ) -> Result<(), Error> {
+            Self::validate_liquidity_mining_campaign(
+                emission_rate,
+                start_block,
+                end_block,
+                &reward_token_symbol,
+            )?;
+            self.liquidity_mining = LiquidityMiningCampaign {
+                emission_rate,
+                start_block,
+                end_block,
+                reward_token_symbol: reward_token_symbol.clone(),
+            };
+            self.governance_config.emission_rate = emission_rate;
+            self.env().emit_event(LiquidityMiningCampaignUpdated {
+                emission_rate,
+                start_block,
+                end_block,
+                reward_token_symbol,
+            });
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn get_order_book_snapshot(
+            &self,
+            pair_id: u64,
+            max_levels: u32,
+        ) -> Result<OrderBookSnapshot, Error> {
+            let _ = self.pool(pair_id)?;
+            let bids = self.collect_order_book_levels(pair_id, OrderSide::Buy, max_levels);
+            let asks = self.collect_order_book_levels(pair_id, OrderSide::Sell, max_levels);
+
+            let best_bid = bids.first().map(|level| level.price).unwrap_or(0);
+            let best_ask = asks.first().map(|level| level.price).unwrap_or(0);
+            let spread = if best_bid > 0 && best_ask > best_bid {
+                best_ask - best_bid
+            } else {
+                0
+            };
+            let mid_price = if best_bid > 0 && best_ask > 0 {
+                best_bid.saturating_add(best_ask) / 2
+            } else if best_bid > 0 {
+                best_bid
+            } else {
+                best_ask
+            };
+            let total_bid_depth = bids
+                .iter()
+                .fold(0u128, |acc, level| acc.saturating_add(level.total_amount));
+            let total_ask_depth = asks
+                .iter()
+                .fold(0u128, |acc, level| acc.saturating_add(level.total_amount));
+            let analytics = self.analytics_for(pair_id);
+
+            Ok(OrderBookSnapshot {
+                pair_id,
+                bids,
+                asks,
+                best_bid,
+                best_ask,
+                spread,
+                mid_price,
+                total_bid_depth,
+                total_ask_depth,
+                last_price: analytics.last_price,
+                last_updated: analytics.last_updated,
+            })
+        }
+
+        #[ink(message)]
+        pub fn get_order_book_levels(
+            &self,
+            pair_id: u64,
+            side: OrderSide,
+            max_levels: u32,
+        ) -> Result<Vec<OrderBookLevel>, Error> {
+            let _ = self.pool(pair_id)?;
+            Ok(self.collect_order_book_levels(pair_id, side, max_levels))
+        }
+
+        fn collect_order_book_levels(
+            &self,
+            pair_id: u64,
+            side: OrderSide,
+            max_levels: u32,
+        ) -> Vec<OrderBookLevel> {
+            let count = self.order_book_count.get(pair_id).unwrap_or(0);
+            let mut levels: Vec<OrderBookLevel> = Vec::new();
+            for idx in 0..count {
+                let order_id = match self.order_book.get((pair_id, idx)) {
+                    Some(order_id) => order_id,
+                    None => continue,
+                };
+                let order = match self.orders.get(order_id) {
+                    Some(order) => order,
+                    None => continue,
+                };
+                if order.side != side {
+                    continue;
+                }
+                if !matches!(
+                    order.status,
+                    OrderStatus::Open | OrderStatus::PartiallyFilled | OrderStatus::Triggered
+                ) {
+                    continue;
+                }
+                if order.remaining_amount == 0 || order.price == 0 {
+                    continue;
+                }
+                if let Some(existing) = levels.iter_mut().find(|level| level.price == order.price) {
+                    existing.total_amount =
+                        existing.total_amount.saturating_add(order.remaining_amount);
+                    existing.order_count = existing.order_count.saturating_add(1);
+                } else {
+                    levels.push(OrderBookLevel {
+                        price: order.price,
+                        total_amount: order.remaining_amount,
+                        order_count: 1,
+                        cumulative_amount: 0,
+                        side,
+                    });
+                }
+            }
+            match side {
+                OrderSide::Buy => {
+                    levels.sort_by_key(|a| a.price);
+                    levels.reverse();
+                }
+                OrderSide::Sell => levels.sort_by_key(|a| a.price),
+            }
+            if max_levels > 0 && (max_levels as usize) < levels.len() {
+                levels.truncate(max_levels as usize);
+            }
+            let mut cumulative = 0u128;
+            for level in levels.iter_mut() {
+                cumulative = cumulative.saturating_add(level.total_amount);
+                level.cumulative_amount = cumulative;
+            }
+            levels
+        }
+
+        /// Get comprehensive trading statistics across all pairs
+        #[ink(message)]
+        pub fn get_trading_statistics(&self) -> TradingStatistics {
+            let mut total_volume_24h = 0u128;
+            let mut total_trades_24h = 0u64;
+            let mut most_active_pair = None;
+            let mut highest_volume_pair = None;
+            let mut max_trades = 0u64;
+            let mut max_volume = 0u128;
+            let mut total_volatility = 0u32;
+            let mut pairs_with_volatility = 0u32;
+
+            for pair_id in 1..=self.pair_counter {
+                if let Some(analytics) = self.analytics.get(pair_id) {
+                    total_volume_24h = total_volume_24h.saturating_add(analytics.volume_24h);
+                    total_trades_24h = total_trades_24h.saturating_add(analytics.trade_count_24h);
+                    total_volatility = total_volatility.saturating_add(analytics.volatility_bips);
+                    pairs_with_volatility = pairs_with_volatility.saturating_add(1);
+
+                    if analytics.trade_count_24h > max_trades {
+                        max_trades = analytics.trade_count_24h;
+                        most_active_pair = Some(pair_id);
+                    }
+
+                    if analytics.volume_24h > max_volume {
+                        max_volume = analytics.volume_24h;
+                        highest_volume_pair = Some(pair_id);
+                    }
+                }
+            }
+
+            let average_volatility_bips =
+                total_volatility.checked_div(pairs_with_volatility).unwrap_or(0);
+
+            TradingStatistics {
+                total_pairs: self.pair_counter,
+                total_volume_24h,
+                total_trades_24h,
+                most_active_pair,
+                highest_volume_pair,
+                average_volatility_bips,
+            }
+        }
+
+        /// Get price history summary for a trading pair
+        #[ink(message)]
+        pub fn get_price_history(&self, pair_id: u64) -> Option<PriceHistory> {
+            let analytics = self.analytics.get(pair_id)?;
+            Some(PriceHistory {
+                pair_id,
+                current_price: analytics.last_price,
+                high_24h: analytics.high_24h,
+                low_24h: analytics.low_24h,
+                twap_price: analytics.twap_price,
+                reference_price: analytics.reference_price,
+                volatility_bips: analytics.volatility_bips,
+            })
+        }
+
+        /// Get volume analytics for a trading pair
+        #[ink(message)]
+        pub fn get_volume_analytics(&self, pair_id: u64) -> Option<VolumeAnalytics> {
+            let analytics = self.analytics.get(pair_id)?;
+            let pool = self.pools.get(pair_id)?;
+
+            Some(VolumeAnalytics {
+                pair_id,
+                volume_24h: analytics.volume_24h,
+                cumulative_volume: analytics.cumulative_volume,
+                trade_count_24h: analytics.trade_count_24h,
+                total_trade_count: analytics.trade_count,
+                liquidity_base: pool.reserve_base,
+                liquidity_quote: pool.reserve_quote,
+            })
+        }
+
+        /// Get analytics for all trading pairs
+        #[ink(message)]
+        pub fn get_all_pair_analytics(&self) -> Vec<PairAnalytics> {
+            let mut analytics_list = Vec::new();
+            for pair_id in 1..=self.pair_counter {
+                if let Some(analytics) = self.analytics.get(pair_id) {
+                    analytics_list.push(analytics);
+                }
+            }
+            analytics_list
+        }
+
+        fn swap(
+            &mut self,
+            pair_id: u64,
+            side: OrderSide,
+            amount_in: u128,
+            min_amount_out: u128,
+        ) -> Result<u128, Error> {
+            if amount_in == 0 {
+                return Err(Error::InvalidOrder);
+            }
+            self.accrue_rewards(pair_id)?;
+            let mut pool = self.pool(pair_id)?;
+            let caller = self.env().caller();
+            let fee_adjusted_in = amount_in
+                .saturating_mul(BIPS_DENOMINATOR.saturating_sub(pool.fee_bips as u128))
+                .checked_div(BIPS_DENOMINATOR)
+                .unwrap_or(0);
+
+            let (reserve_in, reserve_out) = match side {
+                OrderSide::Sell => (pool.reserve_base, pool.reserve_quote),
+                OrderSide::Buy => (pool.reserve_quote, pool.reserve_base),
+            };
+            if reserve_in == 0 || reserve_out == 0 {
+                return Err(Error::InsufficientLiquidity);
+            }
+
+            let amount_out = fee_adjusted_in
+                .saturating_mul(reserve_out)
+                .checked_div(reserve_in.saturating_add(fee_adjusted_in))
+                .unwrap_or(0);
+            if amount_out == 0 || amount_out < min_amount_out {
+                return Err(Error::SlippageExceeded);
+            }
+
+            // Calculate price impact before executing the trade
+            let price_before = if reserve_in > 0 {
+                reserve_out
+                    .saturating_mul(BIPS_DENOMINATOR)
+                    .checked_div(reserve_in)
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+
+            let reserve_in_after = reserve_in.saturating_add(amount_in);
+            let reserve_out_after = reserve_out.saturating_sub(amount_out);
+            let price_after = if reserve_in_after > 0 {
+                reserve_out_after
+                    .saturating_mul(BIPS_DENOMINATOR)
+                    .checked_div(reserve_in_after)
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+
+            let price_impact_bips = if price_before > 0 {
+                price_before
+                    .abs_diff(price_after)
+                    .saturating_mul(BIPS_DENOMINATOR)
+                    .checked_div(price_before)
+                    .unwrap_or(0) as u32
+            } else {
+                0
+            };
+
+            // Emit price impact warning if impact exceeds 3% (300 bips)
+            if price_impact_bips > 300 {
+                self.env().emit_event(PriceImpactWarning {
+                    pair_id,
+                    trader: caller,
+                    price_impact_bips,
+                    amount_in,
+                });
+            }
+
+            match side {
+                OrderSide::Sell => {
+                    pool.reserve_base = pool.reserve_base.saturating_add(amount_in);
+                    pool.reserve_quote = pool.reserve_quote.saturating_sub(amount_out);
+                }
+                OrderSide::Buy => {
+                    pool.reserve_quote = pool.reserve_quote.saturating_add(amount_in);
+                    pool.reserve_base = pool.reserve_base.saturating_sub(amount_out);
+                }
+            }
+            pool.cumulative_volume = pool.cumulative_volume.saturating_add(amount_in);
+            self.update_pool_price(&mut pool);
+            self.pools.insert(pair_id, &pool);
+
+            let mut analytics = self.analytics_for(pair_id);
+            let previous = analytics.last_price;
+            analytics.last_price = pool.last_price;
+            analytics.twap_price =
+                weighted_average(analytics.last_price, analytics.twap_price, 2, 1);
+            analytics.reference_price =
+                self.reference_price_from_book(pair_id, analytics.last_price);
+            analytics.cumulative_volume = analytics.cumulative_volume.saturating_add(amount_in);
+            analytics.trade_count = analytics.trade_count.saturating_add(1);
+            analytics.volatility_bips = volatility_bips(previous, analytics.last_price);
+            analytics.last_updated = self.env().block_timestamp();
+
+            // Update 24h statistics
+            if analytics.high_24h == 0 || pool.last_price > analytics.high_24h {
+                analytics.high_24h = pool.last_price;
+            }
+            if analytics.low_24h == 0 || pool.last_price < analytics.low_24h {
+                analytics.low_24h = pool.last_price;
+            }
+            analytics.volume_24h = analytics.volume_24h.saturating_add(amount_in);
+            analytics.trade_count_24h = analytics.trade_count_24h.saturating_add(1);
+
+            self.analytics.insert(pair_id, &analytics);
+            self.refresh_best_quotes(pair_id);
+
+            let reward = amount_in
+                .saturating_mul(self.liquidity_mining.emission_rate)
+                .checked_div(1_000)
+                .unwrap_or(0);
+            let gov = self.governance_balances.get(caller).unwrap_or(0);
+            self.governance_balances
+                .insert(caller, &gov.saturating_add(reward));
+            self.governance_config.total_supply =
+                self.governance_config.total_supply.saturating_add(reward);
+
+            self.env().emit_event(SwapExecuted {
+                pair_id,
+                trader: caller,
+                amount_in,
+                amount_out,
+            });
+
+            self.update_trade_competition_score(pair_id, caller, amount_out);
+            // After swap, check for executable limit orders
+            self.process_executable_limit_orders(pair_id)?;
+
+            Ok(amount_out)
+        }
+
+        fn is_order_executable(&self, order: &TradingOrder) -> Result<bool, Error> {
+            let discovered = self.discover_price(order.pair_id)?;
+            let triggered = match order.order_type {
+                OrderType::Market | OrderType::Limit => true,
+                OrderType::StopLoss => match order.side {
+                    OrderSide::Sell => discovered <= order.trigger_price.unwrap_or(order.price),
+                    OrderSide::Buy => discovered >= order.trigger_price.unwrap_or(order.price),
+                },
+                OrderType::TakeProfit => match order.side {
+                    OrderSide::Sell => discovered >= order.trigger_price.unwrap_or(order.price),
+                    OrderSide::Buy => discovered <= order.trigger_price.unwrap_or(order.price),
+                },
+                OrderType::Twap => true,
+            };
+            if !triggered {
+                return Ok(false);
+            }
+            Ok(match order.order_type {
+                OrderType::Market
+                | OrderType::Twap
+                | OrderType::StopLoss
+                | OrderType::TakeProfit => true,
+                _ => match order.side {
+                    OrderSide::Buy => discovered <= order.price,
+                    OrderSide::Sell => discovered >= order.price,
+                },
+            })
+        }
+
+        fn accrue_rewards(&mut self, pair_id: u64) -> Result<(), Error> {
+            let mut pool = self.pool(pair_id)?;
+            if pool.total_lp_shares == 0 {
+                return Ok(());
+            }
+            let current_block = u64::from(self.env().block_number());
+            let last_block = self.last_reward_block.get(pair_id).unwrap_or(current_block);
+            let start = core::cmp::max(last_block, self.liquidity_mining.start_block);
+            let end = core::cmp::min(current_block, self.liquidity_mining.end_block);
+            if end <= start {
+                self.last_reward_block.insert(pair_id, &current_block);
+                return Ok(());
+            }
+            let blocks = (end - start) as u128;
+            let total_reward = blocks.saturating_mul(self.liquidity_mining.emission_rate);
+            let increment = total_reward
+                .saturating_mul(REWARD_PRECISION)
+                .checked_div(pool.total_lp_shares)
+                .unwrap_or(0);
+            pool.reward_index = pool.reward_index.saturating_add(increment);
+            self.pools.insert(pair_id, &pool);
+            self.last_reward_block.insert(pair_id, &current_block);
+            Ok(())
+        }
+
+        fn pending_liquidity_rewards_for(
+            &self,
+            pool: &LiquidityPool,
+            position: &LiquidityPosition,
+            pair_id: u64,
+        ) -> u128 {
+            if position.lp_shares == 0 || pool.total_lp_shares == 0 {
+                return position.pending_rewards;
+            }
+
+            let current_block = u64::from(self.env().block_number());
+            let last_block = self.last_reward_block.get(pair_id).unwrap_or(current_block);
+            let start = core::cmp::max(last_block, self.liquidity_mining.start_block);
+            let end = core::cmp::min(current_block, self.liquidity_mining.end_block);
+            let reward_index = if end > start {
+                let blocks = (end - start) as u128;
+                let total_reward = blocks.saturating_mul(self.liquidity_mining.emission_rate);
+                let increment = total_reward
+                    .saturating_mul(REWARD_PRECISION)
+                    .checked_div(pool.total_lp_shares)
+                    .unwrap_or(0);
+                pool.reward_index.saturating_add(increment)
+            } else {
+                pool.reward_index
+            };
+
+            position
+                .pending_rewards
+                .saturating_add(pending_from_indices(
+                    position.lp_shares,
+                    reward_index,
+                    position.reward_debt,
+                ))
+        }
+
+        fn validate_liquidity_mining_campaign(
+            emission_rate: u128,
+            start_block: u64,
+            end_block: u64,
+            reward_token_symbol: &str,
+        ) -> Result<(), Error> {
+            if emission_rate == 0 || start_block >= end_block || reward_token_symbol.is_empty() {
+                return Err(Error::InvalidRequest);
+            }
+            Ok(())
+        }
+
+        fn apply_fee_to_all_pools(&mut self, new_fee_bips: u32) -> Result<(), Error> {
+            if new_fee_bips >= 1_000 {
+                return Err(Error::InvalidPair);
+            }
+            for pair_id in 1..=self.pair_counter {
+                if let Some(mut pool) = self.pools.get(pair_id) {
+                    pool.fee_bips = new_fee_bips;
+                    self.pools.insert(pair_id, &pool);
+                }
+            }
+            Ok(())
+        }
+
+        fn refresh_best_quotes(&mut self, pair_id: u64) {
+            let count = self.order_book_count.get(pair_id).unwrap_or(0);
+            let mut best_bid = 0u128;
+            let mut best_ask = 0u128;
+            for idx in 0..count {
+                let order_id = match self.order_book.get((pair_id, idx)) {
+                    Some(order_id) => order_id,
+                    None => continue,
+                };
+                let order = match self.orders.get(order_id) {
+                    Some(order) => order,
+                    None => continue,
+                };
+                if !matches!(
+                    order.status,
+                    OrderStatus::Open | OrderStatus::PartiallyFilled | OrderStatus::Triggered
+                ) {
+                    continue;
+                }
+                match order.side {
+                    OrderSide::Buy => {
+                        if order.price > best_bid {
+                            best_bid = order.price;
+                        }
+                    }
+                    OrderSide::Sell => {
+                        if best_ask == 0 || order.price < best_ask {
+                            best_ask = order.price;
+                        }
+                    }
+                }
+            }
+            let mut analytics = self.analytics_for(pair_id);
+            analytics.best_bid = best_bid;
+            analytics.best_ask = best_ask;
+            analytics.reference_price =
+                self.reference_price_from_book(pair_id, analytics.last_price);
+            self.analytics.insert(pair_id, &analytics);
+        }
+
+        /// Process and execute all limit orders that have become executable after a price change.
+        /// This is called after each swap to ensure limit orders are filled when their price
+        /// conditions are met.
+        fn process_executable_limit_orders(&mut self, pair_id: u64) -> Result<(), Error> {
+            let count = self.order_book_count.get(pair_id).unwrap_or(0);
+            if count == 0 {
+                return Ok(());
+            }
+
+            // Collect order IDs that need to be executed
+            let mut orders_to_execute: Vec<u64> = Vec::new();
+
+            for idx in 0..count {
+                let order_id = match self.order_book.get((pair_id, idx)) {
+                    Some(order_id) => order_id,
+                    None => continue,
+                };
+
+                let order = match self.orders.get(order_id) {
+                    Some(order) => order,
+                    None => continue,
+                };
+
+                // Only process limit orders that are open or partially filled
+                if !matches!(order.order_type, OrderType::Limit) {
+                    continue;
+                }
+
+                if !matches!(
+                    order.status,
+                    OrderStatus::Open | OrderStatus::PartiallyFilled
+                ) {
+                    continue;
+                }
+
+                // Check if the limit order is now executable
+                if self.is_order_executable(&order)? {
+                    orders_to_execute.push(order_id);
+                }
+            }
+
+            // Execute collected orders
+            for order_id in orders_to_execute {
+                // Reload order to get latest state (may have been partially filled by previous executions)
+                let order = match self.orders.get(order_id) {
+                    Some(order) => order,
+                    None => continue,
+                };
+
+                if order.remaining_amount > 0
+                    && matches!(
+                        order.status,
+                        OrderStatus::Open | OrderStatus::PartiallyFilled
+                    )
+                {
+                    let _ = self.execute_order_core(order_id, order.remaining_amount);
+                }
+            }
+
+            Ok(())
+        }
+
+        fn reference_price_from_book(&self, pair_id: u64, fallback: u128) -> u128 {
+            let analytics = self.analytics_for(pair_id);
+            if analytics.best_bid > 0 && analytics.best_ask > 0 {
+                (analytics.best_bid.saturating_add(analytics.best_ask)) / 2
+            } else {
+                fallback
+            }
+        }
+
+        fn update_pool_price(&self, pool: &mut LiquidityPool) {
+            if pool.reserve_base > 0 {
+                pool.last_price = pool
+                    .reserve_quote
+                    .saturating_mul(BIPS_DENOMINATOR)
+                    .checked_div(pool.reserve_base)
+                    .unwrap_or(pool.last_price);
+            }
+        }
+
+        fn ensure_admin_or_pair_creator(&self) -> Result<(), Error> {
+            let _ = self.env().caller();
+            Ok(())
+        }
+
+        fn pool(&self, pair_id: u64) -> Result<LiquidityPool, Error> {
+            self.pools.get(pair_id).ok_or(Error::PoolNotFound)
+        }
+
+        fn order(&self, order_id: u64) -> Result<TradingOrder, Error> {
+            self.orders.get(order_id).ok_or(Error::OrderNotFound)
+        }
+
+        fn cross_chain_trade(&self, trade_id: u64) -> Result<CrossChainTradeIntent, Error> {
+            self.cross_chain_trades
+                .get(trade_id)
+                .ok_or(Error::CrossChainTradeNotFound)
+        }
+
+        fn position(&self, pair_id: u64, account: AccountId) -> LiquidityPosition {
+            self.positions
+                .get((pair_id, account))
+                .unwrap_or(LiquidityPosition {
+                    lp_shares: 0,
+                    reward_debt: 0,
+                    provided_base: 0,
+                    provided_quote: 0,
+                    pending_rewards: 0,
+                })
+        }
+
+        fn analytics_for(&self, pair_id: u64) -> PairAnalytics {
+            self.analytics.get(pair_id).unwrap_or(PairAnalytics {
+                pair_id,
+                last_price: 0,
+                twap_price: 0,
+                reference_price: 0,
+                cumulative_volume: 0,
+                trade_count: 0,
+                best_bid: 0,
+                best_ask: 0,
+                volatility_bips: 0,
+                last_updated: 0,
+                high_24h: 0,
+                low_24h: 0,
+                volume_24h: 0,
+                trade_count_24h: 0,
+            })
+        }
+    }
+
+    fn empty_admin_action_payload() -> AdminActionPayload {
+        AdminActionPayload {
+            destination_chain: 0,
+            gas_estimate: 0,
+            protocol_fee: 0,
+            emission_rate: 0,
+            start_block: 0,
+            end_block: 0,
+            reward_token_symbol: String::new(),
+            timelock_delay_blocks: 0,
+        }
+    }
+
+    fn ordered_pair(base: TokenId, quote: TokenId) -> (TokenId, TokenId) {
+        if base < quote {
+            (base, quote)
+        } else {
+            (quote, base)
+        }
+    }
+
+    fn integer_sqrt(value: u128) -> u128 {
+        if value <= 1 {
+            return value;
+        }
+        let mut x0 = value / 2;
+        let mut x1 = (x0 + value / x0) / 2;
+        while x1 < x0 {
+            x0 = x1;
+            x1 = (x0 + value / x0) / 2;
+        }
+        x0
+    }
+
+    fn weighted_average(a: u128, b: u128, a_weight: u128, b_weight: u128) -> u128 {
+        if a_weight + b_weight == 0 {
+            return 0;
+        }
+        a.saturating_mul(a_weight)
+            .saturating_add(b.saturating_mul(b_weight))
+            .checked_div(a_weight + b_weight)
+            .unwrap_or(0)
+    }
+
+    fn pending_from_indices(lp_shares: u128, reward_index: u128, reward_debt: u128) -> u128 {
+        lp_shares
+            .saturating_mul(reward_index)
+            .checked_div(REWARD_PRECISION)
+            .unwrap_or(0)
+            .saturating_sub(reward_debt)
+    }
+
+    fn scaled_reward_debt(lp_shares: u128, reward_index: u128) -> u128 {
+        lp_shares
+            .saturating_mul(reward_index)
+            .checked_div(REWARD_PRECISION)
+            .unwrap_or(0)
+    }
+
+    fn volatility_bips(previous: u128, current: u128) -> u32 {
+        if previous == 0 || current == 0 {
+            return 0;
+        }
+        let diff = previous.abs_diff(current);
+        diff.saturating_mul(BIPS_DENOMINATOR)
+            .checked_div(previous)
+            .unwrap_or(0) as u32
+    }
+
+    // Include unit tests
+    #[cfg(test)]
+    include!("tests.rs");
+
+    // Include property-based fuzz tests (Issue #480)
+    #[cfg(test)]
+    include!("fuzz_tests.rs");
+}
