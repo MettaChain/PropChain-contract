@@ -1,5 +1,5 @@
 # 🛡️ Automated Security & Mutation Audit Log
-Generated on: Thu Jul 16 05:14:55 UTC 2026
+Generated on: Fri Jul 17 05:17:56 UTC 2026
 ---
 ## 📦 Dependency License & Advisory Checks (cargo-deny)
 ```text
@@ -42,14 +42,6 @@ cargo-deny failed or flagged warnings
 
 [0m[0m[1m[31mCrate:    [0m rustls-webpki
 [0m[0m[1m[31mVersion:  [0m 0.102.8
-[0m[0m[1m[31mTitle:    [0m CRLs not considered authoritative by Distribution Point due to faulty matching logic
-[0m[0m[1m[31mDate:     [0m 2026-03-20
-[0m[0m[1m[31mID:       [0m RUSTSEC-2026-0049
-[0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0049
-[0m[0m[1m[31mSolution: [0m Upgrade to >=0.103.10
-
-[0m[0m[1m[31mCrate:    [0m rustls-webpki
-[0m[0m[1m[31mVersion:  [0m 0.102.8
 [0m[0m[1m[31mTitle:    [0m Name constraints were accepted for certificates asserting a wildcard name
 [0m[0m[1m[31mDate:     [0m 2026-04-14
 [0m[0m[1m[31mID:       [0m RUSTSEC-2026-0099
@@ -63,6 +55,14 @@ cargo-deny failed or flagged warnings
 [0m[0m[1m[31mID:       [0m RUSTSEC-2026-0098
 [0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0098
 [0m[0m[1m[31mSolution: [0m Upgrade to >=0.103.12, <0.104.0-alpha.1 OR >=0.104.0-alpha.6
+
+[0m[0m[1m[31mCrate:    [0m rustls-webpki
+[0m[0m[1m[31mVersion:  [0m 0.102.8
+[0m[0m[1m[31mTitle:    [0m CRLs not considered authoritative by Distribution Point due to faulty matching logic
+[0m[0m[1m[31mDate:     [0m 2026-03-20
+[0m[0m[1m[31mID:       [0m RUSTSEC-2026-0049
+[0m[0m[1m[31mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2026-0049
+[0m[0m[1m[31mSolution: [0m Upgrade to >=0.103.10
 
 [0m[0m[1m[33mCrate:    [0m instant
 [0m[0m[1m[33mVersion:  [0m 0.1.13
