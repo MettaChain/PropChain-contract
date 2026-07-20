@@ -11,6 +11,12 @@ use propchain_traits::FeeOperation;
 /// Implements congestion-based fees, premium listing auctions, validator incentives,
 /// and fee transparency for network participants.
 #[ink::contract]
+// `errors.rs` is `include!()`d before `strategies.rs`, so its in-file
+// `#[cfg(test)] mod tests` lands before the strategies items in the module
+// body. `clippy::items_after_test_module` flags that ordering, but moving
+// every test after every include isn't worth the structural churn, so
+// suppress the lint here.
+#[allow(clippy::items_after_test_module)]
 mod propchain_fees {
     use super::*;
 

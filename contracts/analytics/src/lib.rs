@@ -333,11 +333,10 @@ mod propchain_analytics {
         ) {
             self.ensure_admin(); // Prediction market or admin updates this
             let total_volume = bull_volume + bear_volume;
-            let ratio = if total_volume > 0 {
-                ((bull_volume * 10000) / total_volume) as u32
-            } else {
-                5000 // default unbiased
-            };
+            let ratio = (bull_volume * 10000)
+                .checked_div(total_volume)
+                .map(|n| n as u32)
+                .unwrap_or(5000); // default unbiased
 
             let new_sentiment = MarketSentiment {
                 bull_volume,
@@ -359,10 +358,12 @@ mod propchain_analytics {
 
             let total_overall =
                 self.overall_sentiment.bull_volume + self.overall_sentiment.bear_volume;
-            if total_overall > 0 {
-                self.overall_sentiment.bull_bear_ratio_bips =
-                    ((self.overall_sentiment.bull_volume * 10000) / total_overall) as u32;
-            }
+            // Preserve previous ratio when total is zero (matches original `if total_overall > 0` skip semantics).
+            self.overall_sentiment.bull_bear_ratio_bips = (self.overall_sentiment.bull_volume
+                * 10000)
+                .checked_div(total_overall)
+                .map(|n| n as u32)
+                .unwrap_or(self.overall_sentiment.bull_bear_ratio_bips);
         }
 
         /// Update portfolio positions for an owner.
@@ -456,11 +457,10 @@ mod propchain_analytics {
             target_scores
                 .into_iter()
                 .map(|(property_type, score)| {
-                    let target_bips = if total_score > 0 {
-                        ((score * 10000) / total_score) as u32
-                    } else {
-                        0
-                    };
+                    let target_bips = (score * 10000)
+                        .checked_div(total_score)
+                        .map(|n| n as u32)
+                        .unwrap_or(0);
                     let current_value = positions
                         .iter()
                         .find(|p| p.property_type == property_type)

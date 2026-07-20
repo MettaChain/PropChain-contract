@@ -8,7 +8,7 @@
 //    analytics (finer-grained than the shared `ErrorCategory::Fees`)
 //  - `From<FeeError>` for `u32` — lossless conversion to the numeric code
 //    without going through the `ContractError` trait
-//  - `FeeResult<T>` alias — reduces boilerplate at call sites
+//  - `FeeResult<T>` alias — reduces boilerplate for in-crate use (and tests)
 //  - All match arms are exhaustive and kept in a single canonical order so
 //    adding a new variant produces a compiler error in every match
 //  - Full unit-test suite covering every variant and every method
@@ -22,11 +22,11 @@ use propchain_traits::errors::{fee_codes, ContractError, ErrorCategory};
 #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub enum ErrorSeverity {
     /// The caller made a correctable mistake (wrong timing, value too low, etc.).
-    UserError,
+    User,
     /// The contract is in an unexpected state — needs operator attention.
-    ContractError,
+    Internal,
     /// The caller is explicitly not permitted.
-    AuthError,
+    Auth,
 }
 
 /// Fine-grained machine-readable classification — useful for off-chain indexers.
@@ -42,7 +42,12 @@ pub enum FeeErrorKind {
 
 /// Convenience alias — use `FeeResult<T>` instead of `Result<T, FeeError>`
 /// throughout the fees contract.
-pub type FeeResult<T> = Result<T, FeeError>;
+///
+/// `#[allow(dead_code)]` because Rust's `dead_code` lint runs per compilation
+/// unit and the test-only `let ok: FeeResult<u32> = ...` usage in the
+/// `#[cfg(test)] mod tests` below is not visible to the lib-level lint pass.
+#[allow(dead_code)]
+type FeeResult<T> = Result<T, FeeError>;
 
 // ── Error enum ────────────────────────────────────────────────────────────────
 
@@ -83,15 +88,15 @@ impl FeeError {
     /// Severity level — drives log levels and UI copy.
     pub fn severity(&self) -> ErrorSeverity {
         match self {
-            FeeError::Unauthorized | FeeError::SelfBidNotAllowed => ErrorSeverity::AuthError,
-            FeeError::ArithmeticError | FeeError::InvalidConfig => ErrorSeverity::ContractError,
+            FeeError::Unauthorized | FeeError::SelfBidNotAllowed => ErrorSeverity::Auth,
+            FeeError::ArithmeticError | FeeError::InvalidConfig => ErrorSeverity::Internal,
             FeeError::AuctionNotFound
             | FeeError::AuctionEnded
             | FeeError::AuctionNotEnded
             | FeeError::BidTooLow
             | FeeError::AlreadySettled
             | FeeError::InvalidProperty
-            | FeeError::BidDeadlineNotReached => ErrorSeverity::UserError,
+            | FeeError::BidDeadlineNotReached => ErrorSeverity::User,
         }
     }
 
@@ -289,14 +294,14 @@ mod tests {
 
     #[test]
     fn auth_errors_have_auth_severity() {
-        assert_eq!(FeeError::Unauthorized.severity(), ErrorSeverity::AuthError);
-        assert_eq!(FeeError::SelfBidNotAllowed.severity(), ErrorSeverity::AuthError);
+        assert_eq!(FeeError::Unauthorized.severity(), ErrorSeverity::Auth);
+        assert_eq!(FeeError::SelfBidNotAllowed.severity(), ErrorSeverity::Auth);
     }
 
     #[test]
-    fn internal_errors_have_contract_severity() {
-        assert_eq!(FeeError::ArithmeticError.severity(), ErrorSeverity::ContractError);
-        assert_eq!(FeeError::InvalidConfig.severity(), ErrorSeverity::ContractError);
+    fn internal_errors_have_internal_severity() {
+        assert_eq!(FeeError::ArithmeticError.severity(), ErrorSeverity::Internal);
+        assert_eq!(FeeError::InvalidConfig.severity(), ErrorSeverity::Internal);
     }
 
     #[test]
@@ -311,7 +316,7 @@ mod tests {
             FeeError::BidDeadlineNotReached,
         ];
         for e in user_errors {
-            assert_eq!(e.severity(), ErrorSeverity::UserError, "{e:?}");
+            assert_eq!(e.severity(), ErrorSeverity::User, "{e:?}");
         }
     }
 
@@ -427,10 +432,10 @@ mod tests {
     #[test]
     fn fee_result_ok_and_err_roundtrip() {
         let ok: FeeResult<u32> = Ok(42);
-        assert_eq!(ok.unwrap(), 42);
+        assert_eq!(ok, Ok(42));
 
         let err: FeeResult<u32> = Err(FeeError::BidTooLow);
-        assert_eq!(err.unwrap_err(), FeeError::BidTooLow);
+        assert_eq!(err, Err(FeeError::BidTooLow));
     }
 
     // ── Encoding round-trip ───────────────────────────────────────────────────

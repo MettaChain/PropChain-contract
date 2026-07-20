@@ -177,7 +177,7 @@ mod tests {
             .expect("set emergency threshold");
 
         // Freeze asset token_id = 1
-        let token_id = 1;
+        let _token_id = 1;
         test::set_caller::<DefaultEnvironment>(accounts.bob);
         let request_id = bridge
             .propose_freeze_asset(
@@ -290,7 +290,7 @@ mod tests {
         // Check that transaction is in a batch
         let batch_info = bridge.get_transaction_batch(transaction_hash);
         assert!(batch_info.is_some());
-        let (source_chain, window_id) = batch_info.unwrap();
+        let (source_chain, _window_id) = batch_info.unwrap();
         assert_eq!(source_chain, 1); // Default source chain
     }
 

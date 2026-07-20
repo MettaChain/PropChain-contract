@@ -110,6 +110,7 @@ pub mod contract_factory {
     impl ContractFactory {
         /// Creates a new factory instance
         #[ink(constructor)]
+        #[allow(clippy::new_without_default)]
         pub fn new() -> Self {
             Self {
                 admin: Self::env().caller(),

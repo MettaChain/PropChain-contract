@@ -1431,10 +1431,7 @@ mod tests {
     use super::*;
     #[allow(unused_imports)]
     use ink::env::{test, DefaultEnvironment};
-    use propchain_crowdfunding::{
-        CampaignAnalytics, CampaignFilter, CampaignStatus, CampaignSummary, CrowdfundingError,
-        InvestorDemographics, RealEstateCrowdfunding, RiskRating,
-    };
+    use propchain_crowdfunding::{CampaignStatus, CrowdfundingError, RealEstateCrowdfunding};
 
     fn setup() -> RealEstateCrowdfunding {
         let accounts = test::default_accounts::<DefaultEnvironment>();

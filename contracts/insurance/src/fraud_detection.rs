@@ -231,7 +231,7 @@ mod tests {
         assert!(detected);
         assert_eq!(score, 300);
 
-        let (detected, score) =
+        let (detected, _score) =
             fraud_detection::detect_multiple_claims_short_period(1, Some(10_000));
         assert!(!detected);
     }
@@ -243,7 +243,7 @@ mod tests {
         assert!(detected);
         assert!(score > 0);
 
-        let (detected, score) =
+        let (detected, _score) =
             fraud_detection::detect_anomalous_claim_amount(1_100, 1_000, 10_000);
         assert!(!detected);
     }
@@ -256,7 +256,7 @@ mod tests {
         let (detected, _) = fraud_detection::detect_excessive_coverage_ratio(8_000, 10_000);
         assert!(detected);
 
-        let (detected, score) = fraud_detection::detect_excessive_coverage_ratio(6_000, 10_000);
+        let (detected, _score) = fraud_detection::detect_excessive_coverage_ratio(6_000, 10_000);
         assert!(!detected);
     }
 
@@ -269,10 +269,10 @@ mod tests {
 
     #[test]
     fn test_misrepresentation_detection() {
-        let (detected, score) = fraud_detection::detect_misrepresentation(30, false);
+        let (detected, _score) = fraud_detection::detect_misrepresentation(30, false);
         assert!(detected);
 
-        let (detected, score) = fraud_detection::detect_misrepresentation(200, true);
+        let (detected, _score) = fraud_detection::detect_misrepresentation(200, true);
         assert!(!detected);
     }
 

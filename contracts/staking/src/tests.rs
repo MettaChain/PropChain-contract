@@ -1126,12 +1126,11 @@ mod tests {
         set_caller(accounts.bob);
         staking.stake(10_000, LockPeriod::Flexible).unwrap();
         
-        let stake_info = staking.get_stake(accounts.bob).unwrap();
-        assert_eq!(stake_info.auto_compound, false);
-        
+        let stake_info = staking.get_stake(accounts.bob).unwrap();        assert!(!stake_info.auto_compound);
+
         staking.set_auto_compound(true).unwrap();
         let stake_info = staking.get_stake(accounts.bob).unwrap();
-        assert_eq!(stake_info.auto_compound, true);
+        assert!(stake_info.auto_compound);
     }
 
     #[ink::test]
@@ -1413,7 +1412,7 @@ fn set_early_withdrawal_penalty_max_cap() {
         assert!(vested_midpoint > 0);
         assert!(vested_midpoint < 1_000_000);
         // Should be approximately 50% of 1_000_000
-        assert!(vested_midpoint >= 450_000 && vested_midpoint <= 550_000);
+        assert!((450_000..=550_000).contains(&vested_midpoint));
     }
 
     #[ink::test]

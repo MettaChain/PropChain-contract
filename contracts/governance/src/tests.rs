@@ -211,7 +211,7 @@ mod tests {
             .unwrap();
 
         let proposal = gov.get_proposal(id).unwrap();
-        assert_eq!(proposal.is_emergency, true);
+        assert!(proposal.is_emergency);
         assert_eq!(proposal.threshold, 3); // Unanimous: all 3 signers
 
         // Vote on proposal

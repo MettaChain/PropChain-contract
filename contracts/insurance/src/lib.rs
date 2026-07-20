@@ -3309,7 +3309,3 @@ pub use crate::propchain_insurance::{InsuranceError, PropertyInsurance};
 
 #[cfg(test)]
 mod tests;
-
-// Unit tests extracted to tests.rs (Issue #101)
-#[path = "tests.rs"]
-mod insurance_tests_module;

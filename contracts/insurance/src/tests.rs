@@ -77,8 +77,7 @@ mod insurance_tests {
     use ink::env::{test, DefaultEnvironment};
 
     use crate::propchain_insurance::{
-        ClaimStatus, CoverageType, InsuranceError, PayoutMode, PolicyStatus, PropertyInsurance,
-        TriggerComparator, TriggerMetric,
+        ClaimStatus, CoverageType, InsuranceError, PolicyStatus, PropertyInsurance,
     };
 
     fn setup() -> PropertyInsurance {
@@ -1224,7 +1223,7 @@ mod insurance_tests {
 
     #[ink::test]
     fn test_get_fraud_detection_stats() {
-        let mut contract = setup();
+        let contract = setup();
         let stats = contract.get_fraud_detection_stats();
         assert!(stats.is_some());
         let stats_unwrapped = stats.unwrap();
