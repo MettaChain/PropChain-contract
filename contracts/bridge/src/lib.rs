@@ -3591,5 +3591,5 @@ mod bridge {
     include!("tests.rs");
 }
 
-pub mod submodules;
 pub mod bridge_history_pagination;
+pub mod submodules;
