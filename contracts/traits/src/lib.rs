@@ -17,6 +17,9 @@ pub use di::*;
 pub use reentrancy_guard::*;
 pub mod i18n;
 pub mod monitoring;
+pub mod property_token_metadata;
+
+pub use property_token_metadata::*;
 
 // =========================================================================
 // New domain-specific modules (Issue #101)
