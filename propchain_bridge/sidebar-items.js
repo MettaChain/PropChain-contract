@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["submodules"]};
+window.SIDEBAR_ITEMS = {"mod":["submodules","token_freeze"]};
