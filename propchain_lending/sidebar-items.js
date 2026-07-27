@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["LendingError","LoanStatus","PaymentScheduleStatus"],"struct":["LoanServicer","PaymentSchedule","PropertyLending"]};
+window.SIDEBAR_ITEMS = {"enum":["LendingError","LoanStatus","PaymentScheduleStatus"],"mod":["yield_optimization"],"struct":["LoanServicer","PaymentSchedule","PropertyLending"]};
