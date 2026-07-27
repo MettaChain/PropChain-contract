@@ -4,7 +4,9 @@ pub struct PaginatedBridgeHistory {
 
 impl PaginatedBridgeHistory {
     pub fn new(max_entries_per_account: usize) -> Self {
-        Self { max_entries_per_account }
+        Self {
+            max_entries_per_account,
+        }
     }
 
     pub fn paginate<T: Clone>(&self, history: &[T], page: usize, page_size: usize) -> Vec<T> {

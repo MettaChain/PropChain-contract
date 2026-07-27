@@ -566,4 +566,3 @@ mod sanctions_screening {
 pub mod src {
     pub mod constant_time_sanctions;
 }
-
