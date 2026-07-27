@@ -148,58 +148,25 @@ mod tests {
         assert!(!bridge.is_asset_frozen(asset_address));
     }
 
-    // TODO(#freeze-by-token-id): The freeze infrastructure keys on `AccountId`
-    // (see `PropertyBridge::frozen_assets`) while `initiate_bridge_multisig`
-    // keys on `token_id: TokenId` (a `u64`). The implementation explicitly
-    // skips the freeze check for token-based bridges (see `lib.rs` "skipped:
-    // token_id is u64, freeze uses AccountId" comments in
-    // `initiate_bridge_multisig`, `initiate_multi_hop_bridge`, and
-    // `execute_bridge`). To make this test pass we need to define a
-    // deterministic token_id → AccountId mapping and have the bridge
-    // initiation paths call `ensure_asset_not_frozen`. Until that design
-    // decision is made, ignore the test so it doesn't break CI.
+    // Freeze-by-token (#12): Uses the new `freeze_token` method which keys on
+    // `token_id: TokenId` (a `u64`), matching the bridge initiation paths.
+    // The old `propose_freeze_asset` / emergency-multi-sig flow still keys on
+    // `AccountId` for contract-level asset freezes.
     #[ink::test]
-    #[ignore = "token_id-based freeze check is intentionally absent pending a token_id → AccountId mapping design (see TODO in lib.rs)"]
-    fn test_asset_freeze_blocks_bridge_initiation() {
+    fn test_token_freeze_blocks_bridge_initiation() {
         let mut bridge = setup_bridge();
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
 
-        // Add emergency signers and set threshold
+        // Freeze token_id = 1 directly via admin-only freeze_token
         bridge
-            .add_emergency_signer(accounts.bob)
-            .expect("add emergency signer");
-        bridge
-            .add_emergency_signer(accounts.charlie)
-            .expect("add emergency signer");
-        bridge
-            .set_emergency_threshold(2)
-            .expect("set emergency threshold");
+            .freeze_token(1)
+            .expect("admin freeze token");
 
-        // Freeze asset token_id = 1
-        let _token_id = 1;
-        test::set_caller::<DefaultEnvironment>(accounts.bob);
-        let request_id = bridge
-            .propose_freeze_asset(
-                AccountId::from([1u8; 32]), // Using token_id as account for simplicity
-                String::from("Test freeze"),
-                true,
-                Some(100),
-            )
-            .expect("propose freeze asset");
+        // Verify token is reported as frozen
+        assert!(bridge.is_token_frozen(1));
 
-        test::set_caller::<DefaultEnvironment>(accounts.charlie);
-        bridge
-            .sign_emergency_request(request_id)
-            .expect("sign emergency request");
-
-        test::set_caller::<DefaultEnvironment>(accounts.bob);
-        bridge
-            .execute_emergency_request(request_id)
-            .expect("execute emergency request");
-
-        // Try to initiate bridge with frozen asset - should fail
-        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        // Try to initiate bridge with frozen token - should fail
         let metadata = PropertyMetadata {
             location: String::from("Test Property"),
             size: 1000,
@@ -216,7 +183,69 @@ mod tests {
             Some(50),
             metadata,
         );
-        assert!(result.is_err());
+        assert_eq!(result, Err(Error::AssetAlreadyFrozen));
+
+        // Unfreeze the token
+        bridge
+            .unfreeze_token(1)
+            .expect("admin unfreeze token");
+
+        // Verify token is no longer frozen
+        assert!(!bridge.is_token_frozen(1));
+
+        // Now bridge initiation should succeed
+        let metadata2 = PropertyMetadata {
+            location: String::from("Test Property"),
+            size: 1000,
+            legal_description: String::from("Test"),
+            valuation: 100000,
+            documents_url: String::from("ipfs://test"),
+        };
+
+        let result = bridge.initiate_bridge_multisig(
+            1u64,
+            2,
+            accounts.bob,
+            2,
+            Some(50),
+            metadata2,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[ink::test]
+    fn test_freeze_token_non_admin_rejected() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Bob is not admin - freeze should be rejected
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let result = bridge.freeze_token(1);
+        assert_eq!(result, Err(Error::Unauthorized));
+
+        // Unfreeze should also be rejected
+        let result = bridge.unfreeze_token(1);
+        assert_eq!(result, Err(Error::Unauthorized));
+    }
+
+    #[ink::test]
+    fn test_freeze_already_frozen_token_rejected() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        // Freeze token_id = 1
+        bridge
+            .freeze_token(1)
+            .expect("freeze should succeed");
+
+        // Freeze again should fail
+        let result = bridge.freeze_token(1);
+        assert_eq!(result, Err(Error::AssetAlreadyFrozen));
+
+        // Unfreeze a non-frozen token should fail
+        let result = bridge.unfreeze_token(999);
+        assert_eq!(result, Err(Error::AssetNotFrozen));
     }
 
     #[ink::test]

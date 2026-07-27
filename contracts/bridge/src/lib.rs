@@ -439,6 +439,8 @@ mod bridge {
         emergency_request_counter: u64,
         /// Frozen assets (asset_address -> freeze info).
         frozen_assets: Mapping<AccountId, AssetFreezeInfo>,
+        /// Frozen tokens (token_id -> bool). Freeze-by-token (#12).
+        frozen_tokens: Mapping<TokenId, bool>,
 
         // ── Batched Merkle verification for performance ────────────────────
         /// Batch verification windows keyed by (source_chain, window_id).
@@ -695,6 +697,28 @@ mod bridge {
         pub timestamp: u64,
     }
 
+    // ── Token freeze events (#12) ────────────────────────────────────────────
+
+    /// Emitted when a token is frozen by ID.
+    #[ink(event)]
+    pub struct TokenFrozen {
+        #[ink(topic)]
+        pub token_id: TokenId,
+        #[ink(topic)]
+        pub frozen_by: AccountId,
+        pub timestamp: u64,
+    }
+
+    /// Emitted when a token freeze is lifted.
+    #[ink(event)]
+    pub struct TokenUnfrozen {
+        #[ink(topic)]
+        pub token_id: TokenId,
+        #[ink(topic)]
+        pub unfrozen_by: AccountId,
+        pub timestamp: u64,
+    }
+
     // ── Batched Merkle verification events ───────────────────────────────
 
     /// Emitted when a new batch verification window is created.
@@ -808,6 +832,7 @@ mod bridge {
                 emergency_requests: Mapping::default(),
                 emergency_request_counter: 0,
                 frozen_assets: Mapping::default(),
+                frozen_tokens: Mapping::default(),
                 batch_merkle_roots: Mapping::default(),
                 transaction_to_batch: Mapping::default(),
                 batch_window_counter: Mapping::default(),
@@ -878,7 +903,8 @@ mod bridge {
             // For NFT bridge, we count requests but value is 0 here since NFT value isn't strictly defined by amount.
             self.check_and_update_rate_limits(caller, destination_chain, 0, true)?;
 
-            // Check if asset is frozen (skipped: token_id is u64, freeze uses AccountId; see bridge/src/lib.rs helpers)
+            // Check if token is frozen (freeze-by-token #12)
+            self.ensure_token_not_frozen(token_id)?;
 
             // Create bridge request
             self.request_counter += 1;
@@ -966,7 +992,8 @@ mod bridge {
 
             self.check_and_update_rate_limits(caller, *route.last().unwrap(), 0, true)?;
 
-            // Check if asset is frozen (skipped: token_id is u64, freeze uses AccountId; see bridge/src/lib.rs helpers)
+            // Check if token is frozen (freeze-by-token #12)
+            self.ensure_token_not_frozen(token_id)?;
 
             let total_gas_estimate = self.estimate_multi_hop_bridge_gas(route.clone())?;
 
@@ -1167,7 +1194,8 @@ mod bridge {
                 // FATF travel rule compliance check
                 self.ensure_travel_rule_compliance(request_id, &request)?;
 
-                // Check if asset is frozen (skipped: token_id is u64, freeze uses AccountId; see bridge/src/lib.rs helpers)
+                // Check if token is frozen (freeze-by-token #12)
+                self.ensure_token_not_frozen(request.token_id)?;
 
                 // Generate transaction hash
                 let transaction_hash = self.generate_transaction_hash(&request);
@@ -2362,6 +2390,60 @@ mod bridge {
             Ok(())
         }
 
+        // ── Freeze-by-token (#12) ──────────────────────────────────────────────
+
+        /// Freeze a token by its ID. Admin only.
+        /// Once frozen, all bridge operations involving this token_id are blocked.
+        #[ink(message)]
+        pub fn freeze_token(&mut self, token_id: TokenId) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            if self.frozen_tokens.get(token_id).unwrap_or(false) {
+                return Err(Error::AssetAlreadyFrozen);
+            }
+
+            self.frozen_tokens.insert(token_id, &true);
+
+            self.env().emit_event(TokenFrozen {
+                token_id,
+                frozen_by: caller,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Unfreeze a token by its ID. Admin only.
+        #[ink(message)]
+        pub fn unfreeze_token(&mut self, token_id: TokenId) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            if !self.frozen_tokens.get(token_id).unwrap_or(false) {
+                return Err(Error::AssetNotFrozen);
+            }
+
+            self.frozen_tokens.insert(token_id, &false);
+
+            self.env().emit_event(TokenUnfrozen {
+                token_id,
+                unfrozen_by: self.env().caller(),
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Check whether a token is currently frozen by its ID.
+        #[ink(message)]
+        pub fn is_token_frozen(&self, token_id: TokenId) -> bool {
+            self.frozen_tokens.get(token_id).unwrap_or(false)
+        }
+
         /// Apply an asset freeze to storage.
         fn apply_asset_freeze(
             &mut self,
@@ -2395,6 +2477,15 @@ mod bridge {
                 if freeze_info.affects_inflight {
                     return Err(Error::OperationPaused);
                 }
+            }
+            Ok(())
+        }
+
+        /// Check that a token is not frozen; returns `AssetAlreadyFrozen` if it is.
+        /// Used by initiate_bridge_multisig, initiate_multi_hop_bridge, and execute_bridge.
+        fn ensure_token_not_frozen(&self, token_id: TokenId) -> Result<(), Error> {
+            if self.frozen_tokens.get(token_id).unwrap_or(false) {
+                return Err(Error::AssetAlreadyFrozen);
             }
             Ok(())
         }
