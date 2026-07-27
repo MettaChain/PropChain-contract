@@ -4,6 +4,12 @@ pub struct TokenFreezeManager {
     pub frozen_tokens: Mapping<u128, bool>,
 }
 
+impl Default for TokenFreezeManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TokenFreezeManager {
     pub fn new() -> Self {
         Self {
