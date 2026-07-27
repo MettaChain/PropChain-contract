@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["property_maintenance","property_registry"]};
