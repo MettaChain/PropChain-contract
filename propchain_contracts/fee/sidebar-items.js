@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["FeeOperation"],"trait":["DynamicFeeProvider"]};
+window.SIDEBAR_ITEMS = {"trait":["DynamicFeeProvider"]};
