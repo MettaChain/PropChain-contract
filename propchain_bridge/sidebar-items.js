@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["bridge_history_pagination","submodules","token_freeze"]};
+window.SIDEBAR_ITEMS = {"mod":["audit_log_bounded","bridge_history_pagination","submodules","token_freeze","validator_bitmap_fix"]};

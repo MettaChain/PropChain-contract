@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["OracleError"]};
+window.SIDEBAR_ITEMS = {"enum":["OracleError"],"mod":["reputation_slashing"]};
