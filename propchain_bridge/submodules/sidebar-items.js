@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["freeze","travel_rule","validator_bitmap"]};
