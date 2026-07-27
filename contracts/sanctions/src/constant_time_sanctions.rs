@@ -5,6 +5,12 @@ pub struct ConstantTimeSanctionsMap {
     pub sanctioned_accounts: Mapping<AccountId, bool>,
 }
 
+impl Default for ConstantTimeSanctionsMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConstantTimeSanctionsMap {
     pub fn new() -> Self {
         Self {
@@ -16,7 +22,7 @@ impl ConstantTimeSanctionsMap {
         self.sanctioned_accounts.get(account).unwrap_or(false)
     }
 
-    pub fn set_sanction_status(&mut self, account: AccountId, status: bool) {
-        self.sanctioned_accounts.insert(account, &status);
+    pub fn set_sanctioned(&mut self, account: AccountId, sanctioned: bool) {
+        self.sanctioned_accounts.insert(account, &sanctioned);
     }
 }
