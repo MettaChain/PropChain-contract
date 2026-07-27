@@ -2422,5 +2422,5 @@ mod storage_derivation_tests {
 #[path = "test.rs"]
 mod lending_regression_test;
 
-pub mod yield_optimization;
 pub mod liquidation_reentrancy;
+pub mod yield_optimization;
