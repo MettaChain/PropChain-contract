@@ -529,3 +529,7 @@ pub enum SecurityEventType {
     /// Cryptographic operations: hashing, signature verification, key rotation
     Cryptographic,
 }
+
+pub mod admin_multisig;
+pub use admin_multisig::*;
+
