@@ -1,6 +1,4 @@
 #![cfg(test)]
-#![allow(unused_variables)]
-
 use ink::env::test::{default_accounts, DefaultAccounts};
 use ink::primitives::AccountId;
 use propchain_identity::propchain_identity::{
@@ -52,7 +50,7 @@ fn test_create_identity() {
 
 #[ink::test]
 fn test_create_identity_already_exists() {
-    let accounts: DefaultAccounts<ink::env::DefaultEnvironment> = default_accounts();
+    let _accounts: DefaultAccounts<ink::env::DefaultEnvironment> = default_accounts();
     let mut identity_registry = IdentityRegistry::new();
 
     let did = "did:example:123456789abcdefghi".to_string();
@@ -521,7 +519,7 @@ fn test_privacy_preserving_verification() {
 
 #[ink::test]
 fn test_privacy_verification_failed() {
-    let accounts: DefaultAccounts<ink::env::DefaultEnvironment> = default_accounts();
+    let _accounts: DefaultAccounts<ink::env::DefaultEnvironment> = default_accounts();
     let mut identity_registry = IdentityRegistry::new();
 
     // Create identity with privacy settings disabled
