@@ -378,3 +378,6 @@ pub struct DashboardStatistics {
     pub cross_chain_verifications: u64,
     pub recovery_requests: u64,
 }
+
+pub mod cross_contract_helper;
+
