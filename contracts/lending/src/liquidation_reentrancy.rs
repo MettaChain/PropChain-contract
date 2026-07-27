@@ -2,6 +2,12 @@ pub struct LiquidationGuard {
     pub locked: bool,
 }
 
+impl Default for LiquidationGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LiquidationGuard {
     pub fn new() -> Self {
         Self { locked: false }
