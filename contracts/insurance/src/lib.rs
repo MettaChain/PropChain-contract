@@ -3309,3 +3309,6 @@ pub use crate::propchain_insurance::{InsuranceError, PropertyInsurance};
 
 #[cfg(test)]
 mod tests;
+
+pub mod submodules;
+
