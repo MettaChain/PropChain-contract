@@ -18,10 +18,15 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Install Stable Rust Toolchain
+      - name: Install Nightly Rust Toolchain (fmt)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Install Stable Rust Toolchain (clippy + test)
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: clippy
 
       - name: Cache Cargo Build Artifacts
         uses: actions/cache@v4
@@ -36,8 +41,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-smoke-
 
-      - name: Check Code Formatting Style (fmt)
-        run: cargo fmt --check
+      - name: Check Code Formatting Style (nightly fmt)
+        run: cargo +nightly fmt --check
 
       - name: Execute Static Analysis Compiler Lints (clippy)
         run: cargo clippy --all-targets --all-features -- -D warnings

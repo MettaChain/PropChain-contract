@@ -1,0 +1,37 @@
+# rustfmt configuration for PropChain smart contracts
+#
+# Requires nightly rustfmt (see rust-toolchain.toml).
+# Run: cargo fmt  (toolchain pinned via rust-toolchain.toml)
+# CI:  cargo +nightly fmt --check
+
+# ── nightly-only options ────────────────────────────────────────────────────
+
+# Format the contents of macro calls that match rustfmt's built-in patterns
+# (e.g. vec![], assert!()) and ink! attribute macros such as
+# #[ink::contract], #[ink::test], and trait-level macros like non_reentrant!.
+format_macro_matchers = true
+
+# Also format the bodies of macro definitions (macro_rules! blocks).
+format_macro_bodies = true
+
+# ── stable options ──────────────────────────────────────────────────────────
+
+edition = "2021"
+
+# Keep lines within 100 columns; ink! contract bodies tend to be verbose.
+max_width = 100
+
+# Use block-style (vertical) imports rather than flat lists.
+imports_granularity = "Crate"
+
+# Group std / external / crate imports in the conventional order.
+group_imports = "StdExternalCrate"
+
+# Wrap function signatures whose arguments overflow the line width.
+fn_args_layout = "Tall"
+
+# Format string literals where possible.
+format_strings = true
+
+# Reorder impl items (types → consts → fns) for consistent reading order.
+reorder_impl_items = true
