@@ -11,7 +11,7 @@ mod fractional {
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
     use propchain_traits;
-    use propchain_traits::{non_reentrant, ReentrancyGuard};
+    use propchain_traits::{map_reentrancy, non_reentrant, ReentrancyGuard};
 
     #[derive(
         Debug,
