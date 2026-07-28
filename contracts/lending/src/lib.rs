@@ -1834,6 +1834,13 @@ pub use crate::propchain_lending::{
     LendingError, LoanServicer, LoanStatus, PaymentSchedule, PaymentScheduleStatus, PropertyLending,
 };
 
+/// Core unit tests for the `PropertyLending` contract.
+///
+/// Covers collateral management, pool operations, loan underwriting, servicer
+/// integration, loan restructuring, liquidation, yield farming, governance,
+/// on-chain credit scoring, and the multi-collateral portfolio feature (#588).
+/// Each test uses `ink::env::test` to drive the contract in the off-chain
+/// environment without requiring a live Substrate node.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2281,6 +2288,12 @@ mod tests {
 // ADMIN KEY ROTATION TESTS (Issue #496) — Lending
 // =========================================================================
 
+/// Tests for the two-step, time-locked admin key rotation flow (Issue #496).
+///
+/// Verifies that only the current admin can initiate a rotation, that the
+/// cooldown period is enforced, that the rotation expires if not confirmed in
+/// time, and that either party (old or new admin) may cancel a pending
+/// rotation while unrelated accounts cannot.
 #[cfg(test)]
 mod lending_admin_rotation_tests {
     use super::propchain_lending::{LendingError, PropertyLending};
@@ -2378,6 +2391,14 @@ mod lending_admin_rotation_tests {
 // #589: Storage trait derivation assertion tests
 // =========================================================================
 
+/// Compile-time assertion tests that every public storage type derives the
+/// full set of required traits (#589).
+///
+/// These tests do not exercise runtime behaviour — they exist to catch missing
+/// `#[derive(...)]` annotations early (i.e. at `cargo test` time rather than
+/// only when cargo-contract tries to build the WASM bundle).  A failure here
+/// means a struct or enum is missing one of `Encode`, `Decode`, `TypeInfo`, or
+/// `StorageLayout`.
 #[cfg(test)]
 mod storage_derivation_tests {
     use super::propchain_lending::{

@@ -95,6 +95,29 @@ contract.execute_proposal(proposal_id)?;
 cargo test
 ```
 
+### Test Module Layout
+
+The lending contract's tests are organised into three distinct layers, each in
+its own `mod` block:
+
+| Module | Location | Purpose |
+|--------|----------|---------|
+| `mod tests` | `contracts/lending/src/lib.rs` | **Core unit tests** — collateral, pools, loan underwriting, servicer integration, restructuring, liquidation, yield farming, governance, credit scoring, and multi-collateral (#588). New feature tests belong here first. |
+| `mod lending_admin_rotation_tests` | `contracts/lending/src/lib.rs` | **Admin key-rotation tests** (Issue #496) — verifies the two-step time-locked admin handoff: cooldown enforcement, expiry, and cancellation by either party. |
+| `mod storage_derivation_tests` | `contracts/lending/src/lib.rs` | **Compile-time trait assertions** (#589) — confirms every public storage type derives `Encode`, `Decode`, `TypeInfo`, and `StorageLayout`. These fail at `cargo test`, not just at WASM build time. |
+
+There is also a fourth file wired in as a separate module:
+
+| File | Module alias | Purpose |
+|------|-------------|---------|
+| `contracts/lending/src/test.rs` | `mod lending_regression_test` | **Regression tests** — pins known-good (and known-buggy) behaviours such as the JIT interest accrual ordering. |
+
+When adding new tests, choose the module that best matches the concern:
+- Functional behaviour → `mod tests`
+- Admin rotation edge cases → `mod lending_admin_rotation_tests`
+- New storage types → `mod storage_derivation_tests`
+- Regression/known-bug documentation → `src/test.rs`
+
 ## Architecture
 
 The lending platform is built as an ink! smart contract with the following components:
