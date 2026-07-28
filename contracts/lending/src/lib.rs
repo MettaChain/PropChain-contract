@@ -2285,6 +2285,10 @@ mod tests {
     }
 }
 
+// =========================================================================
+// ADMIN KEY ROTATION TESTS (Issue #496) — Lending
+// =========================================================================
+
 /// Admin key-rotation tests for the [`PropertyLending`] contract (Issue #496).
 ///
 /// Validates the two-step, time-locked admin rotation flow: requesting,
@@ -2292,10 +2296,6 @@ mod tests {
 /// blocking unauthorized callers.  These tests are intentionally isolated
 /// from the main `tests` module so that rotation-specific setup (different
 /// caller permutations) does not add noise to general lending tests.
-// =========================================================================
-// ADMIN KEY ROTATION TESTS (Issue #496) — Lending
-// =========================================================================
-
 #[cfg(test)]
 mod lending_admin_rotation_tests {
     use super::propchain_lending::{LendingError, PropertyLending};
@@ -2389,6 +2389,10 @@ mod lending_admin_rotation_tests {
     }
 }
 
+// =========================================================================
+// #589: Storage trait derivation assertion tests
+// =========================================================================
+
 /// Storage-trait derivation assertion tests (Issue #589).
 ///
 /// Confirms that every public type stored in [`PropertyLending`] implements
@@ -2397,10 +2401,6 @@ mod lending_admin_rotation_tests {
 /// Compile-time failures here mean a newly introduced struct is missing a
 /// `#[derive(...)]` annotation.  No runtime logic is tested; the value of
 /// these tests is entirely in the type-checker.
-// =========================================================================
-// #589: Storage trait derivation assertion tests
-// =========================================================================
-
 #[cfg(test)]
 mod storage_derivation_tests {
     use super::propchain_lending::{
