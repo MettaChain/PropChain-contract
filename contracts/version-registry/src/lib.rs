@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use ink::storage::Mapping;
-use propchain_traits::{ContractError, ErrorCategory};
+use propchain_traits::{map_reentrancy, ContractError, ErrorCategory};
 #[cfg(not(feature = "std"))]
 use scale_info::prelude::{string::String, vec::Vec};
 

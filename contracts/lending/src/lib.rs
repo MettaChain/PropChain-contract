@@ -7,6 +7,7 @@
 )]
 
 use ink::storage::Mapping;
+use propchain_traits::map_reentrancy;
 
 #[ink::contract]
 mod propchain_lending {

@@ -3,7 +3,7 @@
 
 use ink::prelude::string::String;
 use ink::storage::Mapping;
-use propchain_traits::{non_reentrant, ComplianceChecker, ReentrancyGuard};
+use propchain_traits::{map_reentrancy, non_reentrant, ComplianceChecker, ReentrancyGuard};
 
 #[ink::contract]
 mod property_management {
