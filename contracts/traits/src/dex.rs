@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 //! DEX and trading type definitions.
 //!
 //! This module contains all types related to the decentralized exchange,

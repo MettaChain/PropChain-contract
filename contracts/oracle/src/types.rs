@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Local types for the oracle contract (Issue #101 - extracted from lib.rs)
 
 /// Result of an oracle batch operation

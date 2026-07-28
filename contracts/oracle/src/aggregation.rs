@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #![allow(
     clippy::module_name_repetitions,
     clippy::needless_borrows_for_generic_args,

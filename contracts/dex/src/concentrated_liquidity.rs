@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #[derive(Clone, Debug, PartialEq)]
 pub struct LiquidityPosition {
     pub owner: [u8; 32],

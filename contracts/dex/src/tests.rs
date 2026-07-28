@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Unit tests for the DEX contract (Issue #101 - extracted from lib.rs)
 
 #[cfg(test)]

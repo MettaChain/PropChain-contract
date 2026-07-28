@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 //! Test Utilities and Fixtures for PropChain Contracts
 //!
 //! This module provides shared testing utilities, fixtures, and helpers

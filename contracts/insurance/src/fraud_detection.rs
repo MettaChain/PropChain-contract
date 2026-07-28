@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #![allow(clippy::module_inception, dead_code, clippy::manual_checked_ops)]
 
 // Fraud Detection Implementation (Task #258)

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 //! Dynamic fee and market mechanism types and traits.
 //!
 //! This module contains operation types for dynamic fee calculation

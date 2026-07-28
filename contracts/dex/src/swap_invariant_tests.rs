@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #[cfg(test)]
 mod swap_invariant {
     fn cpf_swap(rx: u128, ry: u128, amt_in: u128, fee_bps: u128) -> (u128, u128, u128) {

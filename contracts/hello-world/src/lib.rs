@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #![cfg_attr(target_family = "wasm", no_std)]
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Env, Symbol};
 

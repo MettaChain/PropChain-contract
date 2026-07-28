@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 pub fn round_fee_up(amount: u128, fee_bps: u128, denominator: u128) -> u128 {
     if denominator == 0 { return 0; }
     let n = amount.saturating_mul(fee_bps);

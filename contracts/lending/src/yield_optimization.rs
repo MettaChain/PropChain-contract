@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 pub struct YieldOptimizationStrategy {
     pub pool_id: u128,
     pub target_apy_bps: u32,

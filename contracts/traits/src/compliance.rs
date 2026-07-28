@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 //! Compliance, regulatory, and structured logging types and traits.
 //!
 //! This module contains types for compliance operations, the compliance

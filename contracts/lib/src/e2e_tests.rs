@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #[cfg(test)]
 mod e2e_tests {
     use super::*;

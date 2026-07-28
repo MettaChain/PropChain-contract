@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #[cfg(test)]
 mod snapshot_voting_tests {
     #[derive(Clone)]

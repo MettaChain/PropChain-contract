@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Builder module for the contract factory.
 //
 // Loaded via `pub mod builder;` in `lib.rs`. The `deploy_contract` ink! message

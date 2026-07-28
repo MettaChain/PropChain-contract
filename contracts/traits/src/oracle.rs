@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 //! Oracle types and trait definitions for real-time property valuation.
 //!
 //! This module contains all oracle-related types, error handling, and trait

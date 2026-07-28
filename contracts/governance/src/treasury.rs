@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #[derive(Debug, PartialEq)]
 pub enum TreasuryError { NotApproved, ExceedsSpendLimit, InsufficientFunds }
 

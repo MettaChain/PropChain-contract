@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 //! Formal verification harnesses using Kani.
 //!
 //! These proofs cover three invariants required by the security issue:

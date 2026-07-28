@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 //! Property types and trait definitions for the PropChain registry.
 //!
 //! This module contains the core property-related types, metadata structures,

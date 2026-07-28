@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 pub struct ValidatorBitmapSigner {
     pub max_validators: u32,
 }

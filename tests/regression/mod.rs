@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Regression Test Suite (Issue #487)
 //
 // Placeholder. All submodules that previously lived here were removed in

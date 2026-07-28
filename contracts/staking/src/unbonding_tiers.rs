@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ValidatorTier { A, B, C }
 

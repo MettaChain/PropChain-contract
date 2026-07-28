@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Strategy implementations for fee calculation (Issue #186)
 
 pub trait FeeStrategy {

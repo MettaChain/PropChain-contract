@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #![cfg_attr(not(feature = "std"), no_std)]
 
 // Minimal stub for propchain-proxy. The original transparent-proxy-with-upgrade-governance

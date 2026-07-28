@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Data types for the proxy contract (Issue #101 - extracted from lib.rs)
 
 /// Version information for deployed contract implementations

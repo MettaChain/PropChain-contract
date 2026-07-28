@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 use ink::prelude::vec::Vec;
 use ink::storage::Mapping;
 use ink::primitives::AccountId;

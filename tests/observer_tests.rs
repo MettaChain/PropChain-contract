@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 //! Observer pattern tests for Issue #185.
 //!
 //! Invariants proven:

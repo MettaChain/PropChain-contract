@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use ink::prelude::string::String;

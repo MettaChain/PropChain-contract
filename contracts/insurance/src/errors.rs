@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Error types for the insurance contract (Issue #101 - extracted from types.rs)
 
 #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]

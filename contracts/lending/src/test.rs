@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #![cfg(test)]
 
 use super::*;

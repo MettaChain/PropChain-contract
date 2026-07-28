@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 pub struct PaginatedBridgeHistory {
     pub max_entries_per_account: usize,
 }

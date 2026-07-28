@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Error types for the bridge contract (Issue #101 - extracted from lib.rs)
 
 // ---------------------------------------------------------------------------

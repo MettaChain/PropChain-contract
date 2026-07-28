@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClaimEvidence {
     pub claim_id: u64,

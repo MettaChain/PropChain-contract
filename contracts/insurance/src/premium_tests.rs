@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Tests for dynamic premium calculation engine
 
 #![cfg(test)]

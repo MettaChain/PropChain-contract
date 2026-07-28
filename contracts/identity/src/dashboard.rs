@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 //! Identity Management Dashboard Interface
 //! 
 //! This module provides a high-level interface for identity management operations

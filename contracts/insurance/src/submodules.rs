@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 pub mod claim_pipeline {
     pub fn process_claim(claim_id: u64) -> bool {
         claim_id > 0

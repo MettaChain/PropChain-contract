@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 //! Top-level verification module.
 //!
 //! Exposes the Kani proof harnesses declared under

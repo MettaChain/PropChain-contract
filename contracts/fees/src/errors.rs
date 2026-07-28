@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Error types for the fees contract (Issue #101 - extracted from lib.rs)
 //
 // Enhancements over v1:

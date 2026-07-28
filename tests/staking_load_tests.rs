@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 //! Load Testing Framework for the Staking Contract (Issue #482)
 //!
 //! Simulates high-concurrency scenarios: bulk stake/unstake, concurrent

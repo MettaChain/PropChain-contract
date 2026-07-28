@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #[derive(Clone, Default)]
 pub struct RewardSnapshot {
     pub staker: [u8; 32],

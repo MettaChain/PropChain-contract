@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 pub struct TestAccountAddresses {
     pub Alice: &'static str,
     pub Bob: &'static str,

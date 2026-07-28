@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 ﻿/// # Integration Tests: Bridge <-> Oracle Cross-Contract Resolution (Issue #490)
 ///
 /// These tests verify the end-to-end pipeline:

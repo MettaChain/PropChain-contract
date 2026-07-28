@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 use core::fmt;
 use ink::prelude::vec::Vec;
 use scale::{Decode, Encode};

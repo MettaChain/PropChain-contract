@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Data types for the governance contract (Issue #101 - extracted from lib.rs)
 
 #[derive(

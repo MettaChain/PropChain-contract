@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 #[cfg(test)]
 mod sybil_resistance {
     const MAX_CLAIMS_PER_WINDOW: u32 = 3;
