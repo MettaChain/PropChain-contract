@@ -1834,6 +1834,14 @@ pub use crate::propchain_lending::{
     LendingError, LoanServicer, LoanStatus, PaymentSchedule, PaymentScheduleStatus, PropertyLending,
 };
 
+/// Core unit tests for the [`PropertyLending`] contract.
+///
+/// Covers the full lifecycle of lending operations: collateral assessment,
+/// pool management, margin positions, loan application and underwriting,
+/// servicer integration, loan restructuring, multi-collateral pledging,
+/// yield farming, on-chain governance proposals, and credit-score
+/// computation.  Extend this module when adding new contract messages or
+/// when a bug fix requires a regression guard.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2277,6 +2285,13 @@ mod tests {
     }
 }
 
+/// Admin key-rotation tests for the [`PropertyLending`] contract (Issue #496).
+///
+/// Validates the two-step, time-locked admin rotation flow: requesting,
+/// confirming after the cooldown period, cancelling by either party, and
+/// blocking unauthorized callers.  These tests are intentionally isolated
+/// from the main `tests` module so that rotation-specific setup (different
+/// caller permutations) does not add noise to general lending tests.
 // =========================================================================
 // ADMIN KEY ROTATION TESTS (Issue #496) — Lending
 // =========================================================================
@@ -2374,6 +2389,14 @@ mod lending_admin_rotation_tests {
     }
 }
 
+/// Storage-trait derivation assertion tests (Issue #589).
+///
+/// Confirms that every public type stored in [`PropertyLending`] implements
+/// all four required derives: [`scale::Encode`], [`scale::Decode`],
+/// [`scale_info::TypeInfo`], and [`ink::storage::traits::StorageLayout`].
+/// Compile-time failures here mean a newly introduced struct is missing a
+/// `#[derive(...)]` annotation.  No runtime logic is tested; the value of
+/// these tests is entirely in the type-checker.
 // =========================================================================
 // #589: Storage trait derivation assertion tests
 // =========================================================================
