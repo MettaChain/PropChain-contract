@@ -194,7 +194,7 @@ Dynamic deductible based on risk profile:
 | 61-80 (Low) | +7.5% | 12.5% |
 | 81-100 (Very Low) | +5% | 10% |
 
-**Safety Feature Reduction**: -5%
+**Safety Feature Reduction**: -0.5% (50 basis points)
 
 ## Usage Examples
 

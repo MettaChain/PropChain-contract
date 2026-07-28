@@ -109,7 +109,7 @@ Base Rate = Expected Loss Ratio × Confidence Adjustment × Expense Loading
 ```
 Base Deductible: 5% of coverage
 Risk Adjustment: +5% to +20% (based on risk score)
-Safety Feature Reduction: -5%
+Safety Feature Reduction: -0.5% (50 basis points)
 ```
 
 ## Files Created/Modified

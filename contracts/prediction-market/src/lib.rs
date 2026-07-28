@@ -828,12 +828,11 @@ mod propchain_prediction_market {
         }
 
         #[ink::test]
-        #[ignore = "TODO: re-enable after oracle market lifecycle (MarketNotActive) is reconciled"]
         fn loser_cannot_claim_oracle_winnings() {
             let (mut contract, accounts) = setup_with_oracle();
 
             let market_id = contract
-                .create_oracle_market(1, String::from("property.valuation"), 500_000, 0)
+                .create_oracle_market(1, String::from("property.valuation"), 500_000, 1_000)
                 .unwrap();
 
             // Bob stakes Short (loses when oracle returns 600k > threshold)
@@ -842,6 +841,9 @@ mod propchain_prediction_market {
             contract
                 .stake_oracle_market(market_id, PredictionDirection::Short)
                 .unwrap();
+
+            // Advance past resolution_time so oracle submission is accepted
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_001);
 
             // Oracle resolves Long wins
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.eve);

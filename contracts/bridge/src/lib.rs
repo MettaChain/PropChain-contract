@@ -903,7 +903,6 @@ mod bridge {
             // For NFT bridge, we count requests but value is 0 here since NFT value isn't strictly defined by amount.
             self.check_and_update_rate_limits(caller, destination_chain, 0, true)?;
 
-            // Check if token is frozen (freeze-by-token #12)
             self.ensure_token_not_frozen(token_id)?;
 
             // Create bridge request
@@ -992,7 +991,6 @@ mod bridge {
 
             self.check_and_update_rate_limits(caller, *route.last().unwrap(), 0, true)?;
 
-            // Check if token is frozen (freeze-by-token #12)
             self.ensure_token_not_frozen(token_id)?;
 
             let total_gas_estimate = self.estimate_multi_hop_bridge_gas(route.clone())?;
@@ -1194,7 +1192,6 @@ mod bridge {
                 // FATF travel rule compliance check
                 self.ensure_travel_rule_compliance(request_id, &request)?;
 
-                // Check if token is frozen (freeze-by-token #12)
                 self.ensure_token_not_frozen(request.token_id)?;
 
                 // Generate transaction hash
@@ -2471,7 +2468,11 @@ mod bridge {
             });
         }
 
-        /// Check if an asset transfer should be blocked due to freeze.
+        /// Check if an asset transfer should be blocked due to an AccountId-keyed
+        /// contract-level freeze (`propose_freeze_asset` / emergency multi-sig).
+        /// Bridge initiation now gates on `ensure_token_not_frozen` (token_id-keyed);
+        /// this remains for the emergency asset-freeze feature to wire in.
+        #[allow(dead_code)]
         fn ensure_asset_not_frozen(&self, asset_address: AccountId) -> Result<(), Error> {
             if let Some(freeze_info) = self.frozen_assets.get(asset_address) {
                 if freeze_info.affects_inflight {

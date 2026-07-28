@@ -123,6 +123,8 @@ impl VestingSchedule {
 pub struct StakeInfo {
     pub staker: AccountId,
     pub amount: u128,
+    /// The original stake amount, preserved even if slashing reduces `amount`.
+    pub original_amount: u128,
     pub staked_at: u64,
     pub lock_until: u64,
     pub lock_period: LockPeriod,

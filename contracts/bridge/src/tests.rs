@@ -153,7 +153,7 @@ mod tests {
     // The old `propose_freeze_asset` / emergency-multi-sig flow still keys on
     // `AccountId` for contract-level asset freezes.
     #[ink::test]
-    fn test_token_freeze_blocks_bridge_initiation() {
+    fn test_asset_freeze_blocks_bridge_initiation() {
         let mut bridge = setup_bridge();
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
