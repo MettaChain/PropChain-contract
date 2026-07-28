@@ -8,7 +8,7 @@
 #[ink::contract]
 mod propchain_prediction_market {
     use ink::storage::Mapping;
-    use propchain_contracts::{non_reentrant, ReentrancyGuard};
+    use propchain_contracts::{map_reentrancy, non_reentrant, ReentrancyGuard};
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(

@@ -21,6 +21,7 @@ pub use reentrancy_guard::{ReentrancyError, ReentrancyGuard};
 // Re-export the non_reentrant macro explicitly — pub use dep::* does NOT
 // re-export #[macro_export] macros, so external crates that depend on
 // propchain_contracts (e.g. prediction-market) would lose access otherwise.
+pub use propchain_traits::map_reentrancy;
 pub use propchain_traits::non_reentrant;
 
 // Import identity module
