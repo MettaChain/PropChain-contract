@@ -134,6 +134,7 @@ TARGET=wasm32-unknown-unknown
 
 ### 🏗️ Architecture Documentation (NEW!)
 
+- **[📐 Architecture Overview](./ARCHITECTURE.md)** - **START HERE** — system diagram, contract map, sequence diagrams, design principles
 - **[📋 Architecture Index](./docs/ARCHITECTURE_INDEX.md)** - Complete guide to all architecture docs
 - **[🌐 System Architecture Overview](./docs/SYSTEM_ARCHITECTURE_OVERVIEW.md)** - High-level system design and components
 - **[🔗 Component Interaction Diagrams](./docs/COMPONENT_INTERACTION_DIAGRAMS.md)** - Detailed interaction sequences
