@@ -12,12 +12,16 @@ pub mod tests;
 #[ink::contract]
 mod propchain_escrow {
     use super::*;
-    use propchain_traits::{non_reentrant, ReentrancyGuard};
+    use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
     include!("errors.rs");
     include!("types.rs");
 
-    map_reentrancy!(Error => ReentrantCall);
+    impl From<ReentrancyError> for Error {
+        fn from(_: ReentrancyError) -> Self {
+            Error::ReentrantCall
+        }
+    }
 
     /// Main contract storage
     #[ink(storage)]

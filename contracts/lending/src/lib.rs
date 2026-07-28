@@ -7,7 +7,6 @@
 )]
 
 use ink::storage::Mapping;
-use propchain_traits::map_reentrancy;
 
 #[ink::contract]
 mod propchain_lending {
@@ -41,7 +40,11 @@ mod propchain_lending {
         RequestExpired,
     }
 
-    map_reentrancy!(LendingError => ReentrantCall);
+    impl From<propchain_traits::ReentrancyError> for LendingError {
+        fn from(_: propchain_traits::ReentrancyError) -> Self {
+            LendingError::ReentrantCall
+        }
+    }
 
     #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,

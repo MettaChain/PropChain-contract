@@ -8,7 +8,7 @@
 #[ink::contract]
 mod propchain_prediction_market {
     use ink::storage::Mapping;
-    use propchain_contracts::{map_reentrancy, non_reentrant, ReentrancyGuard};
+    use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(
@@ -218,7 +218,11 @@ mod propchain_prediction_market {
         OracleMarketNotReady,
     }
 
-    map_reentrancy!(Error => ReentrantCall);
+    impl From<ReentrancyError> for Error {
+        fn from(_: ReentrancyError) -> Self {
+            Error::ReentrantCall
+        }
+    }
 
     impl PredictionMarket {
         #[ink(constructor)]

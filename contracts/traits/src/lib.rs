@@ -9,7 +9,6 @@ pub mod crypto;
 pub mod di;
 pub mod errors;
 pub mod randomness;
-pub mod reentrancy;
 pub mod reentrancy_guard;
 
 pub mod types;

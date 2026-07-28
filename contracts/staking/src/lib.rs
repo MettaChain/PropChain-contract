@@ -12,12 +12,15 @@ mod staking {
     use ink::storage::Mapping;
     use propchain_traits::constants;
     use propchain_traits::errors::*;
-    use propchain_traits::map_reentrancy;
 
     include!("errors.rs");
     include!("types.rs");
 
-    map_reentrancy!(Error => ReentrantCall);
+    impl From<propchain_traits::ReentrancyError> for Error {
+        fn from(_: propchain_traits::ReentrancyError) -> Self {
+            Error::ReentrantCall
+        }
+    }
 
     // Defaults for the on-chain governance module. They are themselves
     // changeable via parameter proposals (ParamKind::VotingPeriodBlocks /
