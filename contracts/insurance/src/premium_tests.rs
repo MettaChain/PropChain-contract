@@ -475,3 +475,107 @@ fn test_premium_breakdown_accuracy() {
     // Allow small rounding difference
     assert!(diff < 100);
 }
+
+// ── Issue #786: Pin the safety-feature deductible reduction at 50 bps ──────
+
+/// Asserts that the safety-feature deductible reduction is exactly 50 basis
+/// points (0.5%), not 5% (500 bps) as was previously mis-documented.
+///
+/// The test computes the deductible for a property with a well-understood
+/// medium-risk profile (score 60 → risk_adjustment = 100 bps) with and
+/// without safety features, and verifies that the difference is exactly
+/// 50 bps of the coverage amount.
+///
+/// See `docs/penalty_drift.md` for the full resolution record.
+#[test]
+fn test_deductible_safety_feature_reduction_is_50_bps() {
+    let coverage_amount: u128 = 1_000_000;
+
+    // Minimal pool (utilization doesn't affect deductible path)
+    let pool = RiskPool {
+        pool_id: 1,
+        name: "Test Pool".to_string(),
+        coverage_type: CoverageType::Fire,
+        total_capital: 1_000_000,
+        available_capital: 500_000,
+        total_premiums_collected: 0,
+        total_claims_paid: 0,
+        active_policies: 0,
+        max_coverage_ratio: 500,
+        reinsurance_threshold: 800_000,
+        created_at: 0,
+        is_active: true,
+    };
+
+    // Medium-risk assessment (score 60 → risk_adjustment = 100 bps)
+    let assessment = RiskAssessment {
+        property_id: 42,
+        location_risk_score: 60,
+        construction_risk_score: 60,
+        age_risk_score: 60,
+        claims_history_score: 60,
+        overall_risk_score: 60,
+        risk_level: RiskLevel::Medium,
+        assessed_at: 0,
+        valid_until: 99_999_999,
+    };
+
+    // Without safety features: deductible = (500 + 100) bps = 6% of coverage = 60_000
+    let modifiers_no_safety = PremiumModifiers {
+        has_multiple_policies: false,
+        claim_free_years: 0,
+        has_safety_features: false,
+        loyalty_years: 0,
+        recent_claims_count: 0,
+    };
+
+    // With safety features: deductible = (500 + 100 - 50) bps = 5.5% = 55_000
+    let modifiers_with_safety = PremiumModifiers {
+        has_multiple_policies: false,
+        claim_free_years: 0,
+        has_safety_features: true,
+        loyalty_years: 0,
+        recent_claims_count: 0,
+    };
+
+    let result_no_safety = calculate_dynamic_premium(
+        &assessment,
+        coverage_amount,
+        &CoverageType::Fire,
+        &pool,
+        None,
+        &modifiers_no_safety,
+        31_536_000, // 1 year
+    );
+
+    let result_with_safety = calculate_dynamic_premium(
+        &assessment,
+        coverage_amount,
+        &CoverageType::Fire,
+        &pool,
+        None,
+        &modifiers_with_safety,
+        31_536_000,
+    );
+
+    // Both deductibles must be positive
+    assert!(result_no_safety.deductible > 0, "deductible without safety should be positive");
+    assert!(result_with_safety.deductible > 0, "deductible with safety should be positive");
+
+    // Safety features should lower the deductible
+    assert!(
+        result_with_safety.deductible < result_no_safety.deductible,
+        "safety features must reduce the deductible"
+    );
+
+    // The reduction must be exactly 50 bps of the coverage amount (= 5_000 units for 1_000_000)
+    let reduction = result_no_safety.deductible - result_with_safety.deductible;
+    let expected_reduction_50_bps = coverage_amount * 50 / 10_000; // 50 basis points = 5_000
+    assert_eq!(
+        reduction,
+        expected_reduction_50_bps,
+        "safety feature deductible reduction must be exactly 50 bps (0.5%), got {} but expected {}",
+        reduction,
+        expected_reduction_50_bps,
+    );
+}
