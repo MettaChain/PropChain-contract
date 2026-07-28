@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Cross-chain bridge types and trait definitions.
 //!
 //! This module contains all bridge-related types, status enums, configuration

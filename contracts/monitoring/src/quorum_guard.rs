@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #[derive(Clone, Debug)]
 pub struct ProposalParticipation { pub proposal_id: u64, pub participation_bps: u32 }
 

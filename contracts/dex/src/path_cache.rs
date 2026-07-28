@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PathKey { pub from_token: u64, pub to_token: u64 }
 

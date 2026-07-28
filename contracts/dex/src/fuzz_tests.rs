@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Property-based fuzz tests for DEX swap functions (Issue #480)
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pub fn check_slippage(expected_out: u128, actual_out: u128, max_bps: u32) -> Result<(), SlippageError> {
     if expected_out == 0 { return Err(SlippageError::ZeroExpected); }
     let loss = expected_out.saturating_mul(max_bps as u128).saturating_div(10_000);

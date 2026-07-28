@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #![allow(clippy::module_name_repetitions)]
 
 use core::fmt;

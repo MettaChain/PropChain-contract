@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use ink::primitives::AccountId;
 use ink::storage::Mapping;
 use scale::{Decode, Encode};

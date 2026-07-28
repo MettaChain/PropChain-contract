@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Performance Benchmarks and Regression Tests
 //!
 //! This module contains performance benchmarks to detect regressions

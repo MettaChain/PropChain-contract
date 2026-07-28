@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Multicall types shared across the workspace.
 //!
 //! A `CallRequest` describes a single cross-contract call to be dispatched

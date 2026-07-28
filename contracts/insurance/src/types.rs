@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Data types for the insurance contract (Issue #101 - extracted from lib.rs)
 // Parametric insurance types added for Issue #249
 // Circuit breaker types added for Issue #494

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Dynamic premium calculation engine based on risk assessment
 // Implements actuarial pricing with real-time adjustments
 // Claim-frequency adjustment added (rolling-window surcharge)

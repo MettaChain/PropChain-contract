@@ -1,4 +1,6 @@
+// SPDX-License-Identifier: MIT
 #![cfg_attr(not(feature = "std"), no_std)]
+#![warn(missing_docs)]
 
 // =========================================================================
 // Existing modules

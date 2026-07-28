@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use ink::storage::Mapping;
 
 pub struct TokenFreezeManager {

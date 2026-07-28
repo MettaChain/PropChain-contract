@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #![cfg(test)]
 #![allow(
     dead_code,

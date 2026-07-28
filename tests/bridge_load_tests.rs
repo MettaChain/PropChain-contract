@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Bridge Extreme Load Tests
 //!
 //! Tests the cross-chain bridge contract under extreme load conditions:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(unexpected_cfgs)]
 #![allow(clippy::needless_borrows_for_generic_args)]

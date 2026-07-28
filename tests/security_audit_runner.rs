@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #![allow(clippy::needless_borrows_for_generic_args, dead_code, unused_imports)]
 
 //! Security Audit Runner

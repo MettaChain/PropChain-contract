@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Shared error handling framework for PropChain contracts
 //!
 //! This module provides a unified error handling system with:

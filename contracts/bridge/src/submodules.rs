@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pub mod travel_rule {
     pub fn verify_travel_rule(amount: u128) -> bool {
         amount > 0

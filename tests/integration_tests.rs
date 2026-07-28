@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #![cfg(feature = "e2e-tests")]
 
 use ink_e2e::build_message;

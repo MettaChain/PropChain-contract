@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Centralized configuration constants for PropChain contracts.
 //!
 //! All magic numbers are extracted here with documentation explaining

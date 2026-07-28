@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
 use scale::{Decode, Encode};

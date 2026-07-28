@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Data types for the database contract (Issue #101 - extracted from lib.rs)
 
 pub type SyncId = u64;

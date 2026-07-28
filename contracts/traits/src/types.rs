@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Shared types for PropChain contracts.
 
 // =========================================================================

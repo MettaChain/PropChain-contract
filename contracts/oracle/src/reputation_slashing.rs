@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use propchain_traits::AccountId;
 
 pub struct OracleSlashingManager {

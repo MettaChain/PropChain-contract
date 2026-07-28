@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Error types for the DEX contract (Issue #101 - extracted from lib.rs)
 
 #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]

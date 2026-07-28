@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use ink::storage::Mapping;
 use propchain_traits::AccountId;
 

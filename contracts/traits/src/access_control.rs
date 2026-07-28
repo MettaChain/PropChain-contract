@@ -1,7 +1,10 @@
-use ink::prelude::vec::Vec;
-use ink::primitives::AccountId;
-use ink::storage::Mapping;
+// SPDX-License-Identifier: MIT
 
+/// Predefined roles in the PropChain access control system.
+///
+/// Roles form a hierarchy: `SuperAdmin` inherits all permissions,
+/// `Admin` inherits from `SuperAdmin`, and domain-specific admins
+/// (e.g. `OracleAdmin`, `FeeAdmin`) inherit from `Admin`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
 #[cfg_attr(
     feature = "std",
@@ -20,6 +23,10 @@ pub enum Role {
     EscrowAdmin,
 }
 
+/// A resource that can be permissioned in the access control system.
+///
+/// Variants may be global (affecting the entire contract) or scoped to
+/// a specific property or token ID.
 #[allow(clippy::cast_possible_truncation)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
 #[cfg_attr(

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Cross-Contract Integration Tests
 //!
 //! This module contains integration tests that verify interactions

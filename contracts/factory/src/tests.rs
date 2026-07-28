@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use crate::contract_factory::*;
 use ink::env::test;
 use ink::primitives::Hash;

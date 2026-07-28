@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Comprehensive Error Handling and Recovery Module
 //!
 //! This module provides:

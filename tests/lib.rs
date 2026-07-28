@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! PropChain Test Suite
 //!
 //! This module provides the test library for PropChain contracts,

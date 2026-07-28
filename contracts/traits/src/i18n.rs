@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Localization infrastructure for PropChain error messages.
 //!
 //! All lookups are static match expressions that allocate nothing, making this

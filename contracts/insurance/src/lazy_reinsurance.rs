@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #[derive(Clone, Default)]
 pub struct ReinsurancePoolCache {
     loaded: bool,

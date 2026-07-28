@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pub struct BoundedAuditLog {
     pub max_records: usize,
 }

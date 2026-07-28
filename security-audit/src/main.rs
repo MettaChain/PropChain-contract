@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use colored::*;

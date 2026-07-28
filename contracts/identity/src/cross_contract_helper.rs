@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pub struct CrossContractCaller;
 
 impl CrossContractCaller {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Dependency Injection framework for PropChain contracts.
 //!
 //! # Overview

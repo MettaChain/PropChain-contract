@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #[derive(Clone, Debug, PartialEq)]
 pub struct Delegation { pub delegator: [u8; 32], pub delegate: [u8; 32] }
 

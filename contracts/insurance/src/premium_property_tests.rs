@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #[cfg(test)]
 mod premium_properties {
     fn calc_premium(base_rate: u128, risk_factor: u128, coverage: u128) -> u128 {
