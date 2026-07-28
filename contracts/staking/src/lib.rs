@@ -12,6 +12,7 @@ mod staking {
     use ink::storage::Mapping;
     use propchain_traits::constants;
     use propchain_traits::errors::*;
+    use propchain_traits::map_reentrancy;
 
     include!("errors.rs");
     include!("types.rs");

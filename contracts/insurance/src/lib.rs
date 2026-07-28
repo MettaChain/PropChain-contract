@@ -27,7 +27,7 @@ mod fraud_detection;
 mod propchain_insurance {
     use super::*;
     use ink::prelude::{string::String, vec::Vec};
-    use propchain_traits::{non_reentrant, ReentrancyGuard};
+    use propchain_traits::{map_reentrancy, non_reentrant, ReentrancyGuard};
 
     // Error types extracted to errors.rs (Issue #101)
     include!("errors.rs");
