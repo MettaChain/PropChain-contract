@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use ink::storage::Mapping;
-use propchain_traits::{ContractError, ErrorCategory, ReentrancyError};
+use propchain_traits::{ContractError, ErrorCategory};
 #[cfg(not(feature = "std"))]
 use scale_info::prelude::{string::String, vec::Vec};
 
@@ -37,6 +37,7 @@ mod version_registry {
         NameNotFound,
         VersionAlreadyExists,
         InvalidVersion,
+        ReentrantCall,
     }
 
     impl core::fmt::Display for Error {
@@ -48,6 +49,7 @@ mod version_registry {
                     write!(f, "Version already exists for this name")
                 }
                 Error::InvalidVersion => write!(f, "Invalid version number"),
+                Error::ReentrantCall => write!(f, "Reentrant call detected"),
             }
         }
     }
@@ -59,6 +61,7 @@ mod version_registry {
                 Error::NameNotFound => 13002,
                 Error::VersionAlreadyExists => 13003,
                 Error::InvalidVersion => 13004,
+                Error::ReentrantCall => 13005,
             }
         }
 
@@ -72,6 +75,7 @@ mod version_registry {
                     "A deployment with this version already exists for the specified name"
                 }
                 Error::InvalidVersion => "The provided version number is invalid",
+                Error::ReentrantCall => "Reentrancy guard detected a reentrant call",
             }
         }
 
@@ -80,11 +84,7 @@ mod version_registry {
         }
     }
 
-    impl From<ReentrancyError> for Error {
-        fn from(_: ReentrancyError) -> Self {
-            Error::Unauthorized
-        }
-    }
+    map_reentrancy!(Error => ReentrantCall);
 
     #[ink(event)]
     pub struct ContractDeployed {

@@ -40,11 +40,7 @@ mod propchain_lending {
         RequestExpired,
     }
 
-    impl From<propchain_traits::ReentrancyError> for LendingError {
-        fn from(_: propchain_traits::ReentrancyError) -> Self {
-            LendingError::ReentrantCall
-        }
-    }
+    map_reentrancy!(LendingError => ReentrantCall);
 
     #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,

@@ -16,11 +16,7 @@ mod staking {
     include!("errors.rs");
     include!("types.rs");
 
-    impl From<propchain_traits::ReentrancyError> for Error {
-        fn from(_: propchain_traits::ReentrancyError) -> Self {
-            Error::ReentrantCall
-        }
-    }
+    map_reentrancy!(Error => ReentrantCall);
 
     // Defaults for the on-chain governance module. They are themselves
     // changeable via parameter proposals (ParamKind::VotingPeriodBlocks /

@@ -19,7 +19,7 @@ use scale_info::prelude::vec::Vec;
 #[ink::contract]
 mod bridge {
     use super::*;
-    use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
+    use propchain_traits::{non_reentrant, ReentrancyGuard};
 
     include!("errors.rs");
 
@@ -29,11 +29,7 @@ mod bridge {
     const SIGNATURE_BITMAP_BYTES: usize = 32;
     const MAX_VALIDATOR_BITMAP_SLOTS: usize = SIGNATURE_BITMAP_BYTES * 8;
 
-    impl From<ReentrancyError> for Error {
-        fn from(_: ReentrancyError) -> Self {
-            Error::ReentrantCall
-        }
-    }
+    map_reentrancy!(Error => ReentrantCall);
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(

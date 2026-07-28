@@ -11,7 +11,7 @@ mod fractional {
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
     use propchain_traits;
-    use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
+    use propchain_traits::{non_reentrant, ReentrancyGuard};
 
     #[derive(
         Debug,
@@ -316,11 +316,7 @@ mod fractional {
         pending_admin_rotation: Option<propchain_traits::KeyRotationRequest>,
     }
 
-    impl From<ReentrancyError> for FractionalError {
-        fn from(_: ReentrancyError) -> Self {
-            FractionalError::ReentrantCall
-        }
-    }
+    map_reentrancy!(FractionalError => ReentrantCall);
 
     impl Fractional {
         #[ink(constructor)]

@@ -3,7 +3,7 @@
 
 use ink::prelude::string::String;
 use ink::storage::Mapping;
-use propchain_traits::{non_reentrant, ComplianceChecker, ReentrancyError, ReentrancyGuard};
+use propchain_traits::{non_reentrant, ComplianceChecker, ReentrancyGuard};
 
 #[ink::contract]
 mod property_management {
@@ -34,11 +34,7 @@ mod property_management {
         ReentrantCall,
     }
 
-    impl From<ReentrancyError> for Error {
-        fn from(_: ReentrancyError) -> Self {
-            Error::ReentrantCall
-        }
-    }
+    map_reentrancy!(Error => ReentrantCall);
 
     #[derive(
         Debug,

@@ -38,11 +38,7 @@ mod propchain_crowdfunding {
         InvalidParameters,
     }
 
-    impl From<propchain_traits::ReentrancyError> for CrowdfundingError {
-        fn from(_: propchain_traits::ReentrancyError) -> Self {
-            CrowdfundingError::ReentrantCall
-        }
-    }
+    map_reentrancy!(CrowdfundingError => ReentrantCall);
 
     #[derive(
         Debug,

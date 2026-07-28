@@ -13,7 +13,7 @@ use propchain_traits::*;
 #[ink::contract]
 mod dex {
     use super::*;
-    use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
+    use propchain_traits::{non_reentrant, ReentrancyGuard};
 
     const BIPS_DENOMINATOR: u128 = 10_000;
     const REWARD_PRECISION: u128 = 1_000_000_000;
@@ -21,11 +21,7 @@ mod dex {
     // Error types extracted to errors.rs (Issue #101)
     include!("errors.rs");
 
-    impl From<ReentrancyError> for Error {
-        fn from(_: ReentrancyError) -> Self {
-            Error::ReentrantCall
-        }
-    }
+    map_reentrancy!(Error => ReentrantCall);
 
     #[ink(event)]
     pub struct PoolCreated {

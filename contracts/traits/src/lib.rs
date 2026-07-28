@@ -10,6 +10,7 @@ pub mod di;
 pub mod errors;
 pub mod randomness;
 pub mod reentrancy_guard;
+pub mod reentrancy;
 
 pub mod types;
 pub use types::*;

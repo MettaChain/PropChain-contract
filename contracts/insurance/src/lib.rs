@@ -27,16 +27,12 @@ mod fraud_detection;
 mod propchain_insurance {
     use super::*;
     use ink::prelude::{string::String, vec::Vec};
-    use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
+    use propchain_traits::{non_reentrant, ReentrancyGuard};
 
     // Error types extracted to errors.rs (Issue #101)
     include!("errors.rs");
 
-    impl From<ReentrancyError> for InsuranceError {
-        fn from(_: ReentrancyError) -> Self {
-            InsuranceError::ReentrantCall
-        }
-    }
+    map_reentrancy!(InsuranceError => ReentrantCall);
 
     // Data types extracted to types.rs (Issue #101)
     include!("types.rs");
