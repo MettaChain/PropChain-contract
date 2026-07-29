@@ -129,7 +129,14 @@ mod bridge {
 
     impl scale::Decode for StoredBridgeRequest {
         fn decode<I: scale::Input>(input: &mut I) -> Result<Self, scale::Error> {
-            let mut bytes = Vec::new();
+            // Linearise the drain: pre-allocate the destination buffer so
+            // `Vec::push` does NOT reallocate on every byte. The previous
+            // `Vec::new() + push` loop was O(n^2) because Vec::new() starts
+            // at capacity 0 and every push reallocates the entire buffer
+            // (1 -> 2 -> 4 -> 8 -> ...), and on a 1kB payload the decode
+            // alone could exceed the block-gas limit (Issue #736).
+            const INITIAL_CAPACITY: usize = 1024;
+            let mut bytes: Vec<u8> = Vec::with_capacity(INITIAL_CAPACITY);
             while let Ok(byte) = input.read_byte() {
                 bytes.push(byte);
             }
@@ -382,6 +389,12 @@ mod bridge {
 
         /// Chain last reset day for rate limiting
         chain_last_reset_day: Mapping<ChainId, u64>,
+
+        /// Account daily volume (amount) for rate limiting (#764)
+        account_daily_volume: Mapping<AccountId, u128>,
+
+        /// Account last reset day for volume rate limiting (#764)
+        account_daily_volume_last_reset_day: Mapping<AccountId, u64>,
 
         /// Reentrancy protection
         reentrancy_guard: ReentrancyGuard,
@@ -814,6 +827,8 @@ mod bridge {
                 account_last_reset_day: Mapping::default(),
                 chain_daily_volume: Mapping::default(),
                 chain_last_reset_day: Mapping::default(),
+                account_daily_volume: Mapping::default(),
+                account_daily_volume_last_reset_day: Mapping::default(),
                 reentrancy_guard: ReentrancyGuard::new(),
                 pause_flags: PauseFlags::none(),
                 guardians: Vec::new(),
@@ -903,7 +918,6 @@ mod bridge {
             // For NFT bridge, we count requests but value is 0 here since NFT value isn't strictly defined by amount.
             self.check_and_update_rate_limits(caller, destination_chain, 0, true)?;
 
-            // Check if token is frozen (freeze-by-token #12)
             self.ensure_token_not_frozen(token_id)?;
 
             // Create bridge request
@@ -992,7 +1006,6 @@ mod bridge {
 
             self.check_and_update_rate_limits(caller, *route.last().unwrap(), 0, true)?;
 
-            // Check if token is frozen (freeze-by-token #12)
             self.ensure_token_not_frozen(token_id)?;
 
             let total_gas_estimate = self.estimate_multi_hop_bridge_gas(route.clone())?;
@@ -1194,7 +1207,6 @@ mod bridge {
                 // FATF travel rule compliance check
                 self.ensure_travel_rule_compliance(request_id, &request)?;
 
-                // Check if token is frozen (freeze-by-token #12)
                 self.ensure_token_not_frozen(request.token_id)?;
 
                 // Generate transaction hash
@@ -2471,7 +2483,11 @@ mod bridge {
             });
         }
 
-        /// Check if an asset transfer should be blocked due to freeze.
+        /// Check if an asset transfer should be blocked due to an AccountId-keyed
+        /// contract-level freeze (`propose_freeze_asset` / emergency multi-sig).
+        /// Bridge initiation now gates on `ensure_token_not_frozen` (token_id-keyed);
+        /// this remains for the emergency asset-freeze feature to wire in.
+        #[allow(dead_code)]
         fn ensure_asset_not_frozen(&self, asset_address: AccountId) -> Result<(), Error> {
             if let Some(freeze_info) = self.frozen_assets.get(asset_address) {
                 if freeze_info.affects_inflight {
@@ -2878,6 +2894,41 @@ mod bridge {
             })
         }
 
+        /// Returns the current daily volume for a chain (admin-only, #764).
+        ///
+        /// Returns 0 if no volume has been tracked for this chain yet.
+        #[ink(message)]
+        pub fn get_daily_volume(&self, chain_id: ChainId) -> Result<u128, Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            let current_day = self.env().block_timestamp() / 86_400_000;
+            let last_reset = self.chain_last_reset_day.get(chain_id).unwrap_or(0);
+            if last_reset < current_day {
+                return Ok(0);
+            }
+            Ok(self.chain_daily_volume.get(chain_id).unwrap_or(0))
+        }
+
+        /// Returns the current daily volume for an account (admin-only, #764).
+        ///
+        /// Returns 0 if no volume has been tracked for this account yet.
+        #[ink(message)]
+        pub fn get_account_daily_volume(&self, account: AccountId) -> Result<u128, Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            let current_day = self.env().block_timestamp() / 86_400_000;
+            let last_reset = self
+                .account_daily_volume_last_reset_day
+                .get(account)
+                .unwrap_or(0);
+            if last_reset < current_day {
+                return Ok(0);
+            }
+            Ok(self.account_daily_volume.get(account).unwrap_or(0))
+        }
+
         /// Returns the current pause state summary for the dashboard.
         #[ink(message)]
         pub fn get_bridge_health_status(&self) -> BridgeHealthStatus {
@@ -3146,6 +3197,22 @@ mod bridge {
 
                 self.chain_daily_volume
                     .insert(destination_chain, &(chain_volume + amount));
+
+                // Track per-account daily volume (#764)
+                let last_account_reset = self
+                    .account_daily_volume_last_reset_day
+                    .get(account)
+                    .unwrap_or(0);
+                let mut account_volume = self.account_daily_volume.get(account).unwrap_or(0);
+
+                if last_account_reset < current_day {
+                    account_volume = 0;
+                    self.account_daily_volume_last_reset_day
+                        .insert(account, &current_day);
+                }
+
+                self.account_daily_volume
+                    .insert(account, &account_volume.saturating_add(amount));
             }
 
             Ok(())

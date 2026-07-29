@@ -271,6 +271,7 @@ mod staking {
         voting_period_blocks: u64,
         quorum_bps: u32,
         early_withdrawal_penalty_bps: u128,
+        boost_curve: BoostCurve,
         // ----- Validator / Delegation -----
         validators: Mapping<AccountId, ValidatorInfo>,
         delegations: Mapping<(AccountId, AccountId), DelegationRecord>,
@@ -290,6 +291,7 @@ mod staking {
         /// # Arguments
         /// * `reward_rate_bps` - Annual reward rate in basis points (e.g. 500 = 5%)
         /// * `min_stake` - Minimum stake amount
+        /// Create a new staking contract with the default Linear boost curve.
         #[ink(constructor)]
         pub fn new(reward_rate_bps: u128, min_stake: u128) -> Self {
             let caller = Self::env().caller();
@@ -319,6 +321,7 @@ mod staking {
                 voting_period_blocks: DEFAULT_VOTING_PERIOD_BLOCKS,
                 quorum_bps: DEFAULT_QUORUM_BPS,
                 early_withdrawal_penalty_bps: constants::DEFAULT_EARLY_WITHDRAWAL_PENALTY_BPS,
+                boost_curve: BoostCurve::Linear,
                 validators: Mapping::default(),
                 delegations: Mapping::default(),
                 validator_list: Vec::new(),
@@ -415,7 +418,20 @@ mod staking {
             if let Some(stake) = self.stakes.get(staker) {
                 if let Some(vesting) = stake.vesting_schedule {
                     let now = self.env().block_number() as u64;
-                    vesting.claimable_at_block(now)
+                    let total_vested = if now < vesting.cliff_block {
+                        0
+                    } else if now >= vesting.end_block {
+                        stake.original_amount
+                    } else {
+                        let blocks_elapsed = (now - vesting.cliff_block) as u128;
+                        let total_blocks = (vesting.end_block - vesting.start_block) as u128;
+                        stake
+                            .original_amount
+                            .saturating_mul(blocks_elapsed)
+                            .checked_div(total_blocks)
+                            .unwrap_or(0)
+                    };
+                    total_vested.saturating_sub(vesting.vested_amount)
                 } else {
                     0
                 }
@@ -451,13 +467,19 @@ mod staking {
             }
 
             // Apply lock period multiplier
-            let multiplier = lock_period.multiplier();
+            let multiplier = lock_period.multiplier_with_curve(Some(self.boost_curve));
             let reward = base_reward.saturating_mul(multiplier) / 100;
 
             // Apply staking tier bonus
             let tier = self.get_tier_internal(amount);
             let tier_multiplier = tier.reward_multiplier();
             reward.saturating_mul(tier_multiplier) / 100
+        }
+
+        /// Returns the current boost curve configuration.
+        #[ink(message)]
+        pub fn get_boost_curve(&self) -> BoostCurve {
+            self.boost_curve
         }
 
         /// Returns the estimated reward plus the staking tier for a projected stake.
@@ -496,6 +518,7 @@ mod staking {
             let stake_info = StakeInfo {
                 staker: caller,
                 amount,
+                original_amount: amount,
                 staked_at: now,
                 lock_until,
                 lock_period,
@@ -579,6 +602,7 @@ mod staking {
             let stake_info = StakeInfo {
                 staker: caller,
                 amount,
+                original_amount: total_reward_amount,
                 staked_at: now,
                 lock_until,
                 lock_period,
@@ -628,6 +652,9 @@ mod staking {
                 let stake = self.stakes.get(caller).ok_or(Error::StakeNotFound)?;
 
                 let now = self.env().block_number() as u64;
+
+                // Lock period is over, or we'll apply early withdrawal penalty
+
                 let amount = stake.amount;
                 let is_early = now < stake.lock_until;
 
@@ -711,7 +738,19 @@ mod staking {
                 // Determine how much can be claimed
                 let claimable_amount = if let Some(vesting) = stake.vesting_schedule {
                     let now = self.env().block_number() as u64;
-                    let total_vested = vesting.calculate_vested_at_block(now);
+                    let total_vested = if now < vesting.cliff_block {
+                        0
+                    } else if now >= vesting.end_block {
+                        stake.original_amount
+                    } else {
+                        let blocks_elapsed = (now - vesting.cliff_block) as u128;
+                        let total_blocks = (vesting.end_block - vesting.start_block) as u128;
+                        stake
+                            .original_amount
+                            .saturating_mul(blocks_elapsed)
+                            .checked_div(total_blocks)
+                            .unwrap_or(0)
+                    };
                     let claimable = total_vested.saturating_sub(vesting.vested_amount);
                     if claimable == 0 {
                         return Err(Error::NoRewards);
@@ -1098,7 +1137,9 @@ mod staking {
                 / constants::REWARD_RATE_PRECISION
                 / 5_256_000; // blocks per year
 
-            let multiplier = stake.lock_period.multiplier();
+            let multiplier = stake
+                .lock_period
+                .multiplier_with_curve(Some(self.boost_curve));
             let reward = base_reward.saturating_mul(multiplier) / 100;
 
             // Apply staking tier bonus multiplier
@@ -1139,6 +1180,7 @@ mod staking {
                         return Err(Error::InvalidConfig);
                     }
                 }
+                ParamKind::BoostCurve(_) => {} // any curve is valid
             }
             Ok(())
         }
@@ -1164,6 +1206,9 @@ mod staking {
                 }
                 ParamKind::QuorumBps(v) => {
                     self.quorum_bps = v;
+                }
+                ParamKind::BoostCurve(v) => {
+                    self.boost_curve = v;
                 }
             }
         }
@@ -1352,8 +1397,12 @@ mod staking {
         #[ink(message)]
         pub fn slash_validator(&mut self, validator: AccountId) -> Result<(), Error> {
             propchain_traits::non_reentrant!(self, {
-                self.slashing_coordinator
+                let coordinator = self
+                    .slashing_coordinator
                     .ok_or(Error::NoSlashingCoordinator)?;
+                if self.env().caller() != coordinator {
+                    return Err(Error::Unauthorized);
+                }
                 if !self.validators.contains(validator) {
                     return Err(Error::ValidatorNotFound);
                 }

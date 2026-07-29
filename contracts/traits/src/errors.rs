@@ -474,6 +474,152 @@ pub mod event_bus_codes {
     pub const EVENT_BUS_REENTRANT_CALL: u32 = 11007;
 }
 
+/// Lending error codes (12000-12999)
+pub mod lending_codes {
+    pub const LENDING_UNAUTHORIZED: u32 = 12001;
+    pub const LENDING_PROPERTY_NOT_FOUND: u32 = 12002;
+    pub const LENDING_INSUFFICIENT_COLLATERAL: u32 = 12003;
+    pub const LENDING_LOAN_NOT_FOUND: u32 = 12004;
+    pub const LENDING_LOAN_NOT_ACTIVE: u32 = 12005;
+    pub const LENDING_POOL_NOT_FOUND: u32 = 12006;
+    pub const LENDING_INSUFFICIENT_LIQUIDITY: u32 = 12007;
+    pub const LENDING_POSITION_NOT_FOUND: u32 = 12008;
+    pub const LENDING_LIQUIDATION_THRESHOLD_NOT_MET: u32 = 12009;
+    pub const LENDING_INVALID_PARAMETERS: u32 = 12010;
+    pub const LENDING_PROPOSAL_NOT_FOUND: u32 = 12011;
+    pub const LENDING_RESTRUCTURING_NOT_FOUND: u32 = 12012;
+    pub const LENDING_INSUFFICIENT_VOTES: u32 = 12013;
+    pub const LENDING_SERVICER_NOT_FOUND: u32 = 12014;
+    pub const LENDING_PAYMENT_SCHEDULE_NOT_FOUND: u32 = 12015;
+    pub const LENDING_REENTRANT_CALL: u32 = 12016;
+    pub const LENDING_KEY_ROTATION_COOLDOWN: u32 = 12017;
+    pub const LENDING_KEY_ROTATION_EXPIRED: u32 = 12018;
+    pub const LENDING_NO_PENDING_ROTATION: u32 = 12019;
+    pub const LENDING_ROTATION_UNAUTHORIZED: u32 = 12020;
+    pub const LENDING_REQUEST_EXPIRED: u32 = 12021;
+}
+
+/// Insurance error codes (14000-14999)
+pub mod insurance_codes {
+    pub const INSURANCE_UNAUTHORIZED: u32 = 14001;
+    pub const INSURANCE_POLICY_NOT_FOUND: u32 = 14002;
+    pub const INSURANCE_CLAIM_NOT_FOUND: u32 = 14003;
+    pub const INSURANCE_POOL_NOT_FOUND: u32 = 14004;
+    pub const INSURANCE_POLICY_ALREADY_ACTIVE: u32 = 14005;
+    pub const INSURANCE_POLICY_EXPIRED: u32 = 14006;
+    pub const INSURANCE_POLICY_INACTIVE: u32 = 14007;
+    pub const INSURANCE_INSUFFICIENT_PREMIUM: u32 = 14008;
+    pub const INSURANCE_INSUFFICIENT_POOL_FUNDS: u32 = 14009;
+    pub const INSURANCE_CLAIM_ALREADY_PROCESSED: u32 = 14010;
+    pub const INSURANCE_CLAIM_EXCEEDS_COVERAGE: u32 = 14011;
+    pub const INSURANCE_INVALID_PARAMETERS: u32 = 14012;
+    pub const INSURANCE_ORACLE_VERIFICATION_FAILED: u32 = 14013;
+    pub const INSURANCE_REINSURANCE_CAPACITY_EXCEEDED: u32 = 14014;
+    pub const INSURANCE_TOKEN_NOT_FOUND: u32 = 14015;
+    pub const INSURANCE_TRANSFER_FAILED: u32 = 14016;
+    pub const INSURANCE_COOLDOWN_PERIOD_ACTIVE: u32 = 14017;
+    pub const INSURANCE_PROPERTY_NOT_INSURABLE: u32 = 14018;
+    pub const INSURANCE_DUPLICATE_CLAIM: u32 = 14019;
+    pub const INSURANCE_REENTRANT_CALL: u32 = 14020;
+    pub const INSURANCE_RISK_ASSESSMENT_NOT_FOUND: u32 = 14021;
+    pub const INSURANCE_RISK_ASSESSMENT_EXPIRED: u32 = 14022;
+    pub const INSURANCE_INVALID_RISK_FACTORS: u32 = 14023;
+    pub const INSURANCE_RISK_MODEL_GENERATION_FAILED: u32 = 14024;
+    pub const INSURANCE_FRAUD_ASSESSMENT_NOT_FOUND: u32 = 14025;
+    pub const INSURANCE_HIGH_FRAUD_RISK: u32 = 14026;
+    pub const INSURANCE_FRAUD_PATTERN_NOT_FOUND: u32 = 14027;
+    pub const INSURANCE_INVALID_FRAUD_INDICATOR: u32 = 14028;
+    pub const INSURANCE_REINSURANCE_AGREEMENT_NOT_FOUND: u32 = 14029;
+    pub const INSURANCE_REINSURANCE_AGREEMENT_EXPIRED: u32 = 14030;
+    pub const INSURANCE_REINSURANCE_AGREEMENT_INACTIVE: u32 = 14031;
+    pub const INSURANCE_TRIGGER_NOT_FOUND: u32 = 14032;
+    pub const INSURANCE_TRIGGER_INACTIVE: u32 = 14033;
+    pub const INSURANCE_TRIGGER_ALREADY_FIRED: u32 = 14034;
+    pub const INSURANCE_TRIGGER_CONDITION_NOT_MET: u32 = 14035;
+    pub const INSURANCE_INVALID_PAYOUT_MODE: u32 = 14036;
+    pub const INSURANCE_PARAMETRIC_POLICY_NOT_FOUND: u32 = 14037;
+    pub const INSURANCE_PARAMETRIC_POLICY_INACTIVE: u32 = 14038;
+    pub const INSURANCE_PARAMETRIC_POLICY_ALREADY_TRIGGERED: u32 = 14039;
+    pub const INSURANCE_CIRCUIT_BREAKER_ACTIVE: u32 = 14040;
+    pub const INSURANCE_SINGLE_PAYOUT_LIMIT_EXCEEDED: u32 = 14041;
+    pub const INSURANCE_DAILY_PAYOUT_LIMIT_EXCEEDED: u32 = 14042;
+    pub const INSURANCE_KEY_ROTATION_COOLDOWN: u32 = 14043;
+    pub const INSURANCE_KEY_ROTATION_EXPIRED: u32 = 14044;
+    pub const INSURANCE_NO_PENDING_ROTATION: u32 = 14045;
+    pub const INSURANCE_ROTATION_UNAUTHORIZED: u32 = 14046;
+    pub const INSURANCE_REQUEST_EXPIRED: u32 = 14047;
+}
+
+// =============================================================================
+// ErrorExt Macro
+// =============================================================================
+
+/// Implements `ContractError` and `core::fmt::Display` for a fieldless error
+/// enum with minimal boilerplate.
+///
+/// The macro generates:
+/// - `impl $crate::errors::ContractError for $ty` with `error_code()`,
+///   `error_description()`, and `error_category()`
+/// - `impl core::fmt::Display for $ty` delegating to `ContractError::error_description()`
+///
+/// # Usage
+///
+/// ```ignore
+/// use propchain_traits::errors::{error_ext, ContractError, ErrorCategory};
+/// use propchain_traits::errors::lending_codes;
+///
+/// #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+/// pub enum MyError {
+///     Unauthorized,
+///     NotFound,
+/// }
+///
+/// error_ext! {
+///     MyError,
+///     ErrorCategory::Common,
+///     [
+///         (Unauthorized, lending_codes::LENDING_UNAUTHORIZED, "Caller does not have permission"),
+///         (NotFound, lending_codes::LENDING_PROPERTY_NOT_FOUND, "Resource not found"),
+///     ]
+/// }
+/// ```
+#[macro_export]
+macro_rules! error_ext {
+    (
+        $ty:ty,
+        $category:expr,
+        [
+            $(($variant:ident, $code:expr, $desc:expr)),+ $(,)?
+        ]
+    ) => {
+        impl $crate::errors::ContractError for $ty {
+            fn error_code(&self) -> u32 {
+                match self {
+                    $( Self::$variant => $code, )+
+                }
+            }
+
+            fn error_description(&self) -> &'static str {
+                match self {
+                    $( Self::$variant => $desc, )+
+                }
+            }
+
+            fn error_category(&self) -> $crate::errors::ErrorCategory {
+                $category
+            }
+        }
+
+        impl ::core::fmt::Display for $ty {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                f.write_str(<$ty as $crate::errors::ContractError>::error_description(self))
+            }
+        }
+    };
+}
+
+pub use error_ext;
+
 #[cfg(test)]
 mod tests {
     use super::*;

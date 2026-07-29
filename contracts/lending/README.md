@@ -95,6 +95,21 @@ contract.execute_proposal(proposal_id)?;
 cargo test
 ```
 
+### Test Module Layout
+
+All tests live in `contracts/lending/src/lib.rs` and are split into three
+`#[cfg(test)]` modules, each with a focused scope:
+
+| Module | Purpose |
+|--------|---------|
+| `tests` | Core unit tests covering the full contract lifecycle: collateral, pools, margin positions, loan underwriting, servicer integration, loan restructuring, multi-collateral pledging (#588), yield farming, governance, and credit scoring. **New tests for contract messages should go here.** |
+| `lending_admin_rotation_tests` | Isolated tests for the two-step time-locked admin rotation flow (Issue #496). Kept separate to avoid polluting the main suite with the specific caller-permutation setup these tests require. |
+| `storage_derivation_tests` | Compile-time assertions (Issue #589) that every public storage type implements `Encode + Decode + TypeInfo + StorageLayout`. Failures are type-checker errors, not runtime failures. Add a new `assert_storage_type::<MyNewType>();` call here whenever a new storage struct is introduced. |
+
+There is also a regression test file at `src/test.rs` (included as
+`mod lending_regression_test`) that covers the JIT interest-accrual
+behaviour documented in the stale-write TODO.
+
 ## Architecture
 
 The lending platform is built as an ink! smart contract with the following components:

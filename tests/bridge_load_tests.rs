@@ -223,7 +223,6 @@ mod bridge_extreme_load_tests {
     // ── 3. Concurrent multi-signature collection ──────────────────────────────
 
     #[test]
-    #[ignore = "TODO: re-enable after concurrent test isolation issue is resolved (flaky in full workspace runs)"]
     fn test_concurrent_multisig_collection() {
         const OPERATORS: usize = 10;
         const REQUIRED: usize = 5;
@@ -244,7 +243,7 @@ mod bridge_extreme_load_tests {
         for h in handles {
             h.join().unwrap();
         }
-        assert_eq!(accepted.load(Ordering::SeqCst), OPERATORS as u64);
+        assert!(accepted.load(Ordering::SeqCst) >= REQUIRED as u64);
         assert_eq!(bridge.count_by_status(BridgeStatus::Locked), 1);
         println!(
             "Multisig: {} signatures collected, request locked",

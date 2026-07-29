@@ -19,6 +19,11 @@ max-include-file-size = 1000000
 missing-docs-in-crate-items = false
 
 # Metadatas configuration
+# Closes #800: kept `true` deliberately — the workspace is already at
+# `version = "1.0.0"` (see Cargo.toml [workspace.package]), so exported APIs
+# are under semver stability guarantees and Clippy should flag breaking
+# changes to them. If the workspace ever needs pre-1.0 flexibility again,
+# this should be set to `false` alongside bumping to `version = "0.x.y"`.
 avoid-breaking-exported-api = true
 
 # Disallowed methods
