@@ -161,7 +161,8 @@ fn create_linear_payment_schedule() {
     let schedule = contract.get_payment_schedule_by_loan(loan_id).unwrap();
     assert_eq!(schedule.schedule_type, Schedule::Linear);
     assert!(schedule.installment_amount > 0);
-    assert_eq!(schedule.total_installments, 12);
+    // 12 months * 432_000 blocks/month / 216_000 blocks/installment = 24
+    assert_eq!(schedule.total_installments, 24);
 }
 
 #[ink::test]
