@@ -207,16 +207,20 @@ impl LockPeriod {
         match self {
             LockPeriod::Flexible => 0,
             LockPeriod::ThirtyDays => {
-                constants::LOCK_PERIOD_30_DAYS.saturating_mul(1_000_000) / constants::LOCK_PERIOD_1_YEAR
+                (constants::LOCK_PERIOD_30_DAYS as u128)
+                    .saturating_mul(1_000_000)
+                    .saturating_div(constants::LOCK_PERIOD_1_YEAR as u128)
             }
             LockPeriod::NinetyDays => {
-                constants::LOCK_PERIOD_90_DAYS.saturating_mul(1_000_000) / constants::LOCK_PERIOD_1_YEAR
+                (constants::LOCK_PERIOD_90_DAYS as u128)
+                    .saturating_mul(1_000_000)
+                    .saturating_div(constants::LOCK_PERIOD_1_YEAR as u128)
             }
             LockPeriod::OneYear => 1_000_000,
             LockPeriod::Custom(blocks) => (*blocks as u128)
                 .min(constants::LOCK_PERIOD_1_YEAR as u128)
                 .saturating_mul(1_000_000)
-                / constants::LOCK_PERIOD_1_YEAR as u128,
+                .saturating_div(constants::LOCK_PERIOD_1_YEAR as u128),
         }
     }
 
