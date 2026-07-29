@@ -1469,7 +1469,7 @@ mod property_management {
         fn register_property_fails_without_identity_registry() {
             let accounts = test::default_accounts::<DefaultEnvironment>();
             test::set_caller::<DefaultEnvironment>(accounts.alice);
-            let pm = setup();
+            let mut pm = setup();
             let result = pm.register_property(1, Hash::from([0u8; 32]));
             assert_eq!(result, Err(Error::ComplianceViolation));
         }
