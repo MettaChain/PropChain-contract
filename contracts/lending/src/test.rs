@@ -60,7 +60,14 @@ fn create_loan_listing_with_collateral_basket() {
     test::set_caller::<DefaultEnvironment>(accounts.bob);
     let basket = vec![(1u64, 100_000u128), (2u64, 200_000u128)];
     let listing_id = contract
-        .create_loan_listing(1, 1_000_000, 800, 12, CollateralKind::Unsecured, basket.clone())
+        .create_loan_listing(
+            1,
+            1_000_000,
+            800,
+            12,
+            CollateralKind::Unsecured,
+            basket.clone(),
+        )
         .unwrap();
 
     let listing = contract.get_loan_listing(listing_id).unwrap();
@@ -179,11 +186,14 @@ fn create_custom_payment_schedule() {
         .unwrap();
 
     let schedule = contract.get_payment_schedule_by_loan(loan_id).unwrap();
-    assert_eq!(schedule.schedule_type, Schedule::Custom {
-        num_installments: 24,
-        interval_blocks: 216_000,
-        principal_per_payment: 10_000,
-    });
+    assert_eq!(
+        schedule.schedule_type,
+        Schedule::Custom {
+            num_installments: 24,
+            interval_blocks: 216_000,
+            principal_per_payment: 10_000,
+        }
+    );
     assert_eq!(schedule.installment_amount, 10_000);
 }
 

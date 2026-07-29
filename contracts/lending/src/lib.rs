@@ -363,8 +363,8 @@ mod propchain_lending {
                     if n == 0 {
                         return principal;
                     }
-                    let per_period_rate_numer = (rate_bps as u128)
-                        .saturating_mul(interval_blocks);
+                    let per_period_rate_numer =
+                        (rate_bps as u128).saturating_mul(interval_blocks);
                     let per_period_rate_denom = 52_560_000_000u128; // 5_256_000 * 10_000
                     let interest = principal
                         .saturating_mul(per_period_rate_numer)
@@ -382,8 +382,8 @@ mod propchain_lending {
                     }
                     // Equal principal + declining interest
                     let per_period_principal = principal / n;
-                    let per_period_rate_numer = (rate_bps as u128)
-                        .saturating_mul(interval_blocks);
+                    let per_period_rate_numer =
+                        (rate_bps as u128).saturating_mul(interval_blocks);
                     let per_period_rate_denom = 52_560_000_000u128; // 5_256_000 * 10_000
                     let interest_first = principal
                         .saturating_mul(per_period_rate_numer)
@@ -401,7 +401,11 @@ mod propchain_lending {
                         let n = (term_months as u64 * 432_000u64)
                             .checked_div(interval_blocks.max(1))
                             .unwrap_or(1) as u128;
-                        if n == 0 { principal } else { principal / n }
+                        if n == 0 {
+                            principal
+                        } else {
+                            principal / n
+                        }
                     }
                 }
             }
@@ -1330,10 +1334,7 @@ mod propchain_lending {
 
         /// Get the payment schedule for a loan.
         #[ink(message)]
-        pub fn get_payment_schedule_by_loan(
-            &self,
-            loan_id: u64,
-        ) -> Option<PaymentSchedule> {
+        pub fn get_payment_schedule_by_loan(&self, loan_id: u64) -> Option<PaymentSchedule> {
             let schedule_id = self.loan_payment_schedule.get(loan_id)?;
             self.payment_schedules.get(schedule_id)
         }

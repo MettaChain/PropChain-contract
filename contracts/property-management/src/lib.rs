@@ -520,10 +520,7 @@ mod property_management {
 
         /// Set the identity registry address used for cross-chain verification (#826).
         #[ink(message)]
-        pub fn set_identity_registry(
-            &mut self,
-            registry: Option<AccountId>,
-        ) -> Result<(), Error> {
+        pub fn set_identity_registry(&mut self, registry: Option<AccountId>) -> Result<(), Error> {
             self.ensure_admin()?;
             self.identity_registry = registry;
             Ok(())
@@ -1298,9 +1295,7 @@ mod property_management {
         /// this call would go over XCM to a foreign chain's identity registry.
         #[ink(message)]
         pub fn verify_onboarding_cross_chain(&self, account: AccountId) -> Result<bool, Error> {
-            let registry_addr = self
-                .identity_registry
-                .ok_or(Error::ComplianceViolation)?;
+            let registry_addr = self.identity_registry.ok_or(Error::ComplianceViolation)?;
 
             // Cross-contract call via the ComplianceChecker trait.
             // The identity registry contract is expected to implement this trait
@@ -1475,8 +1470,7 @@ mod property_management {
             let accounts = test::default_accounts::<DefaultEnvironment>();
             test::set_caller::<DefaultEnvironment>(accounts.alice);
             let pm = setup();
-            let result =
-                pm.register_property(1, Hash::from([0u8; 32]));
+            let result = pm.register_property(1, Hash::from([0u8; 32]));
             assert_eq!(result, Err(Error::ComplianceViolation));
         }
 
