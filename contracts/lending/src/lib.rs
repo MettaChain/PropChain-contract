@@ -363,7 +363,7 @@ mod propchain_lending {
                     if n == 0 {
                         return principal;
                     }
-                    let per_period_rate_numer = (rate_bps as u128).saturating_mul(interval_blocks);
+                    let per_period_rate_numer = (rate_bps as u128).saturating_mul(interval_blocks as u128);
                     let per_period_rate_denom = 52_560_000_000u128; // 5_256_000 * 10_000
                     let interest = principal
                         .saturating_mul(per_period_rate_numer)
@@ -381,7 +381,7 @@ mod propchain_lending {
                     }
                     // Equal principal + declining interest
                     let per_period_principal = principal / n;
-                    let per_period_rate_numer = (rate_bps as u128).saturating_mul(interval_blocks);
+                    let per_period_rate_numer = (rate_bps as u128).saturating_mul(interval_blocks as u128);
                     let per_period_rate_denom = 52_560_000_000u128; // 5_256_000 * 10_000
                     let interest_first = principal
                         .saturating_mul(per_period_rate_numer)
