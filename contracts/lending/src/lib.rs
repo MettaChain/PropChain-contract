@@ -8,6 +8,8 @@
 
 use ink::storage::Mapping;
 
+mod status_packing;
+
 #[ink::contract]
 mod propchain_lending {
     use super::*;
@@ -157,6 +159,138 @@ mod propchain_lending {
         pub status: LoanStatus,
         pub accrued_interest: u128,
         pub last_interest_timestamp: u64,
+    }
+
+    /// SCALE-footprint-compact representation of `LoanApplication` (Issue #738).
+    ///
+    /// `bool approved`, the two `String` fields, and the two `Option<u64>`
+    /// fields are folded into a single `u32 status_flags` plus packed payload
+    /// fields. The two enum-valued fields `LoanType` and `CollateralKind`
+    /// collapse to single bytes. The two `String`s become `Vec<u8>`, which
+    /// has the same SCALE width as `String` (compact-length prefix + bytes)
+    /// but is a no_std-friendly representation that does not require UTF-8
+    /// validity enforcement on round-trip.
+    #[derive(scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, Debug, Clone, PartialEq, Eq)
+    )]
+    pub struct PackedLoanApplication {
+        pub loan_id: u64,
+        pub applicant: AccountId,
+        pub property_id: u64,
+        pub requested_amount: u128,
+        pub collateral_value: u128,
+        pub credit_score: u32,
+        pub accrued_interest: u128,
+        pub last_interest_timestamp: u64,
+        pub term_months: u32,
+        pub interest_rate_bps: u32,
+        pub status_flags: u32,
+        pub servicer_id_packed: u64,
+        pub start_block_packed: u64,
+        pub status_tag: u8,
+        pub servicing_reference: Vec<u8>,
+        pub servicing_status: Vec<u8>,
+    }
+
+    impl From<LoanApplication> for PackedLoanApplication {
+        fn from(src: LoanApplication) -> Self {
+            use super::status_packing::*;
+            let mut flags: u32 = 0;
+            if src.approved {
+                flags |= FLAG_APPROVED;
+            }
+            if src.servicer_id.is_some() {
+                flags |= FLAG_HAS_SERVICER_ID;
+            }
+            if src.start_block.is_some() {
+                flags |= FLAG_HAS_START_BLOCK;
+            }
+            if matches!(src.loan_type, LoanType::FixedRate) {
+                flags |= FLAG_LOAN_TYPE_FIXED_RATE;
+            }
+            if matches!(src.collateral_kind, CollateralKind::PropertyTokenized) {
+                flags |= FLAG_COLLATERAL_PROPERTY_TOKENIZED;
+            }
+            let status_tag = match src.status {
+                LoanStatus::Pending => STATUS_PENDING,
+                LoanStatus::Active => STATUS_ACTIVE,
+                LoanStatus::Repaid => STATUS_REPAID,
+                LoanStatus::Defaulted => STATUS_DEFAULTED,
+                LoanStatus::RestructuringProposed => STATUS_RESTRUCTURING_PROPOSED,
+                LoanStatus::Restructured => STATUS_RESTRUCTURED,
+                LoanStatus::Liquidated => STATUS_LIQUIDATED,
+            };
+            PackedLoanApplication {
+                loan_id: src.loan_id,
+                applicant: src.applicant,
+                property_id: src.property_id,
+                requested_amount: src.requested_amount,
+                collateral_value: src.collateral_value,
+                credit_score: src.credit_score,
+                accrued_interest: src.accrued_interest,
+                last_interest_timestamp: src.last_interest_timestamp,
+                term_months: src.term_months,
+                interest_rate_bps: src.interest_rate_bps,
+                status_flags: flags,
+                servicer_id_packed: src.servicer_id.unwrap_or(0),
+                start_block_packed: src.start_block.unwrap_or(0),
+                status_tag,
+                servicing_reference: src.servicing_reference.into_bytes(),
+                servicing_status: src.servicing_status.into_bytes(),
+            }
+        }
+    }
+
+    impl From<PackedLoanApplication> for LoanApplication {
+        fn from(src: PackedLoanApplication) -> Self {
+            use super::status_packing::*;
+            LoanApplication {
+                loan_id: src.loan_id,
+                applicant: src.applicant,
+                property_id: src.property_id,
+                requested_amount: src.requested_amount,
+                collateral_value: src.collateral_value,
+                credit_score: src.credit_score,
+                approved: (src.status_flags & FLAG_APPROVED) != 0,
+                servicer_id: if (src.status_flags & FLAG_HAS_SERVICER_ID) != 0 {
+                    Some(src.servicer_id_packed)
+                } else {
+                    None
+                },
+                servicing_reference: String::from_utf8(src.servicing_reference).unwrap_or_default(),
+                servicing_status: String::from_utf8(src.servicing_status).unwrap_or_default(),
+                collateral_kind: if (src.status_flags & FLAG_COLLATERAL_PROPERTY_TOKENIZED) != 0 {
+                    CollateralKind::PropertyTokenized
+                } else {
+                    CollateralKind::Unsecured
+                },
+                term_months: src.term_months,
+                interest_rate_bps: src.interest_rate_bps,
+                loan_type: if (src.status_flags & FLAG_LOAN_TYPE_FIXED_RATE) != 0 {
+                    LoanType::FixedRate
+                } else {
+                    LoanType::Variable
+                },
+                start_block: if (src.status_flags & FLAG_HAS_START_BLOCK) != 0 {
+                    Some(src.start_block_packed)
+                } else {
+                    None
+                },
+                status: match src.status_tag {
+                    STATUS_PENDING => LoanStatus::Pending,
+                    STATUS_ACTIVE => LoanStatus::Active,
+                    STATUS_REPAID => LoanStatus::Repaid,
+                    STATUS_DEFAULTED => LoanStatus::Defaulted,
+                    STATUS_RESTRUCTURING_PROPOSED => LoanStatus::RestructuringProposed,
+                    STATUS_RESTRUCTURED => LoanStatus::Restructured,
+                    _ => LoanStatus::Liquidated,
+                },
+                accrued_interest: src.accrued_interest,
+                last_interest_timestamp: src.last_interest_timestamp,
+            }
+        }
     }
 
     #[derive(
