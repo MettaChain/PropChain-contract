@@ -18,6 +18,14 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
+      - name: Validate CODEOWNERS coverage for security-critical contracts
+        shell: bash
+        run: |
+          test -f .github/CODEOWNERS
+          grep -Eq '^/contracts/bridge/\s+@MettaChain/bridge$' .github/CODEOWNERS
+          grep -Eq '^/contracts/lending/\s+@MettaChain/lending$' .github/CODEOWNERS
+          grep -Eq '^/contracts/oracle/\s+@MettaChain/oracle$' .github/CODEOWNERS
+
       - name: Install Stable Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:

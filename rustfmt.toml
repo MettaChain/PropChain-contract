@@ -1,0 +1,43 @@
+# PropChain rustfmt configuration
+#
+# Requires the nightly toolchain for macro_matchers support:
+#   cargo +nightly fmt
+#
+# The stable `cargo fmt` (used in the standard fmt check) respects all
+# settings that are stable; the nightly-only keys are silently ignored by
+# stable rustfmt, so this file is safe to have in the repo without breaking
+# the stable `cargo fmt --check` CI step.
+
+# ── Nightly-only settings ─────────────────────────────────────────────────
+
+# Format the contents of macro matchers (e.g. `#[ink::contract]`,
+# `#[ink::test]`, `propchain_traits::non_reentrant!`) consistently with the
+# rest of the code. Without this, macro bodies are left unformatted by rustfmt.
+format_macro_matchers = true
+
+# Also format the bodies of macro calls where rustfmt can safely do so.
+format_macro_bodies = true
+
+# ── Stable settings ───────────────────────────────────────────────────────
+
+# Maximum line width before rustfmt wraps.
+max_width = 100
+
+# Use 4-space indentation (Rust default).
+tab_spaces = 4
+
+# Place the opening brace of a function on the same line as the signature.
+brace_style = "SameLineWhere"
+
+# Keep blank lines between items at most 1.
+blank_lines_upper_bound = 1
+
+# Trailing commas in function signatures and calls.
+trailing_comma = "Vertical"
+
+# Import grouping: std first, then external, then local.
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+
+# Normalise string literals to use `"` not `r#"..."#` when possible.
+normalize_doc_attributes = true
