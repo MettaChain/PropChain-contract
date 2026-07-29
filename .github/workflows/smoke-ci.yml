@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout Code Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Validate CODEOWNERS coverage for security-critical contracts
         shell: bash
