@@ -173,7 +173,8 @@ fn create_custom_payment_schedule() {
     test::set_caller::<DefaultEnvironment>(accounts.bob);
     let loan_id = contract
         .apply_for_loan_with_terms(1, 200_000, 400_000, 700, 12, 600)
-        .unwrap();    test::set_caller::<DefaultEnvironment>(accounts.alice);
+        .unwrap();
+    test::set_caller::<DefaultEnvironment>(accounts.alice);
     let _schedule_id = contract
         .create_payment_schedule(
             loan_id,
@@ -199,8 +200,7 @@ fn create_custom_payment_schedule() {
 }
 
 #[ink::test]
-fn create_payment_schedule_unauthorized_fails()
- {
+fn create_payment_schedule_unauthorized_fails() {
     let accounts = test::default_accounts::<DefaultEnvironment>();
     test::set_caller::<DefaultEnvironment>(accounts.alice);
     let mut contract = PropertyLending::new(accounts.alice);
