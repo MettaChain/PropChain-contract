@@ -1,0 +1,4 @@
+# Security-critical contracts require code owner review from the relevant team.
+/contracts/bridge/ @MettaChain/bridge
+/contracts/lending/ @MettaChain/lending
+/contracts/oracle/ @MettaChain/oracle

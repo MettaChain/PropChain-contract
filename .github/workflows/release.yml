@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish Release Artefacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Stable Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: Install Release Tooling
+        run: |
+          cargo install cargo-deny --locked
+          cargo install cargo-sbom --locked
+
+      - name: Verify Dependency Policy
+        run: cargo deny check
+
+      - name: Generate Workspace SBOM
+        run: cargo sbom --output-format spdxjson23 > propchain-sbom.json
+
+      - name: Validate SBOM Shape
+        run: |
+          jq -e '
+            .SPDXID == "SPDXRef-DOCUMENT" and
+            (.creationInfo.creators | length > 0) and
+            (.packages | length > 0) and
+            (.relationships | length > 0)
+          ' propchain-sbom.json > /dev/null
+
+      - name: Upload SBOM Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: propchain-sbom
+          path: propchain-sbom.json
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: propchain-sbom.json
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

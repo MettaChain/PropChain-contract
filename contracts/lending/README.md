@@ -97,26 +97,18 @@ cargo test
 
 ### Test Module Layout
 
-The lending contract's tests are organised into three distinct layers, each in
-its own `mod` block:
+All tests live in `contracts/lending/src/lib.rs` and are split into three
+`#[cfg(test)]` modules, each with a focused scope:
 
-| Module | Location | Purpose |
-|--------|----------|---------|
-| `mod tests` | `contracts/lending/src/lib.rs` | **Core unit tests** — collateral, pools, loan underwriting, servicer integration, restructuring, liquidation, yield farming, governance, credit scoring, and multi-collateral (#588). New feature tests belong here first. |
-| `mod lending_admin_rotation_tests` | `contracts/lending/src/lib.rs` | **Admin key-rotation tests** (Issue #496) — verifies the two-step time-locked admin handoff: cooldown enforcement, expiry, and cancellation by either party. |
-| `mod storage_derivation_tests` | `contracts/lending/src/lib.rs` | **Compile-time trait assertions** (#589) — confirms every public storage type derives `Encode`, `Decode`, `TypeInfo`, and `StorageLayout`. These fail at `cargo test`, not just at WASM build time. |
+| Module | Purpose |
+|--------|---------|
+| `tests` | Core unit tests covering the full contract lifecycle: collateral, pools, margin positions, loan underwriting, servicer integration, loan restructuring, multi-collateral pledging (#588), yield farming, governance, and credit scoring. **New tests for contract messages should go here.** |
+| `lending_admin_rotation_tests` | Isolated tests for the two-step time-locked admin rotation flow (Issue #496). Kept separate to avoid polluting the main suite with the specific caller-permutation setup these tests require. |
+| `storage_derivation_tests` | Compile-time assertions (Issue #589) that every public storage type implements `Encode + Decode + TypeInfo + StorageLayout`. Failures are type-checker errors, not runtime failures. Add a new `assert_storage_type::<MyNewType>();` call here whenever a new storage struct is introduced. |
 
-There is also a fourth file wired in as a separate module:
-
-| File | Module alias | Purpose |
-|------|-------------|---------|
-| `contracts/lending/src/test.rs` | `mod lending_regression_test` | **Regression tests** — pins known-good (and known-buggy) behaviours such as the JIT interest accrual ordering. |
-
-When adding new tests, choose the module that best matches the concern:
-- Functional behaviour → `mod tests`
-- Admin rotation edge cases → `mod lending_admin_rotation_tests`
-- New storage types → `mod storage_derivation_tests`
-- Regression/known-bug documentation → `src/test.rs`
+There is also a regression test file at `src/test.rs` (included as
+`mod lending_regression_test`) that covers the JIT interest-accrual
+behaviour documented in the stale-write TODO.
 
 ## Architecture
 

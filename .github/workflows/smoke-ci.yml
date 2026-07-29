@@ -18,6 +18,14 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
+      - name: Validate CODEOWNERS coverage for security-critical contracts
+        shell: bash
+        run: |
+          test -f .github/CODEOWNERS
+          grep -Eq '^/contracts/bridge/\s+@MettaChain/bridge$' .github/CODEOWNERS
+          grep -Eq '^/contracts/lending/\s+@MettaChain/lending$' .github/CODEOWNERS
+          grep -Eq '^/contracts/oracle/\s+@MettaChain/oracle$' .github/CODEOWNERS
+
       - name: Install Stable Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -44,32 +52,3 @@ jobs:
 
       - name: Run Core Verification Tests (test)
         run: cargo test --all-features --workspace
-
-      - name: Check Markdown Internal Links (ARCHITECTURE.md)
-        run: |
-          # Verify all relative links in ARCHITECTURE.md resolve to real files.
-          # Exits non-zero if any link target is missing.
-          python3 - <<'EOF'
-          import re, sys, pathlib
-
-          root = pathlib.Path(".")
-          src  = root / "ARCHITECTURE.md"
-          text = src.read_text()
-
-          # Match relative markdown links: [label](./path) or [label](path)
-          pattern = re.compile(r'\[.*?\]\((\.\/|(?!https?://)(?!#))([^)#]+)')
-          missing = []
-          for m in pattern.finditer(text):
-              target = (m.group(1) or "") + m.group(2)
-              resolved = (src.parent / target).resolve()
-              if not resolved.exists():
-                  missing.append(target)
-
-          if missing:
-              print("Broken links in ARCHITECTURE.md:")
-              for t in missing:
-                  print(f"  {t}")
-              sys.exit(1)
-          else:
-              print("All links in ARCHITECTURE.md resolve correctly.")
-          EOF

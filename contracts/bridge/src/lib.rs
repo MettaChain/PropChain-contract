@@ -129,7 +129,14 @@ mod bridge {
 
     impl scale::Decode for StoredBridgeRequest {
         fn decode<I: scale::Input>(input: &mut I) -> Result<Self, scale::Error> {
-            let mut bytes = Vec::new();
+            // Linearise the drain: pre-allocate the destination buffer so
+            // `Vec::push` does NOT reallocate on every byte. The previous
+            // `Vec::new() + push` loop was O(n^2) because Vec::new() starts
+            // at capacity 0 and every push reallocates the entire buffer
+            // (1 -> 2 -> 4 -> 8 -> ...), and on a 1kB payload the decode
+            // alone could exceed the block-gas limit (Issue #736).
+            const INITIAL_CAPACITY: usize = 1024;
+            let mut bytes: Vec<u8> = Vec::with_capacity(INITIAL_CAPACITY);
             while let Ok(byte) = input.read_byte() {
                 bytes.push(byte);
             }
