@@ -4673,7 +4673,7 @@ checksum = "4e69bf016dc406eff7d53a7d3f7cf1c2e72c82b9088aac1118591e36dd2cd3e9"
 dependencies = [
  "bitcoin_hashes 0.13.1",
  "rand 0.8.6",
- "rand_core 0.6.4",
+ "rand_core 0.5.1",
  "serde",
  "unicode-normalization",
 ]
@@ -5239,7 +5239,7 @@ dependencies = [
  "ink 5.1.1",
  "parity-scale-codec",
  "propchain-traits",
- "rand_core 0.6.4",
+ "rand_core 0.9.5",
  "scale-info",
  "sha2 0.10.9",
 ]

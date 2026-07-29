@@ -16,7 +16,7 @@ propchain-traits = { path = "../traits", default-features = false }
 blake2 = { version = "0.10", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 ed25519-dalek = { version = "2.0", default-features = false }
-rand_core = { version = "0.6", default-features = false }
+rand_core = { version = "0.9", default-features = false }
 
 [lib]
 path = "lib.rs"
