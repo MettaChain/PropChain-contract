@@ -1400,4 +1400,56 @@ mod tests {
         let result = bridge.execute_bridge(request_id);
         assert!(result.is_ok(), "bridge execution should succeed after travel rule data is submitted");
     }
+
+    // Issue #736 acceptance: decoding a >1kB SCALE payload through the
+    // legacy-detecting wrapper succeeds in a single buffered drain
+    // (linear-time vs. the previous O(n^2) byte-by-byte loop).
+    #[ink::test]
+    fn decode_stored_bridge_request_drains_above_one_kilobyte_linearly() {
+        // 128 ChainId entries in `route` = 1024 bytes for that field alone;
+        // combined with the rest of the SCALE-encoded V2 layout the payload
+        // comfortably exceeds 1024 bytes.
+        let mut route: Vec<u64> = Vec::new();
+        for i in 0u64..128u64 {
+            route.push(1000u64 + i);
+        }
+        let v2 = StoredBridgeRequestV2 {
+            request_id: 1,
+            token_id: 2,
+            source_chain: 3,
+            destination_chain: 4,
+            sender: AccountId::from([0xab; 32]),
+            recipient: AccountId::from([0xcd; 32]),
+            required_signatures: 1,
+            signature_storage: SignatureStorage::Bitmap([0u8; SIGNATURE_BITMAP_BYTES]),
+            created_at: 7,
+            expires_at: Some(8),
+            status: BridgeOperationStatus::Pending,
+            multi_hop_status: MultiHopStatus::InProgress,
+            route,
+            current_hop: 0,
+            total_gas_estimate: 100,
+            metadata: PropertyMetadata {
+                location: String::from("LinearDecodeAcceptance"),
+                size: 0,
+                legal_description: String::from("n/a"),
+                valuation: 0,
+                documents_url: String::from("ipfs://linear"),
+            },
+        };
+
+        let encoded = v2.encode();
+        assert!(
+            encoded.len() >= 1024,
+            "test fixture should exceed 1kB; got {} bytes",
+            encoded.len()
+        );
+
+        let decoded =
+            <StoredBridgeRequest as Decode>::decode(&mut &encoded[..])
+                .expect("linear decode of >1kB payload should succeed");
+        assert_eq!(decoded.request_id, 1);
+        assert_eq!(decoded.token_id, 2);
+        assert_eq!(decoded.route.len(), 128);
+    }
 }
