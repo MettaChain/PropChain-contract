@@ -1400,4 +1400,170 @@ mod tests {
         let result = bridge.execute_bridge(request_id);
         assert!(result.is_ok(), "bridge execution should succeed after travel rule data is submitted");
     }
+
+    // ── #764: Daily volume read-only metrics ──────────────────────────────
+
+    #[ink::test]
+    fn test_get_daily_volume_non_admin_rejected() {
+        let bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Bob is not admin — get_daily_volume should be rejected
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let result = bridge.get_daily_volume(1);
+        assert_eq!(result, Err(Error::Unauthorized));
+
+        // get_account_daily_volume should also be rejected
+        let result = bridge.get_account_daily_volume(accounts.bob);
+        assert_eq!(result, Err(Error::Unauthorized));
+    }
+
+    #[ink::test]
+    fn test_get_daily_volume_returns_zero_when_no_trades() {
+        let bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        // No trades yet – volume should be zero
+        let volume = bridge.get_daily_volume(1).expect("admin query");
+        assert_eq!(volume, 0);
+
+        let account_vol = bridge
+            .get_account_daily_volume(accounts.bob)
+            .expect("admin query");
+        assert_eq!(account_vol, 0);
+    }
+
+    #[ink::test]
+    fn test_daily_volume_tracked_via_cross_chain_trade() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Bob registers a cross-chain trade with amount_in = 100_000
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .register_cross_chain_trade(1, None, 2, accounts.charlie, 100_000, 95_000)
+            .expect("register cross-chain trade");
+
+        // Alice queries the chain volume as admin
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let chain_vol = bridge.get_daily_volume(2).expect("admin get daily volume");
+        assert_eq!(
+            chain_vol, 100_000,
+            "chain daily volume should reflect the trade amount"
+        );
+
+        // Bob's account-level volume should also reflect the trade
+        let account_vol = bridge
+            .get_account_daily_volume(accounts.bob)
+            .expect("admin get account daily volume");
+        assert_eq!(
+            account_vol, 100_000,
+            "account daily volume should reflect bob's trade amount"
+        );
+    }
+
+    #[ink::test]
+    fn test_daily_volume_accumulates_multiple_trades() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Bob does two trades
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .register_cross_chain_trade(1, None, 2, accounts.charlie, 50_000, 47_000)
+            .expect("first trade");
+        bridge
+            .register_cross_chain_trade(2, None, 2, accounts.charlie, 75_000, 70_000)
+            .expect("second trade");
+
+        // Alice: chain daily volume should be 125_000
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let chain_vol = bridge.get_daily_volume(2).expect("admin query");
+        assert_eq!(chain_vol, 125_000);
+
+        let account_vol = bridge
+            .get_account_daily_volume(accounts.bob)
+            .expect("admin query");
+        assert_eq!(account_vol, 125_000);
+    }
+
+    #[ink::test]
+    fn test_daily_volume_rollover_at_midnight_utc() {
+        // This test simulates midnight UTC rollover by directly setting the
+        // block timestamp before and after the day boundary.
+        //
+        // The day counter is computed as `block_timestamp / 86_400_000`
+        // (milliseconds → UTC day). We set the timestamp to day N, track
+        // volume, then advance to day N+1 and verify the volume resets to 0.
+
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Anchor to a known UTC day boundary:
+        // Day 20000 starts at timestamp 20000 * 86_400_000 ms
+        let day_start = 20000u64 * 86_400_000;
+
+        // Set timestamp to the middle of day 20000
+        ink::env::test::set_block_timestamp::<DefaultEnvironment>(
+            day_start + 43_200_000,
+        );
+
+        // Bob registers a trade on day 20000
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .register_cross_chain_trade(1, None, 2, accounts.charlie, 200_000, 190_000)
+            .expect("register trade on day 20000");
+
+        // Verify volume recorded on day 20000
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let vol_day1 = bridge.get_daily_volume(2).expect("admin query day 20000");
+        assert_eq!(vol_day1, 200_000, "volume should be recorded on day 20000");
+
+        let acct_vol_day1 = bridge
+            .get_account_daily_volume(accounts.bob)
+            .expect("admin query day 20000");
+        assert_eq!(acct_vol_day1, 200_000, "account volume on day 20000");
+
+        // ── Rollover to midnight UTC (day 20001) ───────────────────────
+        ink::env::test::set_block_timestamp::<DefaultEnvironment>(
+            20001u64 * 86_400_000 + 1, // just after midnight
+        );
+
+        // Volume should now be zero on the new day
+        let vol_day2 = bridge.get_daily_volume(2).expect("admin query day 20001");
+        assert_eq!(
+            vol_day2, 0,
+            "chain daily volume must roll over to 0 at midnight UTC"
+        );
+
+        let acct_vol_day2 = bridge
+            .get_account_daily_volume(accounts.bob)
+            .expect("admin query day 20001");
+        assert_eq!(
+            acct_vol_day2, 0,
+            "account daily volume must roll over to 0 at midnight UTC"
+        );
+
+        // A new trade on day 20001 should start recording fresh volume
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .register_cross_chain_trade(2, None, 2, accounts.charlie, 50_000, 47_000)
+            .expect("register trade on day 20001");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let vol_day2_new = bridge.get_daily_volume(2).expect("admin query after trade");
+        assert_eq!(
+            vol_day2_new, 50_000,
+            "new trades on day 20001 should accumulate fresh volume"
+        );
+
+        let acct_vol_day2_new = bridge
+            .get_account_daily_volume(accounts.bob)
+            .expect("admin query after trade");
+        assert_eq!(
+            acct_vol_day2_new, 50_000,
+            "new trades on day 20001 should accumulate fresh account volume"
+        );
+    }
 }

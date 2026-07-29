@@ -383,6 +383,12 @@ mod bridge {
         /// Chain last reset day for rate limiting
         chain_last_reset_day: Mapping<ChainId, u64>,
 
+        /// Account daily volume (amount) for rate limiting (#764)
+        account_daily_volume: Mapping<AccountId, u128>,
+
+        /// Account last reset day for volume rate limiting (#764)
+        account_daily_volume_last_reset_day: Mapping<AccountId, u64>,
+
         /// Reentrancy protection
         reentrancy_guard: ReentrancyGuard,
 
@@ -814,6 +820,8 @@ mod bridge {
                 account_last_reset_day: Mapping::default(),
                 chain_daily_volume: Mapping::default(),
                 chain_last_reset_day: Mapping::default(),
+                account_daily_volume: Mapping::default(),
+                account_daily_volume_last_reset_day: Mapping::default(),
                 reentrancy_guard: ReentrancyGuard::new(),
                 pause_flags: PauseFlags::none(),
                 guardians: Vec::new(),
@@ -2879,6 +2887,41 @@ mod bridge {
             })
         }
 
+        /// Returns the current daily volume for a chain (admin-only, #764).
+        ///
+        /// Returns 0 if no volume has been tracked for this chain yet.
+        #[ink(message)]
+        pub fn get_daily_volume(&self, chain_id: ChainId) -> Result<u128, Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            let current_day = self.env().block_timestamp() / 86_400_000;
+            let last_reset = self.chain_last_reset_day.get(chain_id).unwrap_or(0);
+            if last_reset < current_day {
+                return Ok(0);
+            }
+            Ok(self.chain_daily_volume.get(chain_id).unwrap_or(0))
+        }
+
+        /// Returns the current daily volume for an account (admin-only, #764).
+        ///
+        /// Returns 0 if no volume has been tracked for this account yet.
+        #[ink(message)]
+        pub fn get_account_daily_volume(&self, account: AccountId) -> Result<u128, Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            let current_day = self.env().block_timestamp() / 86_400_000;
+            let last_reset = self
+                .account_daily_volume_last_reset_day
+                .get(account)
+                .unwrap_or(0);
+            if last_reset < current_day {
+                return Ok(0);
+            }
+            Ok(self.account_daily_volume.get(account).unwrap_or(0))
+        }
+
         /// Returns the current pause state summary for the dashboard.
         #[ink(message)]
         pub fn get_bridge_health_status(&self) -> BridgeHealthStatus {
@@ -3147,6 +3190,22 @@ mod bridge {
 
                 self.chain_daily_volume
                     .insert(destination_chain, &(chain_volume + amount));
+
+                // Track per-account daily volume (#764)
+                let last_account_reset = self
+                    .account_daily_volume_last_reset_day
+                    .get(account)
+                    .unwrap_or(0);
+                let mut account_volume = self.account_daily_volume.get(account).unwrap_or(0);
+
+                if last_account_reset < current_day {
+                    account_volume = 0;
+                    self.account_daily_volume_last_reset_day
+                        .insert(account, &current_day);
+                }
+
+                self.account_daily_volume
+                    .insert(account, &account_volume.saturating_add(amount));
             }
 
             Ok(())
