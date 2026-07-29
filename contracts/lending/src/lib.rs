@@ -1741,7 +1741,7 @@ mod propchain_lending {
             max_rate_bps: u32,
             term_months: u32,
             collateral_kind: CollateralKind,
-            /// Multi-token collateral basket: (token_id, amount) pairs (#827).
+            // Multi-token collateral basket: (token_id, amount) pairs (#827).
             collateral_basket: Vec<(TokenId, u128)>,
         ) -> Result<u64, LendingError> {
             if requested_amount == 0 || max_rate_bps == 0 || term_months == 0 {
