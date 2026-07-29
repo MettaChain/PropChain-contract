@@ -4474,7 +4474,7 @@
 <a href=#4474 id=4474 data-nosnippet>4474</a>
 <a href=#4475 id=4475 data-nosnippet>4475</a>        </span><span class="doccomment">/// Rejects the zero address (all 32 bytes == 0x00).
 <a href=#4476 id=4476 data-nosnippet>4476</a>        </span><span class="kw">fn </span>ensure_not_zero_address(account: AccountId) -&gt; <span class="prelude-ty">Result</span>&lt;(), Error&gt; {
-<a href=#4477 id=4477 data-nosnippet>4477</a>            <span class="kw">if </span>account == AccountId::from([<span class="number">0x0</span>; <span class="number">32</span>]) {
+<a href=#4477 id=4477 data-nosnippet>4477</a>            <span class="kw">if </span>account == AccountId::from([<span class="number">0x0u8</span>; <span class="number">32</span>]) {
 <a href=#4478 id=4478 data-nosnippet>4478</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(Error::ZeroAddress);
 <a href=#4479 id=4479 data-nosnippet>4479</a>            }
 <a href=#4480 id=4480 data-nosnippet>4480</a>            <span class="prelude-val">Ok</span>(())
@@ -4648,7 +4648,7 @@
 <a href=#4648 id=4648 data-nosnippet>4648</a>    <span class="attr">#[ink::test]
 <a href=#4649 id=4649 data-nosnippet>4649</a>    </span><span class="kw">fn </span>test_pause_resume_flow() {
 <a href=#4650 id=4650 data-nosnippet>4650</a>        <span class="kw">let </span><span class="kw-2">mut </span>contract = PropertyRegistry::new();
-<a href=#4651 id=4651 data-nosnippet>4651</a>        <span class="kw">let </span>_admin = AccountId::from([<span class="number">0x1</span>; <span class="number">32</span>]);
+<a href=#4651 id=4651 data-nosnippet>4651</a>        <span class="kw">let </span>_admin = AccountId::from([<span class="number">0x1u8</span>; <span class="number">32</span>]);
 <a href=#4652 id=4652 data-nosnippet>4652</a>
 <a href=#4653 id=4653 data-nosnippet>4653</a>        <span class="comment">// 1. Verify initial state
 <a href=#4654 id=4654 data-nosnippet>4654</a>        </span><span class="macro">assert!</span>(!contract.get_pause_state().paused);
@@ -4684,7 +4684,7 @@
 <a href=#4684 id=4684 data-nosnippet>4684</a>
 <a href=#4685 id=4685 data-nosnippet>4685</a>        // In simple unit testing here, tracking caller changes requires `ink::env::test::set_caller`.
 <a href=#4686 id=4686 data-nosnippet>4686</a>        // Let's simulate a second account approval.
-<a href=#4687 id=4687 data-nosnippet>4687</a>        </span><span class="kw">let </span>account2 = AccountId::from([<span class="number">0x2</span>; <span class="number">32</span>]);
+<a href=#4687 id=4687 data-nosnippet>4687</a>        </span><span class="kw">let </span>account2 = AccountId::from([<span class="number">0x2u8</span>; <span class="number">32</span>]);
 <a href=#4688 id=4688 data-nosnippet>4688</a>        ink::env::test::set_caller::&lt;ink::env::DefaultEnvironment&gt;(contract.admin());
 <a href=#4689 id=4689 data-nosnippet>4689</a>        <span class="macro">assert!</span>(contract.set_pause_guardian(account2, <span class="bool-val">true</span>).is_ok());
 <a href=#4690 id=4690 data-nosnippet>4690</a>
@@ -4699,7 +4699,7 @@
 <a href=#4699 id=4699 data-nosnippet>4699</a>    <span class="attr">#[ink::test]
 <a href=#4700 id=4700 data-nosnippet>4700</a>    </span><span class="kw">fn </span>test_oracle_circuit_breaker_blocks_and_resets_external_calls() {
 <a href=#4701 id=4701 data-nosnippet>4701</a>        <span class="kw">let </span><span class="kw-2">mut </span>contract = PropertyRegistry::new();
-<a href=#4702 id=4702 data-nosnippet>4702</a>        <span class="kw">let </span>oracle = AccountId::from([<span class="number">0x9</span>; <span class="number">32</span>]);
+<a href=#4702 id=4702 data-nosnippet>4702</a>        <span class="kw">let </span>oracle = AccountId::from([<span class="number">0x9u8</span>; <span class="number">32</span>]);
 <a href=#4703 id=4703 data-nosnippet>4703</a>
 <a href=#4704 id=4704 data-nosnippet>4704</a>        <span class="kw">let </span>metadata = PropertyMetadata {
 <a href=#4705 id=4705 data-nosnippet>4705</a>            location: <span class="string">"Breaker Street"</span>.into(),
@@ -4740,7 +4740,7 @@
 <a href=#4740 id=4740 data-nosnippet>4740</a>    <span class="attr">#[ink::test]
 <a href=#4741 id=4741 data-nosnippet>4741</a>    </span><span class="kw">fn </span>test_compliance_circuit_breaker_blocks_registration() {
 <a href=#4742 id=4742 data-nosnippet>4742</a>        <span class="kw">let </span><span class="kw-2">mut </span>contract = PropertyRegistry::new();
-<a href=#4743 id=4743 data-nosnippet>4743</a>        <span class="kw">let </span>registry = AccountId::from([<span class="number">0x7</span>; <span class="number">32</span>]);
+<a href=#4743 id=4743 data-nosnippet>4743</a>        <span class="kw">let </span>registry = AccountId::from([<span class="number">0x7u8</span>; <span class="number">32</span>]);
 <a href=#4744 id=4744 data-nosnippet>4744</a>
 <a href=#4745 id=4745 data-nosnippet>4745</a>        contract
 <a href=#4746 id=4746 data-nosnippet>4746</a>            .set_compliance_registry(<span class="prelude-val">Some</span>(registry))

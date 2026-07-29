@@ -1121,7 +1121,7 @@
 <a href=#1121 id=1121 data-nosnippet>1121</a>                    <span class="kw">let </span>source = OracleSource {
 <a href=#1122 id=1122 data-nosnippet>1122</a>                        id: id.clone(),
 <a href=#1123 id=1123 data-nosnippet>1123</a>                        source_type: OracleSourceType::Custom,
-<a href=#1124 id=1124 data-nosnippet>1124</a>                        address: AccountId::from([<span class="number">0x0</span>; <span class="number">32</span>]),
+<a href=#1124 id=1124 data-nosnippet>1124</a>                        address: AccountId::from([<span class="number">0x0u8</span>; <span class="number">32</span>]),
 <a href=#1125 id=1125 data-nosnippet>1125</a>                        is_active: <span class="bool-val">true</span>,
 <a href=#1126 id=1126 data-nosnippet>1126</a>                        weight,
 <a href=#1127 id=1127 data-nosnippet>1127</a>                        last_updated: <span class="self">self</span>.env().block_timestamp(),
@@ -1934,7 +1934,7 @@
 <a href=#1934 id=1934 data-nosnippet>1934</a>            </span><span class="kw">let </span>dummy_source = OracleSource {
 <a href=#1935 id=1935 data-nosnippet>1935</a>                id: source_id.clone(),
 <a href=#1936 id=1936 data-nosnippet>1936</a>                source_type: OracleSourceType::Custom,
-<a href=#1937 id=1937 data-nosnippet>1937</a>                address: AccountId::from([<span class="number">0x0</span>; <span class="number">32</span>]),
+<a href=#1937 id=1937 data-nosnippet>1937</a>                address: AccountId::from([<span class="number">0x0u8</span>; <span class="number">32</span>]),
 <a href=#1938 id=1938 data-nosnippet>1938</a>                is_active: <span class="bool-val">false</span>,
 <a href=#1939 id=1939 data-nosnippet>1939</a>                weight: <span class="number">0</span>,
 <a href=#1940 id=1940 data-nosnippet>1940</a>                last_updated: <span class="number">0</span>,
@@ -3473,7 +3473,7 @@
 <a href=#3473 id=3473 data-nosnippet>3473</a>
 <a href=#3474 id=3474 data-nosnippet>3474</a>    <span class="kw">impl </span>Default <span class="kw">for </span>PropertyValuationOracle {
 <a href=#3475 id=3475 data-nosnippet>3475</a>        <span class="kw">fn </span>default() -&gt; <span class="self">Self </span>{
-<a href=#3476 id=3476 data-nosnippet>3476</a>            <span class="self">Self</span>::new(AccountId::from([<span class="number">0x0</span>; <span class="number">32</span>]))
+<a href=#3476 id=3476 data-nosnippet>3476</a>            <span class="self">Self</span>::new(AccountId::from([<span class="number">0x0u8</span>; <span class="number">32</span>]))
 <a href=#3477 id=3477 data-nosnippet>3477</a>        }
 <a href=#3478 id=3478 data-nosnippet>3478</a>    }
 <a href=#3479 id=3479 data-nosnippet>3479</a>}
