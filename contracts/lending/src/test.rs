@@ -2,10 +2,10 @@
 #![cfg(test)]
 
 use super::*;
-use ink::env::{test, DefaultEnvironment};
 use crate::propchain_lending::CollateralKind;
-use crate::propchain_lending::Schedule;
 use crate::propchain_lending::PaymentScheduleStatus;
+use crate::propchain_lending::Schedule;
+use ink::env::{test, DefaultEnvironment};
 
 #[ink::test]
 fn test_loan_interest_accrual_is_jit_only_on_loan_modification() {
