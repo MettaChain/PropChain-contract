@@ -1,5 +1,146 @@
 // Data types for the staking contract (Issue #101 - extracted from lib.rs)
 
+/// The shape of the lock-period reward boost curve (#828).
+///
+/// Longer lock periods earn higher reward multipliers. The curve shape
+/// determines how the multiplier grows between the flexible (1.0×) and
+/// maximum-lock (e.g. 2.5×) endpoints.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    scale::Encode,
+    scale::Decode,
+    ink::storage::traits::StorageLayout,
+)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub enum BoostCurve {
+    /// Linear growth: multiplier ∝ lock duration.
+    Linear,
+    /// Concave (diminishing returns): early locking yields most of the boost.
+    Concave,
+    /// Convex (increasing returns): longer locks get disproportionately more.
+    Convex,
+}
+
+impl BoostCurve {
+    /// Apply the boost curve to the base multiplier for a given lock duration.
+    ///
+    /// `base` is the multiplier at `duration`, `max_multiplier` is the
+    /// multiplier at the maximum lock duration, and `ratio` (0–1_000_000)
+    /// represents how far through the lock range we are.
+    pub fn apply(&self, base: u128, max_multiplier: u128, ratio: u128) -> u128 {
+        if ratio >= 1_000_000 {
+            return max_multiplier;
+        }
+        if ratio == 0 {
+            return base;
+        }
+        match self {
+            BoostCurve::Linear => {
+                // Linear interpolation: multiplier = base + (max - base) * ratio
+                let range = max_multiplier.saturating_sub(base);
+                base.saturating_add(range.saturating_mul(ratio) / 1_000_000)
+            }
+            BoostCurve::Concave => {
+                // Diminishing returns: sqrt-like curve
+                // scaled_ratio = sqrt(ratio / 1_000_000)  →  (0..1_000_000)
+                let sqrt_ratio = sqrt_u128(ratio.saturating_mul(1_000_000));
+                let range = max_multiplier.saturating_sub(base);
+                base.saturating_add(range.saturating_mul(sqrt_ratio) / 1_000_000)
+            }
+            BoostCurve::Convex => {
+                // Increasing returns: square-like curve
+                // scaled_ratio = (ratio / 1_000_000)^2
+                let sq_ratio = ratio.saturating_mul(ratio) / 1_000_000;
+                let range = max_multiplier.saturating_sub(base);
+                base.saturating_add(range.saturating_mul(sq_ratio) / 1_000_000)
+            }
+        }
+    }
+}
+
+/// Integer square root (floor) for u128.
+fn sqrt_u128(n: u128) -> u128 {
+    if n < 2 {
+        return n;
+    }
+    let mut x = n;
+    let mut y = (x + 1) / 2;
+    while y < x {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    x
+}
+
+#[cfg(test)]
+mod boost_curve_tests {
+    use super::*;
+
+    #[test]
+    fn linear_at_zero_ratio_returns_base() {
+        assert_eq!(BoostCurve::Linear.apply(100, 250, 0), 100);
+    }
+
+    #[test]
+    fn linear_at_full_ratio_returns_max() {
+        assert_eq!(BoostCurve::Linear.apply(100, 250, 1_000_000), 250);
+    }
+
+    #[test]
+    fn linear_at_half_ratio_returns_midpoint() {
+        assert_eq!(BoostCurve::Linear.apply(100, 250, 500_000), 175);
+    }
+
+    #[test]
+    fn concave_at_full_ratio_returns_max() {
+        assert_eq!(BoostCurve::Concave.apply(100, 250, 1_000_000), 250);
+    }
+
+    #[test]
+    fn concave_boost_is_higher_than_linear_early() {
+        let concave = BoostCurve::Concave.apply(100, 250, 100_000); // 10% of range
+        let linear = BoostCurve::Linear.apply(100, 250, 100_000);
+        assert!(concave >= linear, "concave should be >= linear at low ratio");
+    }
+
+    #[test]
+    fn convex_at_full_ratio_returns_max() {
+        assert_eq!(BoostCurve::Convex.apply(100, 250, 1_000_000), 250);
+    }
+
+    #[test]
+    fn convex_boost_is_lower_than_linear_early() {
+        let convex = BoostCurve::Convex.apply(100, 250, 100_000);
+        let linear = BoostCurve::Linear.apply(100, 250, 100_000);
+        assert!(convex <= linear, "convex should be <= linear at low ratio");
+    }
+
+    #[test]
+    fn sqrt_of_zero_is_zero() {
+        assert_eq!(sqrt_u128(0), 0);
+    }
+
+    #[test]
+    fn sqrt_of_one_is_one() {
+        assert_eq!(sqrt_u128(1), 1);
+    }
+
+    #[test]
+    fn sqrt_of_perfect_square() {
+        assert_eq!(sqrt_u128(1_000_000_000_000), 1_000_000);
+    }
+
+    #[test]
+    fn sqrt_of_large_number() {
+        let n = 1_000_000u128 * 1_000_000u128;
+        assert_eq!(sqrt_u128(n), 1_000_000);
+    }
+}
+
 #[derive(
     Debug,
     Clone,
@@ -28,6 +169,54 @@ impl LockPeriod {
             LockPeriod::NinetyDays => constants::LOCK_PERIOD_90_DAYS,
             LockPeriod::OneYear => constants::LOCK_PERIOD_1_YEAR,
             LockPeriod::Custom(blocks) => *blocks,
+        }
+    }
+
+    /// Returns the reward multiplier given a boost curve configuration.
+    /// Defaults to the fixed multiplier if no curve is specified.
+    pub fn multiplier_with_curve(&self, curve: Option<BoostCurve>) -> u128 {
+        match curve {
+            Some(c) => c.apply(
+                constants::MULTIPLIER_FLEXIBLE,
+                constants::MULTIPLIER_1_YEAR,
+                self.ratio(),
+            ),
+            None => match self {
+                LockPeriod::Flexible => constants::MULTIPLIER_FLEXIBLE,
+                LockPeriod::ThirtyDays => constants::MULTIPLIER_30_DAYS,
+                LockPeriod::NinetyDays => constants::MULTIPLIER_90_DAYS,
+                LockPeriod::OneYear => constants::MULTIPLIER_1_YEAR,
+                LockPeriod::Custom(blocks) => {
+                    let max_blocks = constants::LOCK_PERIOD_1_YEAR;
+                    let ratio = if max_blocks > 0 {
+                        (*blocks as u128).min(max_blocks as u128).saturating_mul(1_000_000) / max_blocks as u128
+                    } else {
+                        0
+                    };
+                    let range = constants::MULTIPLIER_1_YEAR.saturating_sub(constants::MULTIPLIER_FLEXIBLE);
+                    constants::MULTIPLIER_FLEXIBLE.saturating_add(
+                        range.saturating_mul(ratio) / 1_000_000,
+                    )
+                }
+            },
+        }
+    }
+
+    /// Ratio (0–1_000_000) representing lock duration relative to max (1 year).
+    pub fn ratio(&self) -> u128 {
+        match self {
+            LockPeriod::Flexible => 0,
+            LockPeriod::ThirtyDays => {
+                constants::LOCK_PERIOD_30_DAYS.saturating_mul(1_000_000) / constants::LOCK_PERIOD_1_YEAR
+            }
+            LockPeriod::NinetyDays => {
+                constants::LOCK_PERIOD_90_DAYS.saturating_mul(1_000_000) / constants::LOCK_PERIOD_1_YEAR
+            }
+            LockPeriod::OneYear => 1_000_000,
+            LockPeriod::Custom(blocks) => (*blocks as u128)
+                .min(constants::LOCK_PERIOD_1_YEAR as u128)
+                .saturating_mul(1_000_000)
+                / constants::LOCK_PERIOD_1_YEAR as u128,
         }
     }
 
@@ -194,6 +383,8 @@ pub enum ParamKind {
     RewardRateBps(u128),
     VotingPeriodBlocks(u64),
     QuorumBps(u32),
+    /// The shape of the lock-period reward boost curve (#828).
+    BoostCurve(BoostCurve),
 }
 
 #[derive(

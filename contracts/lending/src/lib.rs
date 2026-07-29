@@ -310,6 +310,104 @@ mod propchain_lending {
         pub start_block: Option<u64>,
     }
 
+    // ── #829: Variable amortization schedules ────────────────────────────────
+
+    /// The repayment schedule type for a loan.
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum Schedule {
+        /// Single lump-sum repayment at maturity (principal + all interest).
+        Bullet,
+        /// Equal total payments each period (principal portion grows over time).
+        Annuity,
+        /// Equal principal payments each period (descending total outlay).
+        Linear,
+        /// User-defined custom schedule parameters.
+        Custom {
+            /// Custom number of installments.
+            num_installments: u32,
+            /// Custom interval between payments (blocks).
+            interval_blocks: u64,
+            /// Custom principal per installment (0 = computed from total).
+            principal_per_payment: u128,
+        },
+    }
+
+    impl Schedule {
+        /// Compute the per-period installment amount given total principal,
+        /// interest rate (bps), term months, and blocks per period.
+        pub fn installment(
+            &self,
+            principal: u128,
+            rate_bps: u32,
+            term_months: u32,
+            interval_blocks: u64,
+        ) -> u128 {
+            match self {
+                Schedule::Bullet => principal, // full principal at end
+                Schedule::Annuity => {
+                    // Simplified annuity: equal total payments each period.
+                    // per_period_rate = rate_bps * interval_blocks / (5_256_000 * 10_000)
+                    let n = (term_months as u64 * 432_000u64)
+                        .checked_div(interval_blocks.max(1))
+                        .unwrap_or(1) as u128;
+                    if n == 0 {
+                        return principal;
+                    }
+                    let per_period_rate_numer = (rate_bps as u128)
+                        .saturating_mul(interval_blocks);
+                    let per_period_rate_denom = 52_560_000_000u128; // 5_256_000 * 10_000
+                    let interest = principal
+                        .saturating_mul(per_period_rate_numer)
+                        .checked_div(per_period_rate_denom)
+                        .unwrap_or(0);
+                    let base = principal / n;
+                    base.saturating_add(interest)
+                }
+                Schedule::Linear => {
+                    let n = (term_months as u64 * 432_000u64)
+                        .checked_div(interval_blocks.max(1))
+                        .unwrap_or(1) as u128;
+                    if n == 0 {
+                        return principal;
+                    }
+                    // Equal principal + declining interest
+                    let per_period_principal = principal / n;
+                    let per_period_rate_numer = (rate_bps as u128)
+                        .saturating_mul(interval_blocks);
+                    let per_period_rate_denom = 52_560_000_000u128; // 5_256_000 * 10_000
+                    let interest_first = principal
+                        .saturating_mul(per_period_rate_numer)
+                        .checked_div(per_period_rate_denom)
+                        .unwrap_or(0);
+                    per_period_principal.saturating_add(interest_first)
+                }
+                Schedule::Custom {
+                    principal_per_payment,
+                    ..
+                } => {
+                    if *principal_per_payment > 0 {
+                        *principal_per_payment
+                    } else {
+                        let n = (term_months as u64 * 432_000u64)
+                            .checked_div(interval_blocks.max(1))
+                            .unwrap_or(1) as u128;
+                        if n == 0 { principal } else { principal / n }
+                    }
+                }
+            }
+        }
+    }
+
     #[derive(
         Debug,
         Clone,
@@ -334,6 +432,7 @@ mod propchain_lending {
         pub schedule_id: u64,
         pub loan_id: u64,
         pub borrower: AccountId,
+        pub schedule_type: Schedule,
         pub principal_due: u128,
         pub interest_due: u128,
         pub installment_amount: u128,
@@ -424,6 +523,8 @@ mod propchain_lending {
         Cancelled,
     }
 
+    pub type TokenId = u64;
+
     /// A borrower's public loan request listed on the marketplace (#304).
     #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
@@ -438,6 +539,8 @@ mod propchain_lending {
         pub max_rate_bps: u32,
         pub term_months: u32,
         pub collateral_kind: CollateralKind,
+        /// Multi-token collateral basket: (token_id, amount) pairs (#827).
+        pub collateral_basket: Vec<(TokenId, u128)>,
         pub status: ListingStatus,
         pub created_at: u64,
         /// ID of the accepted offer, if any.
@@ -1168,6 +1271,73 @@ mod propchain_lending {
             Ok(())
         }
 
+        /// Create a payment schedule for a loan with a specified schedule type (#829).
+        #[ink(message)]
+        pub fn create_payment_schedule(
+            &mut self,
+            loan_id: u64,
+            schedule_type: Schedule,
+            interval_blocks: u64,
+        ) -> Result<u64, LendingError> {
+            let caller = self.env().caller();
+            let loan = self
+                .loan_applications
+                .get(loan_id)
+                .ok_or(LendingError::LoanNotFound)?;
+
+            if caller != self.admin && caller != loan.applicant {
+                return Err(LendingError::Unauthorized);
+            }
+            if interval_blocks == 0 {
+                return Err(LendingError::InvalidParameters);
+            }
+
+            // Calculate installment amount based on schedule type
+            let installment = schedule_type.installment(
+                loan.requested_amount,
+                loan.interest_rate_bps,
+                loan.term_months,
+                interval_blocks,
+            );
+
+            let total_blocks = loan.term_months as u64 * 432_000;
+            let total_installments = (total_blocks / interval_blocks) as u32;
+            let now = self.env().block_number() as u64;
+
+            self.schedule_count += 1;
+            let schedule = PaymentSchedule {
+                schedule_id: self.schedule_count,
+                loan_id,
+                borrower: loan.applicant,
+                schedule_type,
+                principal_due: loan.requested_amount,
+                interest_due: 0,
+                installment_amount: installment,
+                total_installments: total_installments.max(1),
+                installments_paid: 0,
+                first_due_block: now.saturating_add(interval_blocks),
+                interval_blocks,
+                next_due_block: now.saturating_add(interval_blocks),
+                total_paid: 0,
+                status: PaymentScheduleStatus::Active,
+            };
+            self.payment_schedules
+                .insert(self.schedule_count, &schedule);
+            self.loan_payment_schedule
+                .insert(loan_id, &self.schedule_count);
+            Ok(self.schedule_count)
+        }
+
+        /// Get the payment schedule for a loan.
+        #[ink(message)]
+        pub fn get_payment_schedule_by_loan(
+            &self,
+            loan_id: u64,
+        ) -> Option<PaymentSchedule> {
+            let schedule_id = self.loan_payment_schedule.get(loan_id)?;
+            self.payment_schedules.get(schedule_id)
+        }
+
         #[ink(message)]
         pub fn propose_loan_restructuring(
             &mut self,
@@ -1561,8 +1731,9 @@ mod propchain_lending {
 
         /// Create a new loan listing on the marketplace (#304).
         ///
-        /// Any borrower can list their loan request. Lenders can then submit
-        /// competing offers via `submit_loan_offer`.
+        /// Any borrower can list their loan request with an optional multi-token
+        /// collateral basket (#827). Lenders can then submit competing offers
+        /// via `submit_loan_offer`.
         #[ink(message)]
         pub fn create_loan_listing(
             &mut self,
@@ -1571,6 +1742,8 @@ mod propchain_lending {
             max_rate_bps: u32,
             term_months: u32,
             collateral_kind: CollateralKind,
+            /// Multi-token collateral basket: (token_id, amount) pairs (#827).
+            collateral_basket: Vec<(TokenId, u128)>,
         ) -> Result<u64, LendingError> {
             if requested_amount == 0 || max_rate_bps == 0 || term_months == 0 {
                 return Err(LendingError::InvalidParameters);
@@ -1587,6 +1760,7 @@ mod propchain_lending {
                 max_rate_bps,
                 term_months,
                 collateral_kind,
+                collateral_basket,
                 status: ListingStatus::Open,
                 created_at: self.env().block_number() as u64,
                 accepted_offer_id: None,

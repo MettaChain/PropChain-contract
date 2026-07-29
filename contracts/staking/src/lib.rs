@@ -271,6 +271,7 @@ mod staking {
         voting_period_blocks: u64,
         quorum_bps: u32,
         early_withdrawal_penalty_bps: u128,
+        boost_curve: BoostCurve,
         // ----- Validator / Delegation -----
         validators: Mapping<AccountId, ValidatorInfo>,
         delegations: Mapping<(AccountId, AccountId), DelegationRecord>,
@@ -290,6 +291,7 @@ mod staking {
         /// # Arguments
         /// * `reward_rate_bps` - Annual reward rate in basis points (e.g. 500 = 5%)
         /// * `min_stake` - Minimum stake amount
+        /// Create a new staking contract with the default Linear boost curve.
         #[ink(constructor)]
         pub fn new(reward_rate_bps: u128, min_stake: u128) -> Self {
             let caller = Self::env().caller();
@@ -319,6 +321,7 @@ mod staking {
                 voting_period_blocks: DEFAULT_VOTING_PERIOD_BLOCKS,
                 quorum_bps: DEFAULT_QUORUM_BPS,
                 early_withdrawal_penalty_bps: constants::DEFAULT_EARLY_WITHDRAWAL_PENALTY_BPS,
+                boost_curve: BoostCurve::Linear,
                 validators: Mapping::default(),
                 delegations: Mapping::default(),
                 validator_list: Vec::new(),
@@ -464,13 +467,19 @@ mod staking {
             }
 
             // Apply lock period multiplier
-            let multiplier = lock_period.multiplier();
+            let multiplier = lock_period.multiplier_with_curve(Some(self.boost_curve));
             let reward = base_reward.saturating_mul(multiplier) / 100;
 
             // Apply staking tier bonus
             let tier = self.get_tier_internal(amount);
             let tier_multiplier = tier.reward_multiplier();
             reward.saturating_mul(tier_multiplier) / 100
+        }
+
+        /// Returns the current boost curve configuration.
+        #[ink(message)]
+        pub fn get_boost_curve(&self) -> BoostCurve {
+            self.boost_curve
         }
 
         /// Returns the estimated reward plus the staking tier for a projected stake.
@@ -1128,7 +1137,9 @@ mod staking {
                 / constants::REWARD_RATE_PRECISION
                 / 5_256_000; // blocks per year
 
-            let multiplier = stake.lock_period.multiplier();
+            let multiplier = stake
+                .lock_period
+                .multiplier_with_curve(Some(self.boost_curve));
             let reward = base_reward.saturating_mul(multiplier) / 100;
 
             // Apply staking tier bonus multiplier
@@ -1169,6 +1180,7 @@ mod staking {
                         return Err(Error::InvalidConfig);
                     }
                 }
+                ParamKind::BoostCurve(_) => {} // any curve is valid
             }
             Ok(())
         }
@@ -1194,6 +1206,9 @@ mod staking {
                 }
                 ParamKind::QuorumBps(v) => {
                     self.quorum_bps = v;
+                }
+                ParamKind::BoostCurve(v) => {
+                    self.boost_curve = v;
                 }
             }
         }
