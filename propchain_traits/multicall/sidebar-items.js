@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["MulticallError"],"struct":["CallRequest","CallResult"]};
+window.SIDEBAR_ITEMS = {"constant":["CALL_SELECTOR_LEN"],"enum":["MulticallError","VerificationKind"],"fn":["aggregate_verifications","build_verification_call","verification_selector"],"struct":["CallRequest","CallResult"]};
