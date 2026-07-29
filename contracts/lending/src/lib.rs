@@ -401,11 +401,7 @@ mod propchain_lending {
                         let n = (term_months as u64 * 432_000u64)
                             .checked_div(interval_blocks.max(1))
                             .unwrap_or(1) as u128;
-                        if n == 0 {
-                            principal
-                        } else {
-                            principal / n
-                        }
+                        principal.checked_div(n).unwrap_or(principal)
                     }
                 }
             }
