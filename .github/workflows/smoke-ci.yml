@@ -26,7 +26,12 @@ jobs:
           grep -Eq '^/contracts/lending/\s+@MettaChain/lending$' .github/CODEOWNERS
           grep -Eq '^/contracts/oracle/\s+@MettaChain/oracle$' .github/CODEOWNERS
 
-      - name: Install Stable Rust Toolchain
+      - name: Install Nightly Rust Toolchain (for fmt)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Install Stable Rust Toolchain (for clippy & test)
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy

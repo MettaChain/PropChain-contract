@@ -4,5 +4,5 @@
 # `cargo fmt` resolves to the nightly formatter regardless of any system
 # default.
 [toolchain]
-channel  = "nightly"
+channel = "nightly"
 components = ["rustfmt", "clippy"]
