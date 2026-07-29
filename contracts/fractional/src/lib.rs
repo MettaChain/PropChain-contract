@@ -10,8 +10,7 @@
 mod fractional {
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
-    use propchain_traits;
-    use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
+    use propchain_traits::{self, non_reentrant, ReentrancyError, ReentrancyGuard};
 
     #[derive(
         Debug,
@@ -1196,8 +1195,9 @@ mod fractional {
 
     #[cfg(test)]
     mod tests {
-        use super::*;
         use ink::env::test;
+
+        use super::*;
 
         fn alice() -> AccountId {
             test::default_accounts::<ink::env::DefaultEnvironment>().alice
@@ -1894,8 +1894,9 @@ mod fractional {
 
     #[cfg(test)]
     mod fractional_admin_rotation_tests {
-        use super::*;
         use ink::env::{test, DefaultEnvironment};
+
+        use super::*;
 
         fn setup() -> Fractional {
             let accounts = test::default_accounts::<DefaultEnvironment>();

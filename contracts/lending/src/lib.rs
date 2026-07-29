@@ -12,8 +12,10 @@ mod status_packing;
 
 #[ink::contract]
 mod propchain_lending {
+    use ink::prelude::string::String;
+    use ink::prelude::vec::Vec;
+
     use super::*;
-    use ink::prelude::{string::String, vec::Vec};
 
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -2149,9 +2151,10 @@ pub use crate::propchain_lending::{
 /// when a bug fix requires a regression guard.
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ink::env::{test, DefaultEnvironment};
     use propchain_lending::PropertyLending;
+
+    use super::*;
 
     fn setup() -> PropertyLending {
         let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -2603,8 +2606,9 @@ mod tests {
 /// caller permutations) does not add noise to general lending tests.
 #[cfg(test)]
 mod lending_admin_rotation_tests {
-    use super::propchain_lending::{LendingError, PropertyLending};
     use ink::env::{test, DefaultEnvironment};
+
+    use super::propchain_lending::{LendingError, PropertyLending};
 
     fn setup() -> PropertyLending {
         let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -2708,12 +2712,13 @@ mod lending_admin_rotation_tests {
 /// these tests is entirely in the type-checker.
 #[cfg(test)]
 mod storage_derivation_tests {
+    use scale::{Decode, Encode};
+
     use super::propchain_lending::{
         CollateralKind, CollateralRecord, CreditProfile, LendingPool, LoanApplication, LoanListing,
         LoanOffer, LoanRestructuring, LoanServicer, LoanStatus, MarginPosition, PaymentSchedule,
         PaymentScheduleStatus, PropertyLending, Proposal, YieldPosition,
     };
-    use scale::{Decode, Encode};
 
     fn assert_storage_type<
         T: Encode + Decode + scale_info::TypeInfo + ink::storage::traits::StorageLayout,

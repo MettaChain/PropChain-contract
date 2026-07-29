@@ -6,14 +6,16 @@
     clippy::needless_borrows_for_generic_args
 )]
 
-use ink::prelude::{string::String, vec::Vec};
+use ink::prelude::string::String;
+use ink::prelude::vec::Vec;
 use ink::storage::Mapping;
 use propchain_traits::*;
 
 #[ink::contract]
 mod dex {
-    use super::*;
     use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
+
+    use super::*;
 
     const BIPS_DENOMINATOR: u128 = 10_000;
     const REWARD_PRECISION: u128 = 1_000_000_000;

@@ -1,8 +1,9 @@
 #![cfg(test)]
 #![allow(dead_code, unused_imports, deprecated)]
 
-use super::*;
 use soroban_sdk::Env;
+
+use super::*;
 
 #[test]
 fn test_loan_lifecycle() {

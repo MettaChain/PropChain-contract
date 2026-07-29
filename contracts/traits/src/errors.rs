@@ -10,8 +10,8 @@
 //! - [`ContractError::error_i18n_key()`]: default method returning a localization key
 
 use core::fmt;
-use scale::{Decode, Encode};
 
+use scale::{Decode, Encode};
 #[cfg(feature = "std")]
 use scale_info::TypeInfo;
 

@@ -26,10 +26,8 @@ mod aggregation;
 mod propchain_oracle {
     use super::*;
     include!("types.rs");
-    use ink::prelude::{
-        string::{String, ToString},
-        vec::Vec,
-    };
+    use ink::prelude::string::{String, ToString};
+    use ink::prelude::vec::Vec;
 
     /// Aggregation mode used when combining prices from multiple oracle sources.
     #[derive(

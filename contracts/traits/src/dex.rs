@@ -3,11 +3,12 @@
 //! This module contains all types related to the decentralized exchange,
 //! order book, liquidity pools, governance, and cross-chain trading.
 
-use crate::bridge::BridgeFeeQuote;
-use crate::property::{ChainId, TokenId};
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
 use ink::primitives::AccountId;
+
+use crate::bridge::BridgeFeeQuote;
+use crate::property::{ChainId, TokenId};
 
 // =========================================================================
 // Order and Trading Types

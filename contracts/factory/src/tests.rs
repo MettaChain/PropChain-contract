@@ -1,6 +1,7 @@
-use crate::contract_factory::*;
 use ink::env::test;
 use ink::primitives::Hash;
+
+use crate::contract_factory::*;
 
 #[ink::test]
 fn test_factory_initialization() {

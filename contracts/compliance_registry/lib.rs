@@ -6,15 +6,15 @@
     dead_code
 )]
 
-use propchain_traits::ComplianceChecker;
-use propchain_traits::*;
+use propchain_traits::{ComplianceChecker, *};
 
 #[ink::contract]
 mod compliance_registry {
-    use super::*;
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
     use propchain_traits::ComplianceOperation;
+
+    use super::*;
 
     /// Represents the verification status of a user
     #[derive(Debug, PartialEq, Eq, Clone, Copy, scale::Encode, scale::Decode)]

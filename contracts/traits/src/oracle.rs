@@ -4,11 +4,12 @@
 //! definitions used across the PropChain ecosystem for property valuations,
 //! price feeds, and market analysis.
 
-use crate::errors::{ContractError, ErrorCategory};
-use crate::property::PropertyType;
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
 use ink::primitives::AccountId;
+
+use crate::errors::{ContractError, ErrorCategory};
+use crate::property::PropertyType;
 
 // =========================================================================
 // Error Types

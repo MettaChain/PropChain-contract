@@ -12,12 +12,11 @@ pub mod randomness;
 pub mod reentrancy_guard;
 
 pub mod types;
-pub use types::*;
-
 pub use access_control::*;
 pub use crypto::*;
 pub use di::*;
 pub use reentrancy_guard::*;
+pub use types::*;
 pub mod i18n;
 pub mod monitoring;
 pub mod property_token_metadata;
@@ -41,23 +40,20 @@ pub mod property;
 // =========================================================================
 
 // Original re-exports
-pub use errors::*;
-pub use i18n::*;
-pub use monitoring::*;
-
 // Re-export all new module contents at the crate root so that
 // existing `use propchain_traits::*` continues to resolve every type.
 pub use bridge::*;
-pub use dex::*;
-pub use oracle::*;
-pub use property::*;
-
 // Re-export compliance and fee module contents (types are defined in those modules)
 pub use compliance::*;
+pub use dex::*;
+pub use errors::*;
 pub use event_bus::*;
 pub use fee::*;
+pub use i18n::*;
+pub use monitoring::*;
 pub use multicall::*;
-
+pub use oracle::*;
+pub use property::*;
 #[cfg(not(feature = "std"))]
 use scale_info::prelude::vec::Vec;
 

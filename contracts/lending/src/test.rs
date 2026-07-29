@@ -1,11 +1,10 @@
 #![allow(clippy::duplicated_attributes)]
 #![cfg(test)]
 
-use super::*;
-use crate::propchain_lending::CollateralKind;
-use crate::propchain_lending::PaymentScheduleStatus;
-use crate::propchain_lending::Schedule;
 use ink::env::{test, DefaultEnvironment};
+
+use super::*;
+use crate::propchain_lending::{CollateralKind, PaymentScheduleStatus, Schedule};
 
 #[ink::test]
 fn test_loan_interest_accrual_is_jit_only_on_loan_modification() {

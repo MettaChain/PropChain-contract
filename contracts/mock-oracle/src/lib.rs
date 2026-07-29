@@ -518,9 +518,9 @@ mod mock_oracle_contract {
 
     #[cfg(test)]
     mod tests {
+        use ink::env::{test, DefaultEnvironment};
+
         use super::*;
-        use ink::env::test;
-        use ink::env::DefaultEnvironment;
 
         fn setup() -> MockOracle {
             let accounts = test::default_accounts::<DefaultEnvironment>();

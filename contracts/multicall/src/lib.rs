@@ -274,9 +274,9 @@ mod propchain_multicall {
 
     #[cfg(test)]
     mod tests {
+        use ink::env::{test, DefaultEnvironment};
+
         use super::*;
-        use ink::env::test;
-        use ink::env::DefaultEnvironment;
 
         fn setup() -> MulticallContract {
             let accounts = test::default_accounts::<DefaultEnvironment>();

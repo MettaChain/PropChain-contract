@@ -11,15 +11,12 @@
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
 use ink::storage::Mapping;
-
-// Re-export traits
-pub use propchain_traits::*;
-
-// Re-export reentrancy protection
-pub use reentrancy_guard::{ReentrancyError, ReentrancyGuard};
-
 // Import identity module
 use propchain_identity::propchain_identity::IdentityRegistryRef;
+// Re-export traits
+pub use propchain_traits::*;
+// Re-export reentrancy protection
+pub use reentrancy_guard::{ReentrancyError, ReentrancyGuard};
 
 // Export error handling utilities
 #[cfg(feature = "std")]
@@ -4641,9 +4638,10 @@ pub mod propchain_contracts {
 
 #[cfg(test)]
 mod tests_pause {
-    use super::propchain_contracts::{Error, ExternalDependency, PropertyRegistry};
     use ink::primitives::AccountId;
     use propchain_traits::PropertyMetadata;
+
+    use super::propchain_contracts::{Error, ExternalDependency, PropertyRegistry};
 
     #[ink::test]
     fn test_pause_resume_flow() {

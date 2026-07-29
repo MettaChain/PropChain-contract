@@ -157,8 +157,9 @@ pub fn aggregate_verifications(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ink::primitives::AccountId;
+
+    use super::*;
 
     #[test]
     fn selectors_are_distinct_across_kinds() {

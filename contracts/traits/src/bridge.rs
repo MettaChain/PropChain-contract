@@ -3,10 +3,11 @@
 //! This module contains all bridge-related types, status enums, configuration
 //! structures, and trait definitions for cross-chain property token bridging.
 
-use crate::property::{ChainId, PropertyMetadata, TokenId};
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
 use ink::primitives::AccountId;
+
+use crate::property::{ChainId, PropertyMetadata, TokenId};
 
 // =========================================================================
 // Data Types

@@ -10,8 +10,10 @@ use ink::storage::Mapping;
 
 #[ink::contract]
 mod propchain_crowdfunding {
+    use ink::prelude::string::String;
+    use ink::prelude::vec::Vec;
+
     use super::*;
-    use ink::prelude::{string::String, vec::Vec};
 
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -1428,10 +1430,11 @@ pub use crate::propchain_crowdfunding::{CrowdfundingError, RealEstateCrowdfundin
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     #[allow(unused_imports)]
     use ink::env::{test, DefaultEnvironment};
     use propchain_crowdfunding::{CampaignStatus, CrowdfundingError, RealEstateCrowdfunding};
+
+    use super::*;
 
     fn setup() -> RealEstateCrowdfunding {
         let accounts = test::default_accounts::<DefaultEnvironment>();

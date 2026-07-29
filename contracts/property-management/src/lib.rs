@@ -1338,8 +1338,9 @@ mod property_management {
 
     #[cfg(test)]
     mod tests {
-        use super::*;
         use ink::env::{test, DefaultEnvironment};
+
+        use super::*;
 
         fn setup() -> PropertyManagement {
             PropertyManagement::new()
