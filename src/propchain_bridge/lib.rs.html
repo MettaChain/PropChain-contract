@@ -1005,7 +1005,7 @@
 <a href=#1005 id=1005 data-nosnippet>1005</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(Error::Unauthorized);
 <a href=#1006 id=1006 data-nosnippet>1006</a>            }
 <a href=#1007 id=1007 data-nosnippet>1007</a>
-<a href=#1008 id=1008 data-nosnippet>1008</a>            <span class="self">self</span>.check_and_update_rate_limits(caller, <span class="kw-2">*</span>route.last().unwrap(), <span class="number">0</span>, <span class="bool-val">true</span>)<span class="question-mark">?</span>;
+<a href=#1008 id=1008 data-nosnippet>1008</a>            <span class="self">self</span>.check_and_update_rate_limits(caller, <span class="kw-2">*</span>route.last().ok_or(Error::InvalidRequest)<span class="question-mark">?</span>, <span class="number">0</span>, <span class="bool-val">true</span>)<span class="question-mark">?</span>;
 <a href=#1009 id=1009 data-nosnippet>1009</a>
 <a href=#1010 id=1010 data-nosnippet>1010</a>            <span class="self">self</span>.ensure_token_not_frozen(token_id)<span class="question-mark">?</span>;
 <a href=#1011 id=1011 data-nosnippet>1011</a>
