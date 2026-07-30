@@ -1344,7 +1344,7 @@ mod staking {
                 return Err(Error::InvalidCommissionRate);
             }
             self.update_validator_rewards(caller);
-            let mut info = self.validators.get(caller).ok_or(Error::Unauthorized)?;
+            let mut info = self.validators.get(caller).unwrap();
             let old_rate = info.commission_rate;
             info.commission_rate = new_rate;
             self.validators.insert(caller, &info);
@@ -1408,7 +1408,7 @@ mod staking {
                 }
 
                 self.update_validator_rewards(validator);
-                let mut info = self.validators.get(validator).ok_or(Error::ValidatorNotFound)?;
+                let mut info = self.validators.get(validator).unwrap();
 
                 // Slash validator self-stake
                 let self_slash = info.self_stake.saturating_mul(SLASH_PERCENT) / 100;
@@ -1482,7 +1482,7 @@ mod staking {
                 }
 
                 self.update_validator_rewards(validator);
-                let info = self.validators.get(validator).ok_or(Error::ValidatorNotFound)?;
+                let info = self.validators.get(validator).unwrap();
 
                 let reward_debt =
                     info.acc_reward_per_share.saturating_mul(amount) / REWARD_PRECISION;
@@ -1503,7 +1503,7 @@ mod staking {
                 self.delegator_validator.insert(caller, &validator);
 
                 // Update validator totals
-                let mut info = self.validators.get(validator).ok_or(Error::ValidatorNotFound)?;
+                let mut info = self.validators.get(validator).unwrap();
                 info.total_delegated = info.total_delegated.saturating_add(amount);
                 self.validators.insert(validator, &info);
                 self.total_delegated_stake = self.total_delegated_stake.saturating_add(amount);
@@ -1532,7 +1532,7 @@ mod staking {
                 }
 
                 self.update_validator_rewards(validator);
-                let mut info = self.validators.get(validator).ok_or(Error::ValidatorNotFound)?;
+                let mut info = self.validators.get(validator).unwrap();
 
                 let now = self.env().block_number() as u64;
                 record.unbonding_start = Some(now);
@@ -1599,7 +1599,7 @@ mod staking {
                     .ok_or(Error::DelegationNotFound)?;
 
                 self.update_validator_rewards(validator);
-                let info = self.validators.get(validator).ok_or(Error::ValidatorNotFound)?;
+                let info = self.validators.get(validator).unwrap();
 
                 let reward = self.pending_delegation_reward(&record, &info);
                 if reward == 0 {
@@ -1611,7 +1611,7 @@ mod staking {
 
                 self.reward_pool = self.reward_pool.saturating_sub(reward);
 
-                let mut record = self.delegations.get((caller, validator)).ok_or(Error::DelegationNotFound)?;
+                let mut record = self.delegations.get((caller, validator)).unwrap();
                 record.reward_debt =
                     info.acc_reward_per_share.saturating_mul(record.amount) / REWARD_PRECISION;
                 self.delegations.insert((caller, validator), &record);
@@ -1635,7 +1635,7 @@ mod staking {
                 }
 
                 self.update_validator_rewards(caller);
-                let mut info = self.validators.get(caller).ok_or(Error::Unauthorized)?;
+                let mut info = self.validators.get(caller).unwrap();
 
                 if info.accumulated_commission == 0 {
                     return Err(Error::NoRewards);

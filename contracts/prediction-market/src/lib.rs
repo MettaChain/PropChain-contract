@@ -389,7 +389,7 @@ mod propchain_prediction_market {
                     return Err(Error::MarketNotActive); // Need better error naming
                 }
 
-                let winning_dir = market.winning_direction.as_ref().ok_or(Error::MarketNotActive)?;
+                let winning_dir = market.winning_direction.as_ref().unwrap();
 
                 let key = (market_id, caller);
                 let mut stake = self.stakes.get(&key).ok_or(Error::StakeNotFound)?;
@@ -629,7 +629,7 @@ mod propchain_prediction_market {
                     return Err(Error::OracleMarketNotResolved);
                 }
 
-                let winning_dir = market.winning_direction.as_ref().ok_or(Error::OracleMarketNotResolved)?;
+                let winning_dir = market.winning_direction.as_ref().unwrap();
 
                 let key = (market_id, caller);
                 let mut stake = self.oracle_stakes.get(&key).ok_or(Error::StakeNotFound)?;
@@ -698,6 +698,7 @@ mod propchain_prediction_market {
     }
 
     #[cfg(test)]
+    #[allow(unused_variables)]
     mod tests {
         use super::*;
 

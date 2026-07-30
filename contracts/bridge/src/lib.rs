@@ -1005,7 +1005,7 @@ mod bridge {
                 return Err(Error::Unauthorized);
             }
 
-            self.check_and_update_rate_limits(caller, *route.last().ok_or(Error::InvalidRequest)?, 0, true)?;
+            self.check_and_update_rate_limits(caller, *route.last().unwrap(), 0, true)?;
 
             self.ensure_token_not_frozen(token_id)?;
 

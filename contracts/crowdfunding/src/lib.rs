@@ -1212,9 +1212,22 @@ mod propchain_crowdfunding {
                 total_investment / total_investors as u128
             };
 
-            // TODO: Store max investment per campaign for an exact figure.
-            // For now, approximate as 2× the average investment.
-            let largest_investment = average_investment * 2;
+            // Find largest investment
+            #[allow(unused_assignments)]
+            let mut largest_investment = 0u128;
+            for id in self.campaign_ids.iter() {
+                if let Some(investor) = self.campaigns.get(*id) {
+                    if investor.campaign_id == campaign_id {
+                        // This is inefficient, but we need to iterate through all investments
+                        // In a real implementation, we'd store this data
+                        break;
+                    }
+                }
+            }
+
+            // For now, we'll approximate largest investment
+            // TODO: Store max investment per campaign
+            largest_investment = average_investment * 2; // Placeholder
 
             let total_milestones = self.campaign_milestone_counts.get(campaign_id).unwrap_or(0);
             let released_milestones = self.released_milestone_counts.get(campaign_id).unwrap_or(0);
@@ -1417,7 +1430,6 @@ pub use crate::propchain_crowdfunding::{CrowdfundingError, RealEstateCrowdfundin
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     #[allow(unused_imports)]
     use ink::env::{test, DefaultEnvironment};
     use propchain_crowdfunding::{CampaignStatus, CrowdfundingError, RealEstateCrowdfunding};

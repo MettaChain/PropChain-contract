@@ -20,9 +20,6 @@ use propchain_traits::*;
 // `oracle/src/aggregation.rs` — declare the module so the file is included
 // into the crate.
 mod aggregation;
-/// Buffer-reuse helper (Issue #739).
-mod slot_vec;
-use slot_vec::SlotVec;
 
 /// Property Valuation Oracle Contract
 #[ink::contract]
@@ -2437,32 +2434,13 @@ mod propchain_oracle {
             &mut self,
             property_id: u64,
         ) -> Result<Vec<PriceData>, OracleError> {
-            // ── Reusable buffers (Issue #739) ────────────────────────────────
-            // Each SlotVec is initialised with a capacity matching the expected
-            // number of oracle sources.  On repeat calls the backing allocation
-            // is retained via `reuse()`, eliminating heap allocations for the
-            // common case where the source count stays constant across batches.
-            let source_count = self.active_sources.len().max(8);
-            let mut cached_sources: SlotVec<(String, OracleSource, u64)> =
-                SlotVec::with_capacity(source_count);
-            let mut valid_sources: SlotVec<(String, OracleSource)> =
-                SlotVec::with_capacity(source_count);
-            let mut source_updates: SlotVec<(String, u64)> =
-                SlotVec::with_capacity(source_count);
-            let mut prices: SlotVec<PriceData> = SlotVec::with_capacity(source_count);
-
-            // Reset all buffers (no-op on first call, saves allocations on
-            // subsequent calls if the function is invoked in a loop).
-            cached_sources.reuse();
-            valid_sources.reuse();
-            source_updates.reuse();
-            prices.reuse();
-
+            let mut prices = Vec::new();
             let current_block = self.env().block_number() as u64;
 
             // ── Step 1: Cache all source configs and last-update timestamps ──
             // This reads each source once and batches the frequency check data,
             // avoiding repeated Mapping::get calls during the collection loop.
+            let mut cached_sources: Vec<(String, OracleSource, u64)> = Vec::new();
             for source_id in &self.active_sources {
                 if let Some(source) = self.oracle_sources.get(source_id) {
                     let last_update = self.last_source_update.get(source_id).unwrap_or(0);
@@ -2471,7 +2449,8 @@ mod propchain_oracle {
             }
 
             // ── Step 2: Batch frequency check and collect valid sources ──────
-            for (source_id, source, last_update) in cached_sources.as_slice() {
+            let mut valid_sources: Vec<(String, OracleSource)> = Vec::new();
+            for (source_id, source, last_update) in &cached_sources {
                 if self.min_update_interval_blocks > 0
                     && *last_update > 0
                     && current_block.saturating_sub(*last_update) < self.min_update_interval_blocks
@@ -2491,7 +2470,8 @@ mod propchain_oracle {
             // In production this would batch cross-contract calls via a multicall
             // proxy. Each source still requires an individual call, but the
             // frequency-check and config data is already cached.
-            for (source_id, source) in valid_sources.as_slice() {
+            let mut source_updates: Vec<(String, u64)> = Vec::new();
+            for (source_id, source) in &valid_sources {
                 match self.get_price_from_source(source, property_id) {
                     Ok(price_data) => {
                         if self.is_price_fresh(&price_data) {
@@ -2506,22 +2486,19 @@ mod propchain_oracle {
             // ── Step 4: Batch-write all last_source_update entries ───────────
             // Single pass over the collected updates instead of N Mapping::insert
             // calls inside the collection loop.
-            for (source_id, block) in source_updates.as_slice() {
+            for (source_id, block) in &source_updates {
                 self.last_source_update.insert(source_id, block);
             }
-
-            let sources_attempted = cached_sources.len() as u32;
-            let sources_succeeded = prices.len() as u32;
 
             // Emit observability event
             self.env().emit_event(BatchPricesCollected {
                 property_id,
-                sources_attempted,
-                sources_succeeded,
+                sources_attempted: cached_sources.len() as u32,
+                sources_succeeded: prices.len() as u32,
                 batch_enabled: true,
             });
 
-            Ok(prices.into_vec())
+            Ok(prices)
         }
 
         fn collect_prices_from_sources(
@@ -2540,11 +2517,7 @@ mod propchain_oracle {
             &mut self,
             property_id: u64,
         ) -> Result<Vec<PriceData>, OracleError> {
-            // Use a SlotVec so the backing allocation is retained across repeated
-            // calls, reducing allocator pressure (Issue #739).
-            let mut prices: SlotVec<PriceData> =
-                SlotVec::with_capacity(self.active_sources.len().max(8));
-            prices.reuse();
+            let mut prices = Vec::new();
             let current_block = self.env().block_number() as u64;
 
             for source_id in &self.active_sources {
@@ -2574,7 +2547,7 @@ mod propchain_oracle {
                 }
             }
 
-            Ok(prices.into_vec())
+            Ok(prices)
         }
 
         fn get_price_from_source(
@@ -3304,8 +3277,8 @@ mod propchain_oracle {
             };
 
             let trend_direction = if relevant_data.len() > 1 {
-                let first = relevant_data.first().map(|s| s.valuation as i128).unwrap_or(0);
-                let last = relevant_data.last().map(|s| s.valuation as i128).unwrap_or(0);
+                let first = relevant_data.first().unwrap().valuation as i128;
+                let last = relevant_data.last().unwrap().valuation as i128;
                 ((last - first) / (relevant_data.len() as i128))
                     .max(-100)
                     .min(100) as i32
@@ -3313,8 +3286,8 @@ mod propchain_oracle {
                 0
             };
 
-            let period_start = relevant_data.first().ok_or(OracleError::PropertyNotFound)?.timestamp;
-            let period_end = relevant_data.last().ok_or(OracleError::PropertyNotFound)?.timestamp;
+            let period_start = relevant_data.first().unwrap().timestamp;
+            let period_end = relevant_data.last().unwrap().timestamp;
 
             Ok(OracleHistoryStatistics {
                 property_id,
