@@ -18,10 +18,11 @@
 // ============================================================================
 #[cfg(test)]
 mod reinsurance_stats_derives {
+    use ink::env::{test, DefaultEnvironment};
+
     use crate::propchain_insurance::{
         CoverageType, PropertyInsurance, ReinsuranceStats, ReinsuranceTreatyType,
     };
-    use ink::env::{test, DefaultEnvironment};
 
     fn setup() -> PropertyInsurance {
         let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -1701,8 +1702,9 @@ mod insurance_tests {
 
 #[cfg(test)]
 mod circuit_breaker_tests {
-    use crate::propchain_insurance::{CoverageType, InsuranceError, PropertyInsurance};
     use ink::env::{test, DefaultEnvironment};
+
+    use crate::propchain_insurance::{CoverageType, InsuranceError, PropertyInsurance};
 
     fn setup_with_pool() -> (PropertyInsurance, u64) {
         let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -1797,8 +1799,9 @@ mod circuit_breaker_tests {
 
 #[cfg(test)]
 mod insurance_admin_rotation_tests {
-    use crate::propchain_insurance::{InsuranceError, PropertyInsurance};
     use ink::env::{test, DefaultEnvironment};
+
+    use crate::propchain_insurance::{InsuranceError, PropertyInsurance};
 
     fn setup() -> PropertyInsurance {
         let accounts = test::default_accounts::<DefaultEnvironment>();

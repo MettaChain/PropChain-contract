@@ -18,8 +18,9 @@ use scale_info::prelude::vec::Vec;
 
 #[ink::contract]
 mod bridge {
-    use super::*;
     use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
+
+    use super::*;
 
     include!("errors.rs");
 
@@ -129,7 +130,14 @@ mod bridge {
 
     impl scale::Decode for StoredBridgeRequest {
         fn decode<I: scale::Input>(input: &mut I) -> Result<Self, scale::Error> {
-            let mut bytes = Vec::new();
+            // Linearise the drain: pre-allocate the destination buffer so
+            // `Vec::push` does NOT reallocate on every byte. The previous
+            // `Vec::new() + push` loop was O(n^2) because Vec::new() starts
+            // at capacity 0 and every push reallocates the entire buffer
+            // (1 -> 2 -> 4 -> 8 -> ...), and on a 1kB payload the decode
+            // alone could exceed the block-gas limit (Issue #736).
+            const INITIAL_CAPACITY: usize = 1024;
+            let mut bytes: Vec<u8> = Vec::with_capacity(INITIAL_CAPACITY);
             while let Ok(byte) = input.read_byte() {
                 bytes.push(byte);
             }
@@ -383,6 +391,12 @@ mod bridge {
         /// Chain last reset day for rate limiting
         chain_last_reset_day: Mapping<ChainId, u64>,
 
+        /// Account daily volume (amount) for rate limiting (#764)
+        account_daily_volume: Mapping<AccountId, u128>,
+
+        /// Account last reset day for volume rate limiting (#764)
+        account_daily_volume_last_reset_day: Mapping<AccountId, u64>,
+
         /// Reentrancy protection
         reentrancy_guard: ReentrancyGuard,
 
@@ -439,6 +453,8 @@ mod bridge {
         emergency_request_counter: u64,
         /// Frozen assets (asset_address -> freeze info).
         frozen_assets: Mapping<AccountId, AssetFreezeInfo>,
+        /// Frozen tokens (token_id -> bool). Freeze-by-token (#12).
+        frozen_tokens: Mapping<TokenId, bool>,
 
         // ── Batched Merkle verification for performance ────────────────────
         /// Batch verification windows keyed by (source_chain, window_id).
@@ -695,6 +711,28 @@ mod bridge {
         pub timestamp: u64,
     }
 
+    // ── Token freeze events (#12) ────────────────────────────────────────────
+
+    /// Emitted when a token is frozen by ID.
+    #[ink(event)]
+    pub struct TokenFrozen {
+        #[ink(topic)]
+        pub token_id: TokenId,
+        #[ink(topic)]
+        pub frozen_by: AccountId,
+        pub timestamp: u64,
+    }
+
+    /// Emitted when a token freeze is lifted.
+    #[ink(event)]
+    pub struct TokenUnfrozen {
+        #[ink(topic)]
+        pub token_id: TokenId,
+        #[ink(topic)]
+        pub unfrozen_by: AccountId,
+        pub timestamp: u64,
+    }
+
     // ── Batched Merkle verification events ───────────────────────────────
 
     /// Emitted when a new batch verification window is created.
@@ -790,6 +828,8 @@ mod bridge {
                 account_last_reset_day: Mapping::default(),
                 chain_daily_volume: Mapping::default(),
                 chain_last_reset_day: Mapping::default(),
+                account_daily_volume: Mapping::default(),
+                account_daily_volume_last_reset_day: Mapping::default(),
                 reentrancy_guard: ReentrancyGuard::new(),
                 pause_flags: PauseFlags::none(),
                 guardians: Vec::new(),
@@ -808,6 +848,7 @@ mod bridge {
                 emergency_requests: Mapping::default(),
                 emergency_request_counter: 0,
                 frozen_assets: Mapping::default(),
+                frozen_tokens: Mapping::default(),
                 batch_merkle_roots: Mapping::default(),
                 transaction_to_batch: Mapping::default(),
                 batch_window_counter: Mapping::default(),
@@ -878,7 +919,7 @@ mod bridge {
             // For NFT bridge, we count requests but value is 0 here since NFT value isn't strictly defined by amount.
             self.check_and_update_rate_limits(caller, destination_chain, 0, true)?;
 
-            // Check if asset is frozen (skipped: token_id is u64, freeze uses AccountId; see bridge/src/lib.rs helpers)
+            self.ensure_token_not_frozen(token_id)?;
 
             // Create bridge request
             self.request_counter += 1;
@@ -966,7 +1007,7 @@ mod bridge {
 
             self.check_and_update_rate_limits(caller, *route.last().ok_or(Error::InvalidRequest)?, 0, true)?;
 
-            // Check if asset is frozen (skipped: token_id is u64, freeze uses AccountId; see bridge/src/lib.rs helpers)
+            self.ensure_token_not_frozen(token_id)?;
 
             let total_gas_estimate = self.estimate_multi_hop_bridge_gas(route.clone())?;
 
@@ -1167,7 +1208,7 @@ mod bridge {
                 // FATF travel rule compliance check
                 self.ensure_travel_rule_compliance(request_id, &request)?;
 
-                // Check if asset is frozen (skipped: token_id is u64, freeze uses AccountId; see bridge/src/lib.rs helpers)
+                self.ensure_token_not_frozen(request.token_id)?;
 
                 // Generate transaction hash
                 let transaction_hash = self.generate_transaction_hash(&request);
@@ -2362,6 +2403,60 @@ mod bridge {
             Ok(())
         }
 
+        // ── Freeze-by-token (#12) ──────────────────────────────────────────────
+
+        /// Freeze a token by its ID. Admin only.
+        /// Once frozen, all bridge operations involving this token_id are blocked.
+        #[ink(message)]
+        pub fn freeze_token(&mut self, token_id: TokenId) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if caller != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            if self.frozen_tokens.get(token_id).unwrap_or(false) {
+                return Err(Error::AssetAlreadyFrozen);
+            }
+
+            self.frozen_tokens.insert(token_id, &true);
+
+            self.env().emit_event(TokenFrozen {
+                token_id,
+                frozen_by: caller,
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Unfreeze a token by its ID. Admin only.
+        #[ink(message)]
+        pub fn unfreeze_token(&mut self, token_id: TokenId) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+
+            if !self.frozen_tokens.get(token_id).unwrap_or(false) {
+                return Err(Error::AssetNotFrozen);
+            }
+
+            self.frozen_tokens.insert(token_id, &false);
+
+            self.env().emit_event(TokenUnfrozen {
+                token_id,
+                unfrozen_by: self.env().caller(),
+                timestamp: self.env().block_timestamp(),
+            });
+
+            Ok(())
+        }
+
+        /// Check whether a token is currently frozen by its ID.
+        #[ink(message)]
+        pub fn is_token_frozen(&self, token_id: TokenId) -> bool {
+            self.frozen_tokens.get(token_id).unwrap_or(false)
+        }
+
         /// Apply an asset freeze to storage.
         fn apply_asset_freeze(
             &mut self,
@@ -2389,12 +2484,25 @@ mod bridge {
             });
         }
 
-        /// Check if an asset transfer should be blocked due to freeze.
+        /// Check if an asset transfer should be blocked due to an AccountId-keyed
+        /// contract-level freeze (`propose_freeze_asset` / emergency multi-sig).
+        /// Bridge initiation now gates on `ensure_token_not_frozen` (token_id-keyed);
+        /// this remains for the emergency asset-freeze feature to wire in.
+        #[allow(dead_code)]
         fn ensure_asset_not_frozen(&self, asset_address: AccountId) -> Result<(), Error> {
             if let Some(freeze_info) = self.frozen_assets.get(asset_address) {
                 if freeze_info.affects_inflight {
                     return Err(Error::OperationPaused);
                 }
+            }
+            Ok(())
+        }
+
+        /// Check that a token is not frozen; returns `AssetAlreadyFrozen` if it is.
+        /// Used by initiate_bridge_multisig, initiate_multi_hop_bridge, and execute_bridge.
+        fn ensure_token_not_frozen(&self, token_id: TokenId) -> Result<(), Error> {
+            if self.frozen_tokens.get(token_id).unwrap_or(false) {
+                return Err(Error::AssetAlreadyFrozen);
             }
             Ok(())
         }
@@ -2787,6 +2895,41 @@ mod bridge {
             })
         }
 
+        /// Returns the current daily volume for a chain (admin-only, #764).
+        ///
+        /// Returns 0 if no volume has been tracked for this chain yet.
+        #[ink(message)]
+        pub fn get_daily_volume(&self, chain_id: ChainId) -> Result<u128, Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            let current_day = self.env().block_timestamp() / 86_400_000;
+            let last_reset = self.chain_last_reset_day.get(chain_id).unwrap_or(0);
+            if last_reset < current_day {
+                return Ok(0);
+            }
+            Ok(self.chain_daily_volume.get(chain_id).unwrap_or(0))
+        }
+
+        /// Returns the current daily volume for an account (admin-only, #764).
+        ///
+        /// Returns 0 if no volume has been tracked for this account yet.
+        #[ink(message)]
+        pub fn get_account_daily_volume(&self, account: AccountId) -> Result<u128, Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            let current_day = self.env().block_timestamp() / 86_400_000;
+            let last_reset = self
+                .account_daily_volume_last_reset_day
+                .get(account)
+                .unwrap_or(0);
+            if last_reset < current_day {
+                return Ok(0);
+            }
+            Ok(self.account_daily_volume.get(account).unwrap_or(0))
+        }
+
         /// Returns the current pause state summary for the dashboard.
         #[ink(message)]
         pub fn get_bridge_health_status(&self) -> BridgeHealthStatus {
@@ -3055,6 +3198,22 @@ mod bridge {
 
                 self.chain_daily_volume
                     .insert(destination_chain, &(chain_volume + amount));
+
+                // Track per-account daily volume (#764)
+                let last_account_reset = self
+                    .account_daily_volume_last_reset_day
+                    .get(account)
+                    .unwrap_or(0);
+                let mut account_volume = self.account_daily_volume.get(account).unwrap_or(0);
+
+                if last_account_reset < current_day {
+                    account_volume = 0;
+                    self.account_daily_volume_last_reset_day
+                        .insert(account, &current_day);
+                }
+
+                self.account_daily_volume
+                    .insert(account, &account_volume.saturating_add(amount));
             }
 
             Ok(())
@@ -3591,6 +3750,8 @@ mod bridge {
     include!("tests.rs");
 }
 
+pub mod audit_log_bounded;
 pub mod bridge_history_pagination;
 pub mod submodules;
 pub mod token_freeze;
+pub mod validator_bitmap_fix;

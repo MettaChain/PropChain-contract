@@ -8,10 +8,14 @@
 
 use ink::storage::Mapping;
 
+mod status_packing;
+
 #[ink::contract]
 mod propchain_lending {
+    use ink::prelude::string::String;
+    use ink::prelude::vec::Vec;
+
     use super::*;
-    use ink::prelude::{string::String, vec::Vec};
 
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -159,6 +163,138 @@ mod propchain_lending {
         pub last_interest_timestamp: u64,
     }
 
+    /// SCALE-footprint-compact representation of `LoanApplication` (Issue #738).
+    ///
+    /// `bool approved`, the two `String` fields, and the two `Option<u64>`
+    /// fields are folded into a single `u32 status_flags` plus packed payload
+    /// fields. The two enum-valued fields `LoanType` and `CollateralKind`
+    /// collapse to single bytes. The two `String`s become `Vec<u8>`, which
+    /// has the same SCALE width as `String` (compact-length prefix + bytes)
+    /// but is a no_std-friendly representation that does not require UTF-8
+    /// validity enforcement on round-trip.
+    #[derive(scale::Encode, scale::Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, Debug, Clone, PartialEq, Eq)
+    )]
+    pub struct PackedLoanApplication {
+        pub loan_id: u64,
+        pub applicant: AccountId,
+        pub property_id: u64,
+        pub requested_amount: u128,
+        pub collateral_value: u128,
+        pub credit_score: u32,
+        pub accrued_interest: u128,
+        pub last_interest_timestamp: u64,
+        pub term_months: u32,
+        pub interest_rate_bps: u32,
+        pub status_flags: u32,
+        pub servicer_id_packed: u64,
+        pub start_block_packed: u64,
+        pub status_tag: u8,
+        pub servicing_reference: Vec<u8>,
+        pub servicing_status: Vec<u8>,
+    }
+
+    impl From<LoanApplication> for PackedLoanApplication {
+        fn from(src: LoanApplication) -> Self {
+            use super::status_packing::*;
+            let mut flags: u32 = 0;
+            if src.approved {
+                flags |= FLAG_APPROVED;
+            }
+            if src.servicer_id.is_some() {
+                flags |= FLAG_HAS_SERVICER_ID;
+            }
+            if src.start_block.is_some() {
+                flags |= FLAG_HAS_START_BLOCK;
+            }
+            if matches!(src.loan_type, LoanType::FixedRate) {
+                flags |= FLAG_LOAN_TYPE_FIXED_RATE;
+            }
+            if matches!(src.collateral_kind, CollateralKind::PropertyTokenized) {
+                flags |= FLAG_COLLATERAL_PROPERTY_TOKENIZED;
+            }
+            let status_tag = match src.status {
+                LoanStatus::Pending => STATUS_PENDING,
+                LoanStatus::Active => STATUS_ACTIVE,
+                LoanStatus::Repaid => STATUS_REPAID,
+                LoanStatus::Defaulted => STATUS_DEFAULTED,
+                LoanStatus::RestructuringProposed => STATUS_RESTRUCTURING_PROPOSED,
+                LoanStatus::Restructured => STATUS_RESTRUCTURED,
+                LoanStatus::Liquidated => STATUS_LIQUIDATED,
+            };
+            PackedLoanApplication {
+                loan_id: src.loan_id,
+                applicant: src.applicant,
+                property_id: src.property_id,
+                requested_amount: src.requested_amount,
+                collateral_value: src.collateral_value,
+                credit_score: src.credit_score,
+                accrued_interest: src.accrued_interest,
+                last_interest_timestamp: src.last_interest_timestamp,
+                term_months: src.term_months,
+                interest_rate_bps: src.interest_rate_bps,
+                status_flags: flags,
+                servicer_id_packed: src.servicer_id.unwrap_or(0),
+                start_block_packed: src.start_block.unwrap_or(0),
+                status_tag,
+                servicing_reference: src.servicing_reference.into_bytes(),
+                servicing_status: src.servicing_status.into_bytes(),
+            }
+        }
+    }
+
+    impl From<PackedLoanApplication> for LoanApplication {
+        fn from(src: PackedLoanApplication) -> Self {
+            use super::status_packing::*;
+            LoanApplication {
+                loan_id: src.loan_id,
+                applicant: src.applicant,
+                property_id: src.property_id,
+                requested_amount: src.requested_amount,
+                collateral_value: src.collateral_value,
+                credit_score: src.credit_score,
+                approved: (src.status_flags & FLAG_APPROVED) != 0,
+                servicer_id: if (src.status_flags & FLAG_HAS_SERVICER_ID) != 0 {
+                    Some(src.servicer_id_packed)
+                } else {
+                    None
+                },
+                servicing_reference: String::from_utf8(src.servicing_reference).unwrap_or_default(),
+                servicing_status: String::from_utf8(src.servicing_status).unwrap_or_default(),
+                collateral_kind: if (src.status_flags & FLAG_COLLATERAL_PROPERTY_TOKENIZED) != 0 {
+                    CollateralKind::PropertyTokenized
+                } else {
+                    CollateralKind::Unsecured
+                },
+                term_months: src.term_months,
+                interest_rate_bps: src.interest_rate_bps,
+                loan_type: if (src.status_flags & FLAG_LOAN_TYPE_FIXED_RATE) != 0 {
+                    LoanType::FixedRate
+                } else {
+                    LoanType::Variable
+                },
+                start_block: if (src.status_flags & FLAG_HAS_START_BLOCK) != 0 {
+                    Some(src.start_block_packed)
+                } else {
+                    None
+                },
+                status: match src.status_tag {
+                    STATUS_PENDING => LoanStatus::Pending,
+                    STATUS_ACTIVE => LoanStatus::Active,
+                    STATUS_REPAID => LoanStatus::Repaid,
+                    STATUS_DEFAULTED => LoanStatus::Defaulted,
+                    STATUS_RESTRUCTURING_PROPOSED => LoanStatus::RestructuringProposed,
+                    STATUS_RESTRUCTURED => LoanStatus::Restructured,
+                    _ => LoanStatus::Liquidated,
+                },
+                accrued_interest: src.accrued_interest,
+                last_interest_timestamp: src.last_interest_timestamp,
+            }
+        }
+    }
+
     #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
     )]
@@ -174,6 +310,104 @@ mod propchain_lending {
         pub status: LoanStatus,
         pub loan_type: LoanType,
         pub start_block: Option<u64>,
+    }
+
+    // ── #829: Variable amortization schedules ────────────────────────────────
+
+    /// The repayment schedule type for a loan.
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum Schedule {
+        /// Single lump-sum repayment at maturity (principal + all interest).
+        Bullet,
+        /// Equal total payments each period (principal portion grows over time).
+        Annuity,
+        /// Equal principal payments each period (descending total outlay).
+        Linear,
+        /// User-defined custom schedule parameters.
+        Custom {
+            /// Custom number of installments.
+            num_installments: u32,
+            /// Custom interval between payments (blocks).
+            interval_blocks: u64,
+            /// Custom principal per installment (0 = computed from total).
+            principal_per_payment: u128,
+        },
+    }
+
+    impl Schedule {
+        /// Compute the per-period installment amount given total principal,
+        /// interest rate (bps), term months, and blocks per period.
+        pub fn installment(
+            &self,
+            principal: u128,
+            rate_bps: u32,
+            term_months: u32,
+            interval_blocks: u64,
+        ) -> u128 {
+            match self {
+                Schedule::Bullet => principal, // full principal at end
+                Schedule::Annuity => {
+                    // Simplified annuity: equal total payments each period.
+                    // per_period_rate = rate_bps * interval_blocks / (5_256_000 * 10_000)
+                    let n = (term_months as u64 * 432_000u64)
+                        .checked_div(interval_blocks.max(1))
+                        .unwrap_or(1) as u128;
+                    if n == 0 {
+                        return principal;
+                    }
+                    let per_period_rate_numer =
+                        (rate_bps as u128).saturating_mul(interval_blocks as u128);
+                    let per_period_rate_denom = 52_560_000_000u128; // 5_256_000 * 10_000
+                    let interest = principal
+                        .saturating_mul(per_period_rate_numer)
+                        .checked_div(per_period_rate_denom)
+                        .unwrap_or(0);
+                    let base = principal / n;
+                    base.saturating_add(interest)
+                }
+                Schedule::Linear => {
+                    let n = (term_months as u64 * 432_000u64)
+                        .checked_div(interval_blocks.max(1))
+                        .unwrap_or(1) as u128;
+                    if n == 0 {
+                        return principal;
+                    }
+                    // Equal principal + declining interest
+                    let per_period_principal = principal / n;
+                    let per_period_rate_numer =
+                        (rate_bps as u128).saturating_mul(interval_blocks as u128);
+                    let per_period_rate_denom = 52_560_000_000u128; // 5_256_000 * 10_000
+                    let interest_first = principal
+                        .saturating_mul(per_period_rate_numer)
+                        .checked_div(per_period_rate_denom)
+                        .unwrap_or(0);
+                    per_period_principal.saturating_add(interest_first)
+                }
+                Schedule::Custom {
+                    principal_per_payment,
+                    ..
+                } => {
+                    if *principal_per_payment > 0 {
+                        *principal_per_payment
+                    } else {
+                        let n = (term_months as u64 * 432_000u64)
+                            .checked_div(interval_blocks.max(1))
+                            .unwrap_or(1) as u128;
+                        principal.checked_div(n).unwrap_or(principal)
+                    }
+                }
+            }
+        }
     }
 
     #[derive(
@@ -200,6 +434,7 @@ mod propchain_lending {
         pub schedule_id: u64,
         pub loan_id: u64,
         pub borrower: AccountId,
+        pub schedule_type: Schedule,
         pub principal_due: u128,
         pub interest_due: u128,
         pub installment_amount: u128,
@@ -290,6 +525,8 @@ mod propchain_lending {
         Cancelled,
     }
 
+    pub type TokenId = u64;
+
     /// A borrower's public loan request listed on the marketplace (#304).
     #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
@@ -304,6 +541,8 @@ mod propchain_lending {
         pub max_rate_bps: u32,
         pub term_months: u32,
         pub collateral_kind: CollateralKind,
+        /// Multi-token collateral basket: (token_id, amount) pairs (#827).
+        pub collateral_basket: Vec<(TokenId, u128)>,
         pub status: ListingStatus,
         pub created_at: u64,
         /// ID of the accepted offer, if any.
@@ -1034,6 +1273,70 @@ mod propchain_lending {
             Ok(())
         }
 
+        /// Create a payment schedule for a loan with a specified schedule type (#829).
+        #[ink(message)]
+        pub fn create_payment_schedule(
+            &mut self,
+            loan_id: u64,
+            schedule_type: Schedule,
+            interval_blocks: u64,
+        ) -> Result<u64, LendingError> {
+            let caller = self.env().caller();
+            let loan = self
+                .loan_applications
+                .get(loan_id)
+                .ok_or(LendingError::LoanNotFound)?;
+
+            if caller != self.admin && caller != loan.applicant {
+                return Err(LendingError::Unauthorized);
+            }
+            if interval_blocks == 0 {
+                return Err(LendingError::InvalidParameters);
+            }
+
+            // Calculate installment amount based on schedule type
+            let installment = schedule_type.installment(
+                loan.requested_amount,
+                loan.interest_rate_bps,
+                loan.term_months,
+                interval_blocks,
+            );
+
+            let total_blocks = loan.term_months as u64 * 432_000;
+            let total_installments = (total_blocks / interval_blocks) as u32;
+            let now = self.env().block_number() as u64;
+
+            self.schedule_count += 1;
+            let schedule = PaymentSchedule {
+                schedule_id: self.schedule_count,
+                loan_id,
+                borrower: loan.applicant,
+                schedule_type,
+                principal_due: loan.requested_amount,
+                interest_due: 0,
+                installment_amount: installment,
+                total_installments: total_installments.max(1),
+                installments_paid: 0,
+                first_due_block: now.saturating_add(interval_blocks),
+                interval_blocks,
+                next_due_block: now.saturating_add(interval_blocks),
+                total_paid: 0,
+                status: PaymentScheduleStatus::Active,
+            };
+            self.payment_schedules
+                .insert(self.schedule_count, &schedule);
+            self.loan_payment_schedule
+                .insert(loan_id, &self.schedule_count);
+            Ok(self.schedule_count)
+        }
+
+        /// Get the payment schedule for a loan.
+        #[ink(message)]
+        pub fn get_payment_schedule_by_loan(&self, loan_id: u64) -> Option<PaymentSchedule> {
+            let schedule_id = self.loan_payment_schedule.get(loan_id)?;
+            self.payment_schedules.get(schedule_id)
+        }
+
         #[ink(message)]
         pub fn propose_loan_restructuring(
             &mut self,
@@ -1427,8 +1730,9 @@ mod propchain_lending {
 
         /// Create a new loan listing on the marketplace (#304).
         ///
-        /// Any borrower can list their loan request. Lenders can then submit
-        /// competing offers via `submit_loan_offer`.
+        /// Any borrower can list their loan request with an optional multi-token
+        /// collateral basket (#827). Lenders can then submit competing offers
+        /// via `submit_loan_offer`.
         #[ink(message)]
         pub fn create_loan_listing(
             &mut self,
@@ -1437,6 +1741,8 @@ mod propchain_lending {
             max_rate_bps: u32,
             term_months: u32,
             collateral_kind: CollateralKind,
+            // Multi-token collateral basket: (token_id, amount) pairs (#827).
+            collateral_basket: Vec<(TokenId, u128)>,
         ) -> Result<u64, LendingError> {
             if requested_amount == 0 || max_rate_bps == 0 || term_months == 0 {
                 return Err(LendingError::InvalidParameters);
@@ -1453,6 +1759,7 @@ mod propchain_lending {
                 max_rate_bps,
                 term_months,
                 collateral_kind,
+                collateral_basket,
                 status: ListingStatus::Open,
                 created_at: self.env().block_number() as u64,
                 accepted_offer_id: None,
@@ -1834,11 +2141,20 @@ pub use crate::propchain_lending::{
     LendingError, LoanServicer, LoanStatus, PaymentSchedule, PaymentScheduleStatus, PropertyLending,
 };
 
+/// Core unit tests for the [`PropertyLending`] contract.
+///
+/// Covers the full lifecycle of lending operations: collateral assessment,
+/// pool management, margin positions, loan application and underwriting,
+/// servicer integration, loan restructuring, multi-collateral pledging,
+/// yield farming, on-chain governance proposals, and credit-score
+/// computation.  Extend this module when adding new contract messages or
+/// when a bug fix requires a regression guard.
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ink::env::{test, DefaultEnvironment};
     use propchain_lending::PropertyLending;
+
+    use super::*;
 
     fn setup() -> PropertyLending {
         let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -2281,10 +2597,18 @@ mod tests {
 // ADMIN KEY ROTATION TESTS (Issue #496) — Lending
 // =========================================================================
 
+/// Admin key-rotation tests for the [`PropertyLending`] contract (Issue #496).
+///
+/// Validates the two-step, time-locked admin rotation flow: requesting,
+/// confirming after the cooldown period, cancelling by either party, and
+/// blocking unauthorized callers.  These tests are intentionally isolated
+/// from the main `tests` module so that rotation-specific setup (different
+/// caller permutations) does not add noise to general lending tests.
 #[cfg(test)]
 mod lending_admin_rotation_tests {
-    use super::propchain_lending::{LendingError, PropertyLending};
     use ink::env::{test, DefaultEnvironment};
+
+    use super::propchain_lending::{LendingError, PropertyLending};
 
     fn setup() -> PropertyLending {
         let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -2378,14 +2702,23 @@ mod lending_admin_rotation_tests {
 // #589: Storage trait derivation assertion tests
 // =========================================================================
 
+/// Storage-trait derivation assertion tests (Issue #589).
+///
+/// Confirms that every public type stored in [`PropertyLending`] implements
+/// all four required derives: [`scale::Encode`], [`scale::Decode`],
+/// [`scale_info::TypeInfo`], and [`ink::storage::traits::StorageLayout`].
+/// Compile-time failures here mean a newly introduced struct is missing a
+/// `#[derive(...)]` annotation.  No runtime logic is tested; the value of
+/// these tests is entirely in the type-checker.
 #[cfg(test)]
 mod storage_derivation_tests {
+    use scale::{Decode, Encode};
+
     use super::propchain_lending::{
         CollateralKind, CollateralRecord, CreditProfile, LendingPool, LoanApplication, LoanListing,
         LoanOffer, LoanRestructuring, LoanServicer, LoanStatus, MarginPosition, PaymentSchedule,
         PaymentScheduleStatus, PropertyLending, Proposal, YieldPosition,
     };
-    use scale::{Decode, Encode};
 
     fn assert_storage_type<
         T: Encode + Decode + scale_info::TypeInfo + ink::storage::traits::StorageLayout,

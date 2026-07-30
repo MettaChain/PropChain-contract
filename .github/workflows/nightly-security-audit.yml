@@ -60,14 +60,32 @@ jobs:
           echo "\`\`\`" >> AUDIT_LOG.md
           echo "---" >> AUDIT_LOG.md
 
-      - name: Execute Cargo Mutants Quality Runs
+      - name: Mutants Gate — lending
         run: |
-          echo "## 🧬 Mutation Testing Resilience Analytics (cargo-mutants)" >> AUDIT_LOG.md
+          set -o pipefail
+          echo "## 🧬 Mutation Gate: lending" >> AUDIT_LOG.md
           echo "\`\`\`text" >> AUDIT_LOG.md
-          cargo mutants --all-features 2>&1 >> AUDIT_LOG.md || echo "cargo-mutants flagged missed mutant structures" >> AUDIT_LOG.md
+          cargo mutants -p lending --timeout 120 2>&1 | tee -a AUDIT_LOG.md
+          echo "\`\`\`" >> AUDIT_LOG.md
+
+      - name: Mutants Gate — bridge
+        run: |
+          set -o pipefail
+          echo "## 🧬 Mutation Gate: bridge" >> AUDIT_LOG.md
+          echo "\`\`\`text" >> AUDIT_LOG.md
+          cargo mutants -p bridge --timeout 180 2>&1 | tee -a AUDIT_LOG.md
+          echo "\`\`\`" >> AUDIT_LOG.md
+
+      - name: Mutants Gate — oracle
+        run: |
+          set -o pipefail
+          echo "## 🧬 Mutation Gate: oracle" >> AUDIT_LOG.md
+          echo "\`\`\`text" >> AUDIT_LOG.md
+          cargo mutants -p oracle --timeout 120 2>&1 | tee -a AUDIT_LOG.md
           echo "\`\`\`" >> AUDIT_LOG.md
 
       - name: Commit and Push Security Results to Repo
+        if: always()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"

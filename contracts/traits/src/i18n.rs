@@ -15,7 +15,6 @@
 //!    inside each key's match block, following the English arm as the template.
 
 use scale::{Decode, Encode};
-
 #[cfg(feature = "std")]
 use scale_info::TypeInfo;
 

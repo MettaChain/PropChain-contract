@@ -29,6 +29,7 @@ members = [
     "contracts/version-registry",
     "contracts/sanctions",
     "contracts/gdpr",
+    "contracts/mock-oracle",
     "contracts/monitoring", # Used as a path-dep by the tests crate
     "tests",
 ]

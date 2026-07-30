@@ -1,0 +1,8 @@
+# Pins the nightly toolchain so that `format_macro_matchers` and other
+# nightly-only rustfmt options work consistently across all contributors
+# and in CI.  The `rustfmt` component is listed explicitly so that
+# `cargo fmt` resolves to the nightly formatter regardless of any system
+# default.
+[toolchain]
+channel = "nightly"
+components = ["rustfmt", "clippy"]

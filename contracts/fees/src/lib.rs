@@ -4,8 +4,7 @@
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
 use ink::storage::Mapping;
-use propchain_traits::DynamicFeeProvider;
-use propchain_traits::FeeOperation;
+use propchain_traits::{DynamicFeeProvider, FeeOperation};
 
 /// Dynamic Fee and Market Mechanism contract for PropChain.
 /// Implements congestion-based fees, premium listing auctions, validator incentives,
@@ -21,7 +20,7 @@ mod propchain_fees {
     use super::*;
 
     /// Basis points denominator (10000 = 100%)
-    const BASIS_POINTS: u128 = 10_000;
+    const BASIS_POINTS: u128 = BasisPoints::DENOM as u128;
 
     /// Default congestion window: number of recent operations to consider
     const CONGESTION_WINDOW: u32 = 100;
@@ -62,9 +61,9 @@ mod propchain_fees {
         /// List of validator accounts for distribution (enumerable)
         validator_list: Vec<AccountId>,
         /// Distribution rate for validators (basis points of collected fees)
-        validator_share_bp: u32,
+        validator_share_bp: BasisPoints,
         /// Distribution rate for treasury (rest)
-        treasury_share_bp: u32,
+        treasury_share_bp: BasisPoints,
         /// Dynamic fee configuration based on pool utilisation / market congestion
         dynamic_fee_config: DynamicFeeConfig,
     }
@@ -129,9 +128,9 @@ mod propchain_fees {
         #[ink(topic)]
         by: AccountId,
         /// Previous effective fee rate in basis points
-        old_rate_bps: u32,
+        old_rate_bps: BasisPoints,
         /// New effective fee rate in basis points
-        new_rate_bps: u32,
+        new_rate_bps: BasisPoints,
         timestamp: u64,
     }
 
@@ -145,7 +144,7 @@ mod propchain_fees {
                 min_fee,
                 max_fee,
                 congestion_sensitivity: 80,
-                demand_factor_bp: 500,
+                demand_factor_bp: BasisPoints::new(500),
                 calculation_method: FeeCalculationMethod::Dynamic,
                 last_updated: timestamp,
             };
@@ -166,12 +165,12 @@ mod propchain_fees {
                 total_distributed: 0,
                 validators: Mapping::default(),
                 validator_list: Vec::new(),
-                validator_share_bp: 5000, // 50% to validators
-                treasury_share_bp: 5000,  // 50% to treasury
+                validator_share_bp: BasisPoints::new(5000), // 50% to validators
+                treasury_share_bp: BasisPoints::new(5000),  // 50% to treasury
                 dynamic_fee_config: DynamicFeeConfig {
-                    base_fee_bps: 30,           // 0.30 % base
-                    congestion_multiplier: 300, // up to 3× at full utilisation
-                    max_fee_bps: 200,           // hard cap at 2.00 %
+                    base_fee_bps: BasisPoints::new(30), // 0.30 % base
+                    congestion_multiplier: 300,         // up to 3× at full utilisation
+                    max_fee_bps: BasisPoints::new(200), // hard cap at 2.00 %
                 },
             }
         }
@@ -203,12 +202,11 @@ mod propchain_fees {
         }
 
         /// Demand factor in basis points (from recent volume)
-        fn demand_factor_bp(&self) -> u32 {
+        fn demand_factor_bp(&self) -> BasisPoints {
             let ci = self.congestion_index();
-            self.default_config
-                .demand_factor_bp
-                .saturating_mul(ci)
-                .saturating_div(100)
+            let demand_factor = self.default_config.demand_factor_bp.get();
+            let new_demand_factor = demand_factor.saturating_mul(ci).saturating_div(100);
+            BasisPoints::new(new_demand_factor)
         }
 
         // ========== Dynamic fee calculation ==========
@@ -448,11 +446,15 @@ mod propchain_fees {
         #[ink(message)]
         pub fn set_distribution_rates(
             &mut self,
-            validator_share_bp: u32,
-            treasury_share_bp: u32,
+            validator_share_bp: BasisPoints,
+            treasury_share_bp: BasisPoints,
         ) -> Result<(), FeeError> {
             self.ensure_admin()?;
-            if validator_share_bp.saturating_add(treasury_share_bp) > 10_000 {
+            if validator_share_bp
+                .get()
+                .saturating_add(treasury_share_bp.get())
+                > BasisPoints::DENOM
+            {
                 return Err(FeeError::InvalidConfig);
             }
             self.validator_share_bp = validator_share_bp;
@@ -468,9 +470,7 @@ mod propchain_fees {
             if amount == 0 {
                 return Ok(());
             }
-            let validator_total = amount
-                .saturating_mul(self.validator_share_bp as u128)
-                .saturating_div(BASIS_POINTS);
+            let validator_total = self.validator_share_bp.mul_floor(amount);
             let validator_list = self.validator_list.clone();
             let validator_count = validator_list.len() as u32;
             if validator_count > 0 && validator_total > 0 {
@@ -664,8 +664,8 @@ mod propchain_fees {
             let now = self.env().block_timestamp();
             self.env().emit_event(FeeRateUpdated {
                 by: self.env().caller(),
-                old_rate_bps: old_rate,
-                new_rate_bps: new_rate,
+                old_rate_bps: BasisPoints::new(old_rate),
+                new_rate_bps: BasisPoints::new(new_rate),
                 timestamp: now,
             });
             Ok(())
@@ -682,7 +682,7 @@ mod propchain_fees {
         fn compute_fee_rate(config: &DynamicFeeConfig, utilisation: u32) -> u32 {
             // multiplier_pct is 100 at 0 % util and congestion_multiplier at 100 % util.
             let util = utilisation.min(100) as u64;
-            let base = config.base_fee_bps as u64;
+            let base = config.base_fee_bps.get() as u64;
             let cm = config.congestion_multiplier as u64;
             // effective = base * (100 + util * (cm - 100) / 100) / 100
             let multiplier_pct = 100u64.saturating_add(
@@ -690,7 +690,7 @@ mod propchain_fees {
                     .saturating_div(100),
             );
             let effective = base.saturating_mul(multiplier_pct).saturating_div(100);
-            (effective as u32).min(config.max_fee_bps)
+            (effective as u32).min(config.max_fee_bps.get())
         }
     }
 

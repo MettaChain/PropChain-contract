@@ -1,3 +1,5 @@
+use propchain_traits::BasisPoints;
+
 // Data types for the fees contract (Issue #101 - extracted from lib.rs)
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -22,7 +24,7 @@ pub struct FeeConfig {
     pub min_fee: u128,
     pub max_fee: u128,
     pub congestion_sensitivity: u32,
-    pub demand_factor_bp: u32,
+    pub demand_factor_bp: BasisPoints,
     pub calculation_method: FeeCalculationMethod,
     pub last_updated: u64,
 }
@@ -40,17 +42,17 @@ pub struct FeeConfig {
 )]
 pub struct DynamicFeeConfig {
     /// Base fee rate in basis points (e.g. 30 = 0.30 %)
-    pub base_fee_bps: u32,
+    pub base_fee_bps: BasisPoints,
     /// Multiplier applied at 100 % utilisation, expressed as a percentage
     /// of the base (e.g. 300 means 3× base at full utilisation).
     pub congestion_multiplier: u32,
     /// Hard cap on the effective fee rate in basis points.
-    pub max_fee_bps: u32,
+    pub max_fee_bps: BasisPoints,
 }
 
 pub struct FeeContext {
     pub congestion_index: u32,
-    pub demand_factor_bp: u32,
+    pub demand_factor_bp: BasisPoints,
     pub operation: FeeOperation,
 }
 

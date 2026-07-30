@@ -148,58 +148,25 @@ mod tests {
         assert!(!bridge.is_asset_frozen(asset_address));
     }
 
-    // TODO(#freeze-by-token-id): The freeze infrastructure keys on `AccountId`
-    // (see `PropertyBridge::frozen_assets`) while `initiate_bridge_multisig`
-    // keys on `token_id: TokenId` (a `u64`). The implementation explicitly
-    // skips the freeze check for token-based bridges (see `lib.rs` "skipped:
-    // token_id is u64, freeze uses AccountId" comments in
-    // `initiate_bridge_multisig`, `initiate_multi_hop_bridge`, and
-    // `execute_bridge`). To make this test pass we need to define a
-    // deterministic token_id → AccountId mapping and have the bridge
-    // initiation paths call `ensure_asset_not_frozen`. Until that design
-    // decision is made, ignore the test so it doesn't break CI.
+    // Freeze-by-token (#12): Uses the new `freeze_token` method which keys on
+    // `token_id: TokenId` (a `u64`), matching the bridge initiation paths.
+    // The old `propose_freeze_asset` / emergency-multi-sig flow still keys on
+    // `AccountId` for contract-level asset freezes.
     #[ink::test]
-    #[ignore = "token_id-based freeze check is intentionally absent pending a token_id → AccountId mapping design (see TODO in lib.rs)"]
     fn test_asset_freeze_blocks_bridge_initiation() {
         let mut bridge = setup_bridge();
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
 
-        // Add emergency signers and set threshold
+        // Freeze token_id = 1 directly via admin-only freeze_token
         bridge
-            .add_emergency_signer(accounts.bob)
-            .expect("add emergency signer");
-        bridge
-            .add_emergency_signer(accounts.charlie)
-            .expect("add emergency signer");
-        bridge
-            .set_emergency_threshold(2)
-            .expect("set emergency threshold");
+            .freeze_token(1)
+            .expect("admin freeze token");
 
-        // Freeze asset token_id = 1
-        let _token_id = 1;
-        test::set_caller::<DefaultEnvironment>(accounts.bob);
-        let request_id = bridge
-            .propose_freeze_asset(
-                AccountId::from([1u8; 32]), // Using token_id as account for simplicity
-                String::from("Test freeze"),
-                true,
-                Some(100),
-            )
-            .expect("propose freeze asset");
+        // Verify token is reported as frozen
+        assert!(bridge.is_token_frozen(1));
 
-        test::set_caller::<DefaultEnvironment>(accounts.charlie);
-        bridge
-            .sign_emergency_request(request_id)
-            .expect("sign emergency request");
-
-        test::set_caller::<DefaultEnvironment>(accounts.bob);
-        bridge
-            .execute_emergency_request(request_id)
-            .expect("execute emergency request");
-
-        // Try to initiate bridge with frozen asset - should fail
-        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        // Try to initiate bridge with frozen token - should fail
         let metadata = PropertyMetadata {
             location: String::from("Test Property"),
             size: 1000,
@@ -216,7 +183,69 @@ mod tests {
             Some(50),
             metadata,
         );
-        assert!(result.is_err());
+        assert_eq!(result, Err(Error::AssetAlreadyFrozen));
+
+        // Unfreeze the token
+        bridge
+            .unfreeze_token(1)
+            .expect("admin unfreeze token");
+
+        // Verify token is no longer frozen
+        assert!(!bridge.is_token_frozen(1));
+
+        // Now bridge initiation should succeed
+        let metadata2 = PropertyMetadata {
+            location: String::from("Test Property"),
+            size: 1000,
+            legal_description: String::from("Test"),
+            valuation: 100000,
+            documents_url: String::from("ipfs://test"),
+        };
+
+        let result = bridge.initiate_bridge_multisig(
+            1u64,
+            2,
+            accounts.bob,
+            2,
+            Some(50),
+            metadata2,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[ink::test]
+    fn test_freeze_token_non_admin_rejected() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Bob is not admin - freeze should be rejected
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let result = bridge.freeze_token(1);
+        assert_eq!(result, Err(Error::Unauthorized));
+
+        // Unfreeze should also be rejected
+        let result = bridge.unfreeze_token(1);
+        assert_eq!(result, Err(Error::Unauthorized));
+    }
+
+    #[ink::test]
+    fn test_freeze_already_frozen_token_rejected() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        // Freeze token_id = 1
+        bridge
+            .freeze_token(1)
+            .expect("freeze should succeed");
+
+        // Freeze again should fail
+        let result = bridge.freeze_token(1);
+        assert_eq!(result, Err(Error::AssetAlreadyFrozen));
+
+        // Unfreeze a non-frozen token should fail
+        let result = bridge.unfreeze_token(999);
+        assert_eq!(result, Err(Error::AssetNotFrozen));
     }
 
     #[ink::test]
@@ -1370,5 +1399,223 @@ mod tests {
         // Now execution should succeed
         let result = bridge.execute_bridge(request_id);
         assert!(result.is_ok(), "bridge execution should succeed after travel rule data is submitted");
+    }
+
+    // Issue #736 acceptance: decoding a >1kB SCALE payload through the
+    // legacy-detecting wrapper succeeds in a single buffered drain
+    // (linear-time vs. the previous O(n^2) byte-by-byte loop).
+    #[ink::test]
+    fn decode_stored_bridge_request_drains_above_one_kilobyte_linearly() {
+        // 128 ChainId entries in `route` = 1024 bytes for that field alone;
+        // combined with the rest of the SCALE-encoded V2 layout the payload
+        // comfortably exceeds 1024 bytes.
+        let mut route: Vec<u64> = Vec::new();
+        for i in 0u64..128u64 {
+            route.push(1000u64 + i);
+        }
+        let v2 = StoredBridgeRequestV2 {
+            request_id: 1,
+            token_id: 2,
+            source_chain: 3,
+            destination_chain: 4,
+            sender: AccountId::from([0xab; 32]),
+            recipient: AccountId::from([0xcd; 32]),
+            required_signatures: 1,
+            signature_storage: SignatureStorage::Bitmap([0u8; SIGNATURE_BITMAP_BYTES]),
+            created_at: 7,
+            expires_at: Some(8),
+            status: BridgeOperationStatus::Pending,
+            multi_hop_status: MultiHopStatus::InProgress,
+            route,
+            current_hop: 0,
+            total_gas_estimate: 100,
+            metadata: PropertyMetadata {
+                location: String::from("LinearDecodeAcceptance"),
+                size: 0,
+                legal_description: String::from("n/a"),
+                valuation: 0,
+                documents_url: String::from("ipfs://linear"),
+            },
+        };
+
+        let encoded = v2.encode();
+        assert!(
+            encoded.len() >= 1024,
+            "test fixture should exceed 1kB; got {} bytes",
+            encoded.len()
+        );
+
+        let decoded =
+            <StoredBridgeRequest as Decode>::decode(&mut &encoded[..])
+                .expect("linear decode of >1kB payload should succeed");
+        assert_eq!(decoded.request_id, 1);
+        assert_eq!(decoded.token_id, 2);
+        assert_eq!(decoded.route.len(), 128);
+    }
+
+    // ── #764: Daily volume read-only metrics ──────────────────────────────
+
+    #[ink::test]
+    fn test_get_daily_volume_non_admin_rejected() {
+        let bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Bob is not admin — get_daily_volume should be rejected
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let result = bridge.get_daily_volume(1);
+        assert_eq!(result, Err(Error::Unauthorized));
+
+        // get_account_daily_volume should also be rejected
+        let result = bridge.get_account_daily_volume(accounts.bob);
+        assert_eq!(result, Err(Error::Unauthorized));
+    }
+
+    #[ink::test]
+    fn test_get_daily_volume_returns_zero_when_no_trades() {
+        let bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        // No trades yet – volume should be zero
+        let volume = bridge.get_daily_volume(1).expect("admin query");
+        assert_eq!(volume, 0);
+
+        let account_vol = bridge
+            .get_account_daily_volume(accounts.bob)
+            .expect("admin query");
+        assert_eq!(account_vol, 0);
+    }
+
+    #[ink::test]
+    fn test_daily_volume_tracked_via_cross_chain_trade() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Bob registers a cross-chain trade with amount_in = 100_000
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .register_cross_chain_trade(1, None, 2, accounts.charlie, 100_000, 95_000)
+            .expect("register cross-chain trade");
+
+        // Alice queries the chain volume as admin
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let chain_vol = bridge.get_daily_volume(2).expect("admin get daily volume");
+        assert_eq!(
+            chain_vol, 100_000,
+            "chain daily volume should reflect the trade amount"
+        );
+
+        // Bob's account-level volume should also reflect the trade
+        let account_vol = bridge
+            .get_account_daily_volume(accounts.bob)
+            .expect("admin get account daily volume");
+        assert_eq!(
+            account_vol, 100_000,
+            "account daily volume should reflect bob's trade amount"
+        );
+    }
+
+    #[ink::test]
+    fn test_daily_volume_accumulates_multiple_trades() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Bob does two trades
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .register_cross_chain_trade(1, None, 2, accounts.charlie, 50_000, 47_000)
+            .expect("first trade");
+        bridge
+            .register_cross_chain_trade(2, None, 2, accounts.charlie, 75_000, 70_000)
+            .expect("second trade");
+
+        // Alice: chain daily volume should be 125_000
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let chain_vol = bridge.get_daily_volume(2).expect("admin query");
+        assert_eq!(chain_vol, 125_000);
+
+        let account_vol = bridge
+            .get_account_daily_volume(accounts.bob)
+            .expect("admin query");
+        assert_eq!(account_vol, 125_000);
+    }
+
+    #[ink::test]
+    fn test_daily_volume_rollover_at_midnight_utc() {
+        // This test simulates midnight UTC rollover by directly setting the
+        // block timestamp before and after the day boundary.
+        //
+        // The day counter is computed as `block_timestamp / 86_400_000`
+        // (milliseconds → UTC day). We set the timestamp to day N, track
+        // volume, then advance to day N+1 and verify the volume resets to 0.
+
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Anchor to a known UTC day boundary:
+        // Day 20000 starts at timestamp 20000 * 86_400_000 ms
+        let day_start = 20000u64 * 86_400_000;
+
+        // Set timestamp to the middle of day 20000
+        ink::env::test::set_block_timestamp::<DefaultEnvironment>(
+            day_start + 43_200_000,
+        );
+
+        // Bob registers a trade on day 20000
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .register_cross_chain_trade(1, None, 2, accounts.charlie, 200_000, 190_000)
+            .expect("register trade on day 20000");
+
+        // Verify volume recorded on day 20000
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let vol_day1 = bridge.get_daily_volume(2).expect("admin query day 20000");
+        assert_eq!(vol_day1, 200_000, "volume should be recorded on day 20000");
+
+        let acct_vol_day1 = bridge
+            .get_account_daily_volume(accounts.bob)
+            .expect("admin query day 20000");
+        assert_eq!(acct_vol_day1, 200_000, "account volume on day 20000");
+
+        // ── Rollover to midnight UTC (day 20001) ───────────────────────
+        ink::env::test::set_block_timestamp::<DefaultEnvironment>(
+            20001u64 * 86_400_000 + 1, // just after midnight
+        );
+
+        // Volume should now be zero on the new day
+        let vol_day2 = bridge.get_daily_volume(2).expect("admin query day 20001");
+        assert_eq!(
+            vol_day2, 0,
+            "chain daily volume must roll over to 0 at midnight UTC"
+        );
+
+        let acct_vol_day2 = bridge
+            .get_account_daily_volume(accounts.bob)
+            .expect("admin query day 20001");
+        assert_eq!(
+            acct_vol_day2, 0,
+            "account daily volume must roll over to 0 at midnight UTC"
+        );
+
+        // A new trade on day 20001 should start recording fresh volume
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .register_cross_chain_trade(2, None, 2, accounts.charlie, 50_000, 47_000)
+            .expect("register trade on day 20001");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let vol_day2_new = bridge.get_daily_volume(2).expect("admin query after trade");
+        assert_eq!(
+            vol_day2_new, 50_000,
+            "new trades on day 20001 should accumulate fresh volume"
+        );
+
+        let acct_vol_day2_new = bridge
+            .get_account_daily_volume(accounts.bob)
+            .expect("admin query after trade");
+        assert_eq!(
+            acct_vol_day2_new, 50_000,
+            "new trades on day 20001 should accumulate fresh account volume"
+        );
     }
 }

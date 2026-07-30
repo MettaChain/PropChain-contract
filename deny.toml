@@ -6,11 +6,13 @@ db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 
 [bans]
+# Crates that must have mutation coverage gated in CI (lending, bridge, oracle).
+# Surviving mutants in these crates will fail the nightly workflow.
 multiple-versions = "warn"
 
 [sources]
-unknown-registry = "warn"
-unknown-git = "warn"
+unknown-registry = "deny"
+unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
 
@@ -21,10 +23,3 @@ allow = [
     "Apache-2.0",
     "BSD-3-Clause",
 ]
-
-[bans]
-multiple-versions = "warn"
-
-[sources]
-unknown-registry = "deny"
-unknown-git = "deny"

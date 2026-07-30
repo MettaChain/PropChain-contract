@@ -1,9 +1,9 @@
 #![allow(clippy::module_name_repetitions)]
 
 use core::fmt;
+
 use ink::prelude::vec::Vec;
 use scale::{Decode, Encode};
-
 #[cfg(feature = "std")]
 use scale_info::TypeInfo;
 

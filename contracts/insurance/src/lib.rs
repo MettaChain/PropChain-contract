@@ -25,9 +25,11 @@ mod fraud_detection;
 /// Decentralized Property Insurance Platform
 #[ink::contract]
 mod propchain_insurance {
-    use super::*;
-    use ink::prelude::{string::String, vec::Vec};
+    use ink::prelude::string::String;
+    use ink::prelude::vec::Vec;
     use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
+
+    use super::*;
 
     // Error types extracted to errors.rs (Issue #101)
     include!("errors.rs");
@@ -84,10 +86,9 @@ mod propchain_insurance {
     }
 
     // Risk Assessment Model (Task #254)
-    use crate::risk_assessment::risk_model;
-
     // Fraud Detection System (Task #258)
     use crate::fraud_detection::fraud_detection;
+    use crate::risk_assessment::risk_model;
     // Premium calculation engine
     include!("premium_engine.rs");
 

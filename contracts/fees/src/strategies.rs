@@ -22,7 +22,7 @@ impl FeeStrategy for DynamicStrategy {
             .saturating_mul(config.congestion_sensitivity as u128)
             .saturating_mul((MAX_CONGESTION_MULTIPLIER - 100) as u128)
             / 10_000;
-        let demand_bp = context.demand_factor_bp.min(5000); // Cap demand at 50%
+        let demand_bp = context.demand_factor_bp.get().min(5000); // Cap demand at 50%
         let total_multiplier_bp = 10_000u128
             .saturating_add(congestion_bp)
             .saturating_add(demand_bp as u128);

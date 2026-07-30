@@ -270,8 +270,9 @@ mod version_registry {
 
     #[cfg(test)]
     mod tests {
-        use super::*;
         use ink::env::test;
+
+        use super::*;
 
         fn default_registry() -> VersionRegistry {
             VersionRegistry::new()

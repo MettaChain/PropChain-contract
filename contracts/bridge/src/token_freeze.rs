@@ -1,7 +1,7 @@
 use ink::storage::Mapping;
 
 pub struct TokenFreezeManager {
-    pub frozen_tokens: Mapping<u128, bool>,
+    pub frozen_tokens: Mapping<u64, bool>,
 }
 
 impl Default for TokenFreezeManager {
@@ -17,11 +17,15 @@ impl TokenFreezeManager {
         }
     }
 
-    pub fn freeze_token(&mut self, token_id: u128) {
+    pub fn freeze_token(&mut self, token_id: u64) {
         self.frozen_tokens.insert(token_id, &true);
     }
 
-    pub fn is_token_frozen(&self, token_id: u128) -> bool {
+    pub fn unfreeze_token(&mut self, token_id: u64) {
+        self.frozen_tokens.insert(token_id, &false);
+    }
+
+    pub fn is_token_frozen(&self, token_id: u64) -> bool {
         self.frozen_tokens.get(token_id).unwrap_or(false)
     }
 }

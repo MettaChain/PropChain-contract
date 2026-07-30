@@ -11,15 +11,12 @@
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
 use ink::storage::Mapping;
-
-// Re-export traits
-pub use propchain_traits::*;
-
-// Re-export reentrancy protection
-pub use reentrancy_guard::{ReentrancyError, ReentrancyGuard};
-
 // Import identity module
 use propchain_identity::propchain_identity::IdentityRegistryRef;
+// Re-export traits
+pub use propchain_traits::*;
+// Re-export reentrancy protection
+pub use reentrancy_guard::{ReentrancyError, ReentrancyGuard};
 
 // Export error handling utilities
 #[cfg(feature = "std")]
@@ -4474,7 +4471,7 @@ pub mod propchain_contracts {
 
         /// Rejects the zero address (all 32 bytes == 0x00).
         fn ensure_not_zero_address(account: AccountId) -> Result<(), Error> {
-            if account == AccountId::from([0x0; 32]) {
+            if account == AccountId::from([0x0u8; 32]) {
                 return Err(Error::ZeroAddress);
             }
             Ok(())
@@ -4641,14 +4638,15 @@ pub mod propchain_contracts {
 
 #[cfg(test)]
 mod tests_pause {
-    use super::propchain_contracts::{Error, ExternalDependency, PropertyRegistry};
     use ink::primitives::AccountId;
     use propchain_traits::PropertyMetadata;
+
+    use super::propchain_contracts::{Error, ExternalDependency, PropertyRegistry};
 
     #[ink::test]
     fn test_pause_resume_flow() {
         let mut contract = PropertyRegistry::new();
-        let _admin = AccountId::from([0x1; 32]);
+        let _admin = AccountId::from([0x1u8; 32]);
 
         // 1. Verify initial state
         assert!(!contract.get_pause_state().paused);
@@ -4684,7 +4682,7 @@ mod tests_pause {
 
         // In simple unit testing here, tracking caller changes requires `ink::env::test::set_caller`.
         // Let's simulate a second account approval.
-        let account2 = AccountId::from([0x2; 32]);
+        let account2 = AccountId::from([0x2u8; 32]);
         ink::env::test::set_caller::<ink::env::DefaultEnvironment>(contract.admin());
         assert!(contract.set_pause_guardian(account2, true).is_ok());
 
@@ -4699,7 +4697,7 @@ mod tests_pause {
     #[ink::test]
     fn test_oracle_circuit_breaker_blocks_and_resets_external_calls() {
         let mut contract = PropertyRegistry::new();
-        let oracle = AccountId::from([0x9; 32]);
+        let oracle = AccountId::from([0x9u8; 32]);
 
         let metadata = PropertyMetadata {
             location: "Breaker Street".into(),
@@ -4740,7 +4738,7 @@ mod tests_pause {
     #[ink::test]
     fn test_compliance_circuit_breaker_blocks_registration() {
         let mut contract = PropertyRegistry::new();
-        let registry = AccountId::from([0x7; 32]);
+        let registry = AccountId::from([0x7u8; 32]);
 
         contract
             .set_compliance_registry(Some(registry))

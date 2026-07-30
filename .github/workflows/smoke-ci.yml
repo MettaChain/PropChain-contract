@@ -18,10 +18,23 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Install Stable Rust Toolchain
+      - name: Validate CODEOWNERS coverage for security-critical contracts
+        shell: bash
+        run: |
+          test -f .github/CODEOWNERS
+          grep -Eq '^/contracts/bridge/\s+@MettaChain/bridge$' .github/CODEOWNERS
+          grep -Eq '^/contracts/lending/\s+@MettaChain/lending$' .github/CODEOWNERS
+          grep -Eq '^/contracts/oracle/\s+@MettaChain/oracle$' .github/CODEOWNERS
+
+      - name: Install Nightly Rust Toolchain (for fmt)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Install Stable Rust Toolchain (for clippy & test)
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: clippy
 
       - name: Cache Cargo Build Artifacts
         uses: actions/cache@v4
@@ -36,8 +49,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-smoke-
 
-      - name: Check Code Formatting Style (fmt)
-        run: cargo fmt --check
+      - name: Check Code Formatting Style (nightly fmt)
+        run: cargo +nightly fmt --check
 
       - name: Execute Static Analysis Compiler Lints (clippy)
         run: cargo clippy --all-targets --all-features -- -D warnings

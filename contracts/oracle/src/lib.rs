@@ -29,10 +29,8 @@ use slot_vec::SlotVec;
 mod propchain_oracle {
     use super::*;
     include!("types.rs");
-    use ink::prelude::{
-        string::{String, ToString},
-        vec::Vec,
-    };
+    use ink::prelude::string::{String, ToString};
+    use ink::prelude::vec::Vec;
 
     /// Aggregation mode used when combining prices from multiple oracle sources.
     #[derive(
@@ -1124,7 +1122,7 @@ mod propchain_oracle {
                     let source = OracleSource {
                         id: id.clone(),
                         source_type: OracleSourceType::Custom,
-                        address: AccountId::from([0x0; 32]),
+                        address: AccountId::from([0x0u8; 32]),
                         is_active: true,
                         weight,
                         last_updated: self.env().block_timestamp(),
@@ -1937,7 +1935,7 @@ mod propchain_oracle {
             let dummy_source = OracleSource {
                 id: source_id.clone(),
                 source_type: OracleSourceType::Custom,
-                address: AccountId::from([0x0; 32]),
+                address: AccountId::from([0x0u8; 32]),
                 is_active: false,
                 weight: 0,
                 last_updated: 0,
@@ -3500,10 +3498,12 @@ mod propchain_oracle {
 
     impl Default for PropertyValuationOracle {
         fn default() -> Self {
-            Self::new(AccountId::from([0x0; 32]))
+            Self::new(AccountId::from([0x0u8; 32]))
         }
     }
 }
 
 // Re-export the contract and error type
 pub use propchain_traits::OracleError;
+
+pub mod reputation_slashing;
