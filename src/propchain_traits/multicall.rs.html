@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `contracts/traits/src/multicall.rs`."><title>multicall.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="propchain_traits" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">propchain_traits/</div>multicall.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! Multicall types shared across the workspace.
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `contracts/traits/src/multicall.rs`."><title>multicall.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-650bd49d.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="propchain_traits" data-themes="" data-resource-suffix="" data-rustdoc-version="1.99.0-nightly (1a833e165 2026-07-29)" data-channel="nightly" data-search-js="search-cf4fc35e.js" data-stringdex-js="stringdex-b5109af9.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-d4bd101e.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">propchain_traits/</div>multicall.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! Multicall types shared across the workspace.
 <a href=#2 id=2 data-nosnippet>2</a>//!
 <a href=#3 id=3 data-nosnippet>3</a>//! A `CallRequest` describes a single cross-contract call to be dispatched
 <a href=#4 id=4 data-nosnippet>4</a>//! by the Multicall contract.  `CallResult` carries the outcome of each
@@ -157,72 +157,73 @@
 <a href=#157 id=157 data-nosnippet>157</a>
 <a href=#158 id=158 data-nosnippet>158</a><span class="attr">#[cfg(test)]
 <a href=#159 id=159 data-nosnippet>159</a></span><span class="kw">mod </span>tests {
-<a href=#160 id=160 data-nosnippet>160</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#161 id=161 data-nosnippet>161</a>    <span class="kw">use </span>ink::primitives::AccountId;
-<a href=#162 id=162 data-nosnippet>162</a>
-<a href=#163 id=163 data-nosnippet>163</a>    <span class="attr">#[test]
-<a href=#164 id=164 data-nosnippet>164</a>    </span><span class="kw">fn </span>selectors_are_distinct_across_kinds() {
-<a href=#165 id=165 data-nosnippet>165</a>        <span class="kw">let </span>kinds = [
-<a href=#166 id=166 data-nosnippet>166</a>            VerificationKind::Identity,
-<a href=#167 id=167 data-nosnippet>167</a>            VerificationKind::Compliance,
-<a href=#168 id=168 data-nosnippet>168</a>            VerificationKind::Sanctions,
-<a href=#169 id=169 data-nosnippet>169</a>            VerificationKind::Oracle,
-<a href=#170 id=170 data-nosnippet>170</a>        ];
-<a href=#171 id=171 data-nosnippet>171</a>        <span class="kw">for </span>pair <span class="kw">in </span>kinds.windows(<span class="number">2</span>) {
-<a href=#172 id=172 data-nosnippet>172</a>            <span class="macro">assert_ne!</span>(
-<a href=#173 id=173 data-nosnippet>173</a>                verification_selector(pair[<span class="number">0</span>]),
-<a href=#174 id=174 data-nosnippet>174</a>                verification_selector(pair[<span class="number">1</span>]),
-<a href=#175 id=175 data-nosnippet>175</a>                <span class="string">"selectors must be distinct across kinds so a multicall can disambiguate them"
-<a href=#176 id=176 data-nosnippet>176</a>            </span>);
-<a href=#177 id=177 data-nosnippet>177</a>        }
-<a href=#178 id=178 data-nosnippet>178</a>    }
-<a href=#179 id=179 data-nosnippet>179</a>
-<a href=#180 id=180 data-nosnippet>180</a>    <span class="attr">#[test]
-<a href=#181 id=181 data-nosnippet>181</a>    </span><span class="kw">fn </span>aggregate_verifications_yields_one_call_per_kind() {
-<a href=#182 id=182 data-nosnippet>182</a>        <span class="kw">let </span>callee = AccountId::from([<span class="number">0xab</span>; <span class="number">32</span>]);
-<a href=#183 id=183 data-nosnippet>183</a>        <span class="kw">let </span>input = [<span class="number">0xa0u8</span>, <span class="number">0xa1</span>, <span class="number">0xa2</span>];
-<a href=#184 id=184 data-nosnippet>184</a>        <span class="kw">let </span>kinds = [
-<a href=#185 id=185 data-nosnippet>185</a>            VerificationKind::Identity,
-<a href=#186 id=186 data-nosnippet>186</a>            VerificationKind::Compliance,
-<a href=#187 id=187 data-nosnippet>187</a>            VerificationKind::Sanctions,
-<a href=#188 id=188 data-nosnippet>188</a>            VerificationKind::Oracle,
-<a href=#189 id=189 data-nosnippet>189</a>        ];
-<a href=#190 id=190 data-nosnippet>190</a>        <span class="kw">let </span>calls = aggregate_verifications(callee, <span class="kw-2">&amp;</span>kinds, <span class="kw-2">&amp;</span>input);
-<a href=#191 id=191 data-nosnippet>191</a>        <span class="macro">assert_eq!</span>(calls.len(), kinds.len());
-<a href=#192 id=192 data-nosnippet>192</a>        <span class="kw">for </span>call <span class="kw">in </span><span class="kw-2">&amp;</span>calls {
-<a href=#193 id=193 data-nosnippet>193</a>            <span class="macro">assert_eq!</span>(call.callee, callee);
-<a href=#194 id=194 data-nosnippet>194</a>            <span class="macro">assert_eq!</span>(call.transferred_value, <span class="number">0</span>);
-<a href=#195 id=195 data-nosnippet>195</a>            <span class="macro">assert_eq!</span>(call.gas_limit, <span class="number">0</span>);
-<a href=#196 id=196 data-nosnippet>196</a>            <span class="macro">assert!</span>(call.allow_revert);
-<a href=#197 id=197 data-nosnippet>197</a>        }
-<a href=#198 id=198 data-nosnippet>198</a>    }
-<a href=#199 id=199 data-nosnippet>199</a>
-<a href=#200 id=200 data-nosnippet>200</a>    <span class="attr">#[test]
-<a href=#201 id=201 data-nosnippet>201</a>    </span><span class="kw">fn </span>aggregate_verifications_appends_input_after_selector_bytes() {
-<a href=#202 id=202 data-nosnippet>202</a>        <span class="kw">let </span>callee = AccountId::from([<span class="number">0xab</span>; <span class="number">32</span>]);
-<a href=#203 id=203 data-nosnippet>203</a>        <span class="kw">let </span>input = [<span class="number">0xf0u8</span>, <span class="number">0xf1</span>, <span class="number">0xf2</span>, <span class="number">0xf3</span>];
-<a href=#204 id=204 data-nosnippet>204</a>        <span class="kw">let </span>kinds = [VerificationKind::Identity];
-<a href=#205 id=205 data-nosnippet>205</a>        <span class="kw">let </span>calls = aggregate_verifications(callee, <span class="kw-2">&amp;</span>kinds, <span class="kw-2">&amp;</span>input);
-<a href=#206 id=206 data-nosnippet>206</a>        <span class="macro">assert_eq!</span>(calls.len(), <span class="number">1</span>);
-<a href=#207 id=207 data-nosnippet>207</a>        <span class="kw">let </span>call = <span class="kw-2">&amp;</span>calls[<span class="number">0</span>];
-<a href=#208 id=208 data-nosnippet>208</a>        <span class="macro">assert_eq!</span>(
-<a href=#209 id=209 data-nosnippet>209</a>            call.selector_and_input.len(),
-<a href=#210 id=210 data-nosnippet>210</a>            CALL_SELECTOR_LEN + input.len()
-<a href=#211 id=211 data-nosnippet>211</a>        );
-<a href=#212 id=212 data-nosnippet>212</a>        <span class="comment">// Identity selector bytes are first.
-<a href=#213 id=213 data-nosnippet>213</a>        </span><span class="macro">assert_eq!</span>(
-<a href=#214 id=214 data-nosnippet>214</a>            <span class="kw-2">&amp;</span>call.selector_and_input[..CALL_SELECTOR_LEN],
-<a href=#215 id=215 data-nosnippet>215</a>            <span class="kw-2">&amp;</span>[<span class="number">0x01u8</span>, <span class="number">0x00</span>, <span class="number">0x00</span>, <span class="number">0x00</span>][..]
-<a href=#216 id=216 data-nosnippet>216</a>        );
-<a href=#217 id=217 data-nosnippet>217</a>        <span class="comment">// Caller's SCALE-encoded args follow verbatim.
-<a href=#218 id=218 data-nosnippet>218</a>        </span><span class="macro">assert_eq!</span>(<span class="kw-2">&amp;</span>call.selector_and_input[CALL_SELECTOR_LEN..], <span class="kw-2">&amp;</span>input[..]);
-<a href=#219 id=219 data-nosnippet>219</a>    }
-<a href=#220 id=220 data-nosnippet>220</a>
-<a href=#221 id=221 data-nosnippet>221</a>    <span class="attr">#[test]
-<a href=#222 id=222 data-nosnippet>222</a>    </span><span class="kw">fn </span>empty_kinds_slice_yields_no_calls() {
-<a href=#223 id=223 data-nosnippet>223</a>        <span class="kw">let </span>callee = AccountId::from([<span class="number">0xab</span>; <span class="number">32</span>]);
-<a href=#224 id=224 data-nosnippet>224</a>        <span class="kw">let </span>calls = aggregate_verifications(callee, <span class="kw-2">&amp;</span>[], <span class="kw-2">&amp;</span>[<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>]);
-<a href=#225 id=225 data-nosnippet>225</a>        <span class="macro">assert!</span>(calls.is_empty());
-<a href=#226 id=226 data-nosnippet>226</a>    }
-<a href=#227 id=227 data-nosnippet>227</a>}
+<a href=#160 id=160 data-nosnippet>160</a>    <span class="kw">use </span>ink::primitives::AccountId;
+<a href=#161 id=161 data-nosnippet>161</a>
+<a href=#162 id=162 data-nosnippet>162</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#163 id=163 data-nosnippet>163</a>
+<a href=#164 id=164 data-nosnippet>164</a>    <span class="attr">#[test]
+<a href=#165 id=165 data-nosnippet>165</a>    </span><span class="kw">fn </span>selectors_are_distinct_across_kinds() {
+<a href=#166 id=166 data-nosnippet>166</a>        <span class="kw">let </span>kinds = [
+<a href=#167 id=167 data-nosnippet>167</a>            VerificationKind::Identity,
+<a href=#168 id=168 data-nosnippet>168</a>            VerificationKind::Compliance,
+<a href=#169 id=169 data-nosnippet>169</a>            VerificationKind::Sanctions,
+<a href=#170 id=170 data-nosnippet>170</a>            VerificationKind::Oracle,
+<a href=#171 id=171 data-nosnippet>171</a>        ];
+<a href=#172 id=172 data-nosnippet>172</a>        <span class="kw">for </span>pair <span class="kw">in </span>kinds.windows(<span class="number">2</span>) {
+<a href=#173 id=173 data-nosnippet>173</a>            <span class="macro">assert_ne!</span>(
+<a href=#174 id=174 data-nosnippet>174</a>                verification_selector(pair[<span class="number">0</span>]),
+<a href=#175 id=175 data-nosnippet>175</a>                verification_selector(pair[<span class="number">1</span>]),
+<a href=#176 id=176 data-nosnippet>176</a>                <span class="string">"selectors must be distinct across kinds so a multicall can disambiguate them"
+<a href=#177 id=177 data-nosnippet>177</a>            </span>);
+<a href=#178 id=178 data-nosnippet>178</a>        }
+<a href=#179 id=179 data-nosnippet>179</a>    }
+<a href=#180 id=180 data-nosnippet>180</a>
+<a href=#181 id=181 data-nosnippet>181</a>    <span class="attr">#[test]
+<a href=#182 id=182 data-nosnippet>182</a>    </span><span class="kw">fn </span>aggregate_verifications_yields_one_call_per_kind() {
+<a href=#183 id=183 data-nosnippet>183</a>        <span class="kw">let </span>callee = AccountId::from([<span class="number">0xab</span>; <span class="number">32</span>]);
+<a href=#184 id=184 data-nosnippet>184</a>        <span class="kw">let </span>input = [<span class="number">0xa0u8</span>, <span class="number">0xa1</span>, <span class="number">0xa2</span>];
+<a href=#185 id=185 data-nosnippet>185</a>        <span class="kw">let </span>kinds = [
+<a href=#186 id=186 data-nosnippet>186</a>            VerificationKind::Identity,
+<a href=#187 id=187 data-nosnippet>187</a>            VerificationKind::Compliance,
+<a href=#188 id=188 data-nosnippet>188</a>            VerificationKind::Sanctions,
+<a href=#189 id=189 data-nosnippet>189</a>            VerificationKind::Oracle,
+<a href=#190 id=190 data-nosnippet>190</a>        ];
+<a href=#191 id=191 data-nosnippet>191</a>        <span class="kw">let </span>calls = aggregate_verifications(callee, <span class="kw-2">&amp;</span>kinds, <span class="kw-2">&amp;</span>input);
+<a href=#192 id=192 data-nosnippet>192</a>        <span class="macro">assert_eq!</span>(calls.len(), kinds.len());
+<a href=#193 id=193 data-nosnippet>193</a>        <span class="kw">for </span>call <span class="kw">in </span><span class="kw-2">&amp;</span>calls {
+<a href=#194 id=194 data-nosnippet>194</a>            <span class="macro">assert_eq!</span>(call.callee, callee);
+<a href=#195 id=195 data-nosnippet>195</a>            <span class="macro">assert_eq!</span>(call.transferred_value, <span class="number">0</span>);
+<a href=#196 id=196 data-nosnippet>196</a>            <span class="macro">assert_eq!</span>(call.gas_limit, <span class="number">0</span>);
+<a href=#197 id=197 data-nosnippet>197</a>            <span class="macro">assert!</span>(call.allow_revert);
+<a href=#198 id=198 data-nosnippet>198</a>        }
+<a href=#199 id=199 data-nosnippet>199</a>    }
+<a href=#200 id=200 data-nosnippet>200</a>
+<a href=#201 id=201 data-nosnippet>201</a>    <span class="attr">#[test]
+<a href=#202 id=202 data-nosnippet>202</a>    </span><span class="kw">fn </span>aggregate_verifications_appends_input_after_selector_bytes() {
+<a href=#203 id=203 data-nosnippet>203</a>        <span class="kw">let </span>callee = AccountId::from([<span class="number">0xab</span>; <span class="number">32</span>]);
+<a href=#204 id=204 data-nosnippet>204</a>        <span class="kw">let </span>input = [<span class="number">0xf0u8</span>, <span class="number">0xf1</span>, <span class="number">0xf2</span>, <span class="number">0xf3</span>];
+<a href=#205 id=205 data-nosnippet>205</a>        <span class="kw">let </span>kinds = [VerificationKind::Identity];
+<a href=#206 id=206 data-nosnippet>206</a>        <span class="kw">let </span>calls = aggregate_verifications(callee, <span class="kw-2">&amp;</span>kinds, <span class="kw-2">&amp;</span>input);
+<a href=#207 id=207 data-nosnippet>207</a>        <span class="macro">assert_eq!</span>(calls.len(), <span class="number">1</span>);
+<a href=#208 id=208 data-nosnippet>208</a>        <span class="kw">let </span>call = <span class="kw-2">&amp;</span>calls[<span class="number">0</span>];
+<a href=#209 id=209 data-nosnippet>209</a>        <span class="macro">assert_eq!</span>(
+<a href=#210 id=210 data-nosnippet>210</a>            call.selector_and_input.len(),
+<a href=#211 id=211 data-nosnippet>211</a>            CALL_SELECTOR_LEN + input.len()
+<a href=#212 id=212 data-nosnippet>212</a>        );
+<a href=#213 id=213 data-nosnippet>213</a>        <span class="comment">// Identity selector bytes are first.
+<a href=#214 id=214 data-nosnippet>214</a>        </span><span class="macro">assert_eq!</span>(
+<a href=#215 id=215 data-nosnippet>215</a>            <span class="kw-2">&amp;</span>call.selector_and_input[..CALL_SELECTOR_LEN],
+<a href=#216 id=216 data-nosnippet>216</a>            <span class="kw-2">&amp;</span>[<span class="number">0x01u8</span>, <span class="number">0x00</span>, <span class="number">0x00</span>, <span class="number">0x00</span>][..]
+<a href=#217 id=217 data-nosnippet>217</a>        );
+<a href=#218 id=218 data-nosnippet>218</a>        <span class="comment">// Caller's SCALE-encoded args follow verbatim.
+<a href=#219 id=219 data-nosnippet>219</a>        </span><span class="macro">assert_eq!</span>(<span class="kw-2">&amp;</span>call.selector_and_input[CALL_SELECTOR_LEN..], <span class="kw-2">&amp;</span>input[..]);
+<a href=#220 id=220 data-nosnippet>220</a>    }
+<a href=#221 id=221 data-nosnippet>221</a>
+<a href=#222 id=222 data-nosnippet>222</a>    <span class="attr">#[test]
+<a href=#223 id=223 data-nosnippet>223</a>    </span><span class="kw">fn </span>empty_kinds_slice_yields_no_calls() {
+<a href=#224 id=224 data-nosnippet>224</a>        <span class="kw">let </span>callee = AccountId::from([<span class="number">0xab</span>; <span class="number">32</span>]);
+<a href=#225 id=225 data-nosnippet>225</a>        <span class="kw">let </span>calls = aggregate_verifications(callee, <span class="kw-2">&amp;</span>[], <span class="kw-2">&amp;</span>[<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>]);
+<a href=#226 id=226 data-nosnippet>226</a>        <span class="macro">assert!</span>(calls.is_empty());
+<a href=#227 id=227 data-nosnippet>227</a>    }
+<a href=#228 id=228 data-nosnippet>228</a>}
 </code></pre></div></section></main></body></html>

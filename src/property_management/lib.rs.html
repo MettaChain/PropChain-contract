@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `contracts/property-management/src/lib.rs`."><title>lib.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="property_management" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">property_management/</div>lib.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-4"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="attr">#![cfg_attr(not(feature = <span class="string">"std"</span>), no_std)]
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `contracts/property-management/src/lib.rs`."><title>lib.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-650bd49d.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="property_management" data-themes="" data-resource-suffix="" data-rustdoc-version="1.99.0-nightly (1a833e165 2026-07-29)" data-channel="nightly" data-search-js="search-cf4fc35e.js" data-stringdex-js="stringdex-b5109af9.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-d4bd101e.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">property_management/</div>lib.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-4"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="attr">#![cfg_attr(not(feature = <span class="string">"std"</span>), no_std)]
 <a href=#2 id=2 data-nosnippet>2</a>#![allow(unexpected_cfgs)]
 <a href=#3 id=3 data-nosnippet>3</a>
 <a href=#4 id=4 data-nosnippet>4</a></span><span class="kw">use </span>ink::prelude::string::String;
@@ -1338,228 +1338,229 @@
 <a href=#1338 id=1338 data-nosnippet>1338</a>
 <a href=#1339 id=1339 data-nosnippet>1339</a>    <span class="attr">#[cfg(test)]
 <a href=#1340 id=1340 data-nosnippet>1340</a>    </span><span class="kw">mod </span>tests {
-<a href=#1341 id=1341 data-nosnippet>1341</a>        <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#1342 id=1342 data-nosnippet>1342</a>        <span class="kw">use </span>ink::env::{test, DefaultEnvironment};
-<a href=#1343 id=1343 data-nosnippet>1343</a>
-<a href=#1344 id=1344 data-nosnippet>1344</a>        <span class="kw">fn </span>setup() -&gt; PropertyManagement {
-<a href=#1345 id=1345 data-nosnippet>1345</a>            PropertyManagement::new()
-<a href=#1346 id=1346 data-nosnippet>1346</a>        }
-<a href=#1347 id=1347 data-nosnippet>1347</a>
-<a href=#1348 id=1348 data-nosnippet>1348</a>        <span class="attr">#[ink::test]
-<a href=#1349 id=1349 data-nosnippet>1349</a>        </span><span class="kw">fn </span>create_lease_and_pay_rent_distributes() {
-<a href=#1350 id=1350 data-nosnippet>1350</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
-<a href=#1351 id=1351 data-nosnippet>1351</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
-<a href=#1352 id=1352 data-nosnippet>1352</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
-<a href=#1353 id=1353 data-nosnippet>1353</a>            <span class="kw">let </span>lease_id = pm
-<a href=#1354 id=1354 data-nosnippet>1354</a>                .create_lease(<span class="number">1</span>, accounts.bob, accounts.alice, <span class="number">1000</span>, <span class="number">86_400</span>, <span class="number">500</span>, <span class="number">0</span>, <span class="number">0</span>)
-<a href=#1355 id=1355 data-nosnippet>1355</a>                .expect(<span class="string">"lease"</span>);
-<a href=#1356 id=1356 data-nosnippet>1356</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
-<a href=#1357 id=1357 data-nosnippet>1357</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">1000</span>);
-<a href=#1358 id=1358 data-nosnippet>1358</a>            pm.pay_rent(lease_id).expect(<span class="string">"pay rent"</span>);
-<a href=#1359 id=1359 data-nosnippet>1359</a>            <span class="kw">let </span>lease = pm.get_lease(lease_id).expect(<span class="string">"lease exists"</span>);
-<a href=#1360 id=1360 data-nosnippet>1360</a>            <span class="macro">assert_eq!</span>(lease.next_due, <span class="number">86_400</span>);
-<a href=#1361 id=1361 data-nosnippet>1361</a>            <span class="kw">let </span>dash = pm.get_management_dashboard();
-<a href=#1362 id=1362 data-nosnippet>1362</a>            <span class="macro">assert_eq!</span>(dash.total_rent_collected, <span class="number">1000</span>);
-<a href=#1363 id=1363 data-nosnippet>1363</a>        }
-<a href=#1364 id=1364 data-nosnippet>1364</a>
-<a href=#1365 id=1365 data-nosnippet>1365</a>        <span class="attr">#[ink::test]
-<a href=#1366 id=1366 data-nosnippet>1366</a>        </span><span class="kw">fn </span>maintenance_workflow() {
-<a href=#1367 id=1367 data-nosnippet>1367</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
-<a href=#1368 id=1368 data-nosnippet>1368</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
-<a href=#1369 id=1369 data-nosnippet>1369</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
-<a href=#1370 id=1370 data-nosnippet>1370</a>            pm.add_manager(accounts.charlie).ok();
-<a href=#1371 id=1371 data-nosnippet>1371</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
-<a href=#1372 id=1372 data-nosnippet>1372</a>            <span class="kw">let </span>mid = pm
-<a href=#1373 id=1373 data-nosnippet>1373</a>                .submit_maintenance_request(<span class="number">7</span>, String::from(<span class="string">"Leak"</span>), Hash::from([<span class="number">1u8</span>; <span class="number">32</span>]))
-<a href=#1374 id=1374 data-nosnippet>1374</a>                .expect(<span class="string">"m"</span>);
-<a href=#1375 id=1375 data-nosnippet>1375</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.charlie);
-<a href=#1376 id=1376 data-nosnippet>1376</a>            pm.update_maintenance_status(
-<a href=#1377 id=1377 data-nosnippet>1377</a>                mid,
-<a href=#1378 id=1378 data-nosnippet>1378</a>                MaintenanceStatus::InProgress,
-<a href=#1379 id=1379 data-nosnippet>1379</a>                <span class="prelude-val">Some</span>(accounts.charlie),
-<a href=#1380 id=1380 data-nosnippet>1380</a>            )
-<a href=#1381 id=1381 data-nosnippet>1381</a>            .expect(<span class="string">"upd"</span>);
-<a href=#1382 id=1382 data-nosnippet>1382</a>            pm.resolve_maintenance(mid, Hash::from([<span class="number">2u8</span>; <span class="number">32</span>]))
-<a href=#1383 id=1383 data-nosnippet>1383</a>                .expect(<span class="string">"res"</span>);
-<a href=#1384 id=1384 data-nosnippet>1384</a>            <span class="kw">let </span>m = pm.get_maintenance(mid).expect(<span class="string">"get"</span>);
-<a href=#1385 id=1385 data-nosnippet>1385</a>            <span class="macro">assert_eq!</span>(m.status, MaintenanceStatus::Resolved);
-<a href=#1386 id=1386 data-nosnippet>1386</a>        }
-<a href=#1387 id=1387 data-nosnippet>1387</a>
-<a href=#1388 id=1388 data-nosnippet>1388</a>        <span class="attr">#[ink::test]
-<a href=#1389 id=1389 data-nosnippet>1389</a>        </span><span class="kw">fn </span>screening_review() {
-<a href=#1390 id=1390 data-nosnippet>1390</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
-<a href=#1391 id=1391 data-nosnippet>1391</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
-<a href=#1392 id=1392 data-nosnippet>1392</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
-<a href=#1393 id=1393 data-nosnippet>1393</a>            pm.add_manager(accounts.alice).ok();
-<a href=#1394 id=1394 data-nosnippet>1394</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
-<a href=#1395 id=1395 data-nosnippet>1395</a>            <span class="kw">let </span>sid = pm
-<a href=#1396 id=1396 data-nosnippet>1396</a>                .submit_screening_application(<span class="number">1</span>, Hash::from([<span class="number">3u8</span>; <span class="number">32</span>]), <span class="number">2</span>, <span class="number">3000</span>)
-<a href=#1397 id=1397 data-nosnippet>1397</a>                .expect(<span class="string">"s"</span>);
-<a href=#1398 id=1398 data-nosnippet>1398</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
-<a href=#1399 id=1399 data-nosnippet>1399</a>            pm.review_screening(sid, <span class="bool-val">true</span>).expect(<span class="string">"review"</span>);
-<a href=#1400 id=1400 data-nosnippet>1400</a>            <span class="kw">let </span>s = pm.get_screening(sid).expect(<span class="string">"get"</span>);
-<a href=#1401 id=1401 data-nosnippet>1401</a>            <span class="macro">assert_eq!</span>(s.status, ScreeningStatus::Approved);
-<a href=#1402 id=1402 data-nosnippet>1402</a>        }
-<a href=#1403 id=1403 data-nosnippet>1403</a>
-<a href=#1404 id=1404 data-nosnippet>1404</a>        <span class="attr">#[ink::test]
-<a href=#1405 id=1405 data-nosnippet>1405</a>        </span><span class="kw">fn </span>expense_pay_from_float() {
-<a href=#1406 id=1406 data-nosnippet>1406</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
-<a href=#1407 id=1407 data-nosnippet>1407</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
-<a href=#1408 id=1408 data-nosnippet>1408</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
-<a href=#1409 id=1409 data-nosnippet>1409</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">5000</span>);
-<a href=#1410 id=1410 data-nosnippet>1410</a>            pm.fund_operating_float().expect(<span class="string">"fund"</span>);
-<a href=#1411 id=1411 data-nosnippet>1411</a>            <span class="kw">let </span>eid = pm
-<a href=#1412 id=1412 data-nosnippet>1412</a>                .record_expense(
-<a href=#1413 id=1413 data-nosnippet>1413</a>                    <span class="number">1</span>,
-<a href=#1414 id=1414 data-nosnippet>1414</a>                    String::from(<span class="string">"repair"</span>),
-<a href=#1415 id=1415 data-nosnippet>1415</a>                    <span class="number">500</span>,
-<a href=#1416 id=1416 data-nosnippet>1416</a>                    accounts.bob,
-<a href=#1417 id=1417 data-nosnippet>1417</a>                    Hash::from([<span class="number">4u8</span>; <span class="number">32</span>]),
-<a href=#1418 id=1418 data-nosnippet>1418</a>                )
-<a href=#1419 id=1419 data-nosnippet>1419</a>                .expect(<span class="string">"exp"</span>);
-<a href=#1420 id=1420 data-nosnippet>1420</a>            pm.pay_expense(eid).expect(<span class="string">"pay"</span>);
-<a href=#1421 id=1421 data-nosnippet>1421</a>            <span class="macro">assert_eq!</span>(pm.operating_float_balance(), <span class="number">4500</span>);
-<a href=#1422 id=1422 data-nosnippet>1422</a>            <span class="kw">let </span>e = pm.get_expense(eid).expect(<span class="string">"e"</span>);
-<a href=#1423 id=1423 data-nosnippet>1423</a>            <span class="macro">assert_eq!</span>(e.status, ExpenseStatus::Paid);
-<a href=#1424 id=1424 data-nosnippet>1424</a>        }
-<a href=#1425 id=1425 data-nosnippet>1425</a>
-<a href=#1426 id=1426 data-nosnippet>1426</a>        <span class="attr">#[ink::test]
-<a href=#1427 id=1427 data-nosnippet>1427</a>        </span><span class="kw">fn </span>dispute_escrow_split() {
-<a href=#1428 id=1428 data-nosnippet>1428</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
-<a href=#1429 id=1429 data-nosnippet>1429</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
-<a href=#1430 id=1430 data-nosnippet>1430</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
-<a href=#1431 id=1431 data-nosnippet>1431</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">100</span>);
-<a href=#1432 id=1432 data-nosnippet>1432</a>            <span class="kw">let </span>did = pm
-<a href=#1433 id=1433 data-nosnippet>1433</a>                .open_dispute(<span class="number">1</span>, accounts.bob, Hash::from([<span class="number">5u8</span>; <span class="number">32</span>]))
-<a href=#1434 id=1434 data-nosnippet>1434</a>                .expect(<span class="string">"open"</span>);
-<a href=#1435 id=1435 data-nosnippet>1435</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
-<a href=#1436 id=1436 data-nosnippet>1436</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">100</span>);
-<a href=#1437 id=1437 data-nosnippet>1437</a>            pm.counterparty_stake_dispute(did).expect(<span class="string">"counter"</span>);
-<a href=#1438 id=1438 data-nosnippet>1438</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
-<a href=#1439 id=1439 data-nosnippet>1439</a>            pm.resolve_dispute(did, <span class="prelude-val">None</span>).expect(<span class="string">"split"</span>);
-<a href=#1440 id=1440 data-nosnippet>1440</a>            <span class="kw">let </span>d = pm.get_dispute(did).expect(<span class="string">"d"</span>);
-<a href=#1441 id=1441 data-nosnippet>1441</a>            <span class="macro">assert_eq!</span>(d.status, DisputeStatus::Split);
-<a href=#1442 id=1442 data-nosnippet>1442</a>        }
-<a href=#1443 id=1443 data-nosnippet>1443</a>
-<a href=#1444 id=1444 data-nosnippet>1444</a>        <span class="attr">#[ink::test]
-<a href=#1445 id=1445 data-nosnippet>1445</a>        </span><span class="kw">fn </span>compliance_blocks_overlarge_deposit() {
-<a href=#1446 id=1446 data-nosnippet>1446</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
-<a href=#1447 id=1447 data-nosnippet>1447</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
-<a href=#1448 id=1448 data-nosnippet>1448</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
-<a href=#1449 id=1449 data-nosnippet>1449</a>            pm.set_jurisdiction_compliance(
-<a href=#1450 id=1450 data-nosnippet>1450</a>                <span class="number">9</span>,
-<a href=#1451 id=1451 data-nosnippet>1451</a>                JurisdictionCompliance {
-<a href=#1452 id=1452 data-nosnippet>1452</a>                    jurisdiction_code: String::from(<span class="string">"US-CA"</span>),
-<a href=#1453 id=1453 data-nosnippet>1453</a>                    max_security_deposit_bps: <span class="number">1000</span>,
-<a href=#1454 id=1454 data-nosnippet>1454</a>                    min_notice_period_days: <span class="number">30</span>,
-<a href=#1455 id=1455 data-nosnippet>1455</a>                    late_fee_cap_bps: <span class="number">500</span>,
-<a href=#1456 id=1456 data-nosnippet>1456</a>                    last_audit_ts: <span class="number">0</span>,
-<a href=#1457 id=1457 data-nosnippet>1457</a>                    compliant: <span class="bool-val">true</span>,
-<a href=#1458 id=1458 data-nosnippet>1458</a>                },
-<a href=#1459 id=1459 data-nosnippet>1459</a>            )
-<a href=#1460 id=1460 data-nosnippet>1460</a>            .expect(<span class="string">"legal"</span>);
-<a href=#1461 id=1461 data-nosnippet>1461</a>            <span class="comment">// 10% of implied annual (1000 * 365) = 36_500 cap
-<a href=#1462 id=1462 data-nosnippet>1462</a>            </span><span class="kw">let </span>r = pm.create_lease(<span class="number">9</span>, accounts.bob, accounts.alice, <span class="number">1000</span>, <span class="number">86_400</span>, <span class="number">0</span>, <span class="number">40_000</span>, <span class="number">0</span>);
-<a href=#1463 id=1463 data-nosnippet>1463</a>            <span class="macro">assert_eq!</span>(r, <span class="prelude-val">Err</span>(Error::ComplianceViolation));
-<a href=#1464 id=1464 data-nosnippet>1464</a>        }
-<a href=#1465 id=1465 data-nosnippet>1465</a>
-<a href=#1466 id=1466 data-nosnippet>1466</a>        <span class="comment">// ── #826: Cross-chain identity verification tests ────────────────────
-<a href=#1467 id=1467 data-nosnippet>1467</a>
-<a href=#1468 id=1468 data-nosnippet>1468</a>        </span><span class="attr">#[ink::test]
-<a href=#1469 id=1469 data-nosnippet>1469</a>        </span><span class="kw">fn </span>register_property_fails_without_identity_registry() {
-<a href=#1470 id=1470 data-nosnippet>1470</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
-<a href=#1471 id=1471 data-nosnippet>1471</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
-<a href=#1472 id=1472 data-nosnippet>1472</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
-<a href=#1473 id=1473 data-nosnippet>1473</a>            <span class="kw">let </span>result = pm.register_property(<span class="number">1</span>, Hash::from([<span class="number">0u8</span>; <span class="number">32</span>]));
-<a href=#1474 id=1474 data-nosnippet>1474</a>            <span class="macro">assert_eq!</span>(result, <span class="prelude-val">Err</span>(Error::ComplianceViolation));
-<a href=#1475 id=1475 data-nosnippet>1475</a>        }
-<a href=#1476 id=1476 data-nosnippet>1476</a>
-<a href=#1477 id=1477 data-nosnippet>1477</a>        <span class="attr">#[ink::test]
-<a href=#1478 id=1478 data-nosnippet>1478</a>        </span><span class="kw">fn </span>full_management_workflow() {
-<a href=#1479 id=1479 data-nosnippet>1479</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
-<a href=#1480 id=1480 data-nosnippet>1480</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
-<a href=#1481 id=1481 data-nosnippet>1481</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
-<a href=#1482 id=1482 data-nosnippet>1482</a>            pm.add_manager(accounts.charlie).expect(<span class="string">"manager"</span>);
-<a href=#1483 id=1483 data-nosnippet>1483</a>            pm.set_jurisdiction_compliance(
-<a href=#1484 id=1484 data-nosnippet>1484</a>                <span class="number">1</span>,
-<a href=#1485 id=1485 data-nosnippet>1485</a>                JurisdictionCompliance {
-<a href=#1486 id=1486 data-nosnippet>1486</a>                    jurisdiction_code: String::from(<span class="string">"US"</span>),
-<a href=#1487 id=1487 data-nosnippet>1487</a>                    max_security_deposit_bps: <span class="number">2000</span>,
-<a href=#1488 id=1488 data-nosnippet>1488</a>                    min_notice_period_days: <span class="number">30</span>,
-<a href=#1489 id=1489 data-nosnippet>1489</a>                    late_fee_cap_bps: <span class="number">500</span>,
-<a href=#1490 id=1490 data-nosnippet>1490</a>                    last_audit_ts: <span class="number">0</span>,
-<a href=#1491 id=1491 data-nosnippet>1491</a>                    compliant: <span class="bool-val">true</span>,
-<a href=#1492 id=1492 data-nosnippet>1492</a>                },
-<a href=#1493 id=1493 data-nosnippet>1493</a>            )
-<a href=#1494 id=1494 data-nosnippet>1494</a>            .expect(<span class="string">"compliance"</span>);
-<a href=#1495 id=1495 data-nosnippet>1495</a>            <span class="kw">let </span>lease_id = pm
-<a href=#1496 id=1496 data-nosnippet>1496</a>                .create_lease(<span class="number">1</span>, accounts.bob, accounts.alice, <span class="number">2000</span>, <span class="number">86_400</span>, <span class="number">250</span>, <span class="number">100</span>, <span class="number">0</span>)
-<a href=#1497 id=1497 data-nosnippet>1497</a>                .expect(<span class="string">"lease"</span>);
-<a href=#1498 id=1498 data-nosnippet>1498</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
-<a href=#1499 id=1499 data-nosnippet>1499</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">2000</span>);
-<a href=#1500 id=1500 data-nosnippet>1500</a>            pm.pay_rent(lease_id).expect(<span class="string">"rent"</span>);
-<a href=#1501 id=1501 data-nosnippet>1501</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
-<a href=#1502 id=1502 data-nosnippet>1502</a>            <span class="kw">let </span>mid = pm
-<a href=#1503 id=1503 data-nosnippet>1503</a>                .submit_maintenance_request(<span class="number">1</span>, String::from(<span class="string">"HVAC"</span>), Hash::from([<span class="number">9u8</span>; <span class="number">32</span>]))
-<a href=#1504 id=1504 data-nosnippet>1504</a>                .expect(<span class="string">"maint"</span>);
-<a href=#1505 id=1505 data-nosnippet>1505</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.charlie);
-<a href=#1506 id=1506 data-nosnippet>1506</a>            pm.update_maintenance_status(
-<a href=#1507 id=1507 data-nosnippet>1507</a>                mid,
-<a href=#1508 id=1508 data-nosnippet>1508</a>                MaintenanceStatus::Acknowledged,
-<a href=#1509 id=1509 data-nosnippet>1509</a>                <span class="prelude-val">Some</span>(accounts.charlie),
-<a href=#1510 id=1510 data-nosnippet>1510</a>            )
-<a href=#1511 id=1511 data-nosnippet>1511</a>            .expect(<span class="string">"ack"</span>);
-<a href=#1512 id=1512 data-nosnippet>1512</a>            pm.resolve_maintenance(mid, Hash::from([<span class="number">8u8</span>; <span class="number">32</span>]))
-<a href=#1513 id=1513 data-nosnippet>1513</a>                .expect(<span class="string">"resolve"</span>);
-<a href=#1514 id=1514 data-nosnippet>1514</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
-<a href=#1515 id=1515 data-nosnippet>1515</a>            <span class="kw">let </span>sid = pm
-<a href=#1516 id=1516 data-nosnippet>1516</a>                .submit_screening_application(<span class="number">1</span>, Hash::from([<span class="number">7u8</span>; <span class="number">32</span>]), <span class="number">3</span>, <span class="number">2800</span>)
-<a href=#1517 id=1517 data-nosnippet>1517</a>                .expect(<span class="string">"screen"</span>);
-<a href=#1518 id=1518 data-nosnippet>1518</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.charlie);
-<a href=#1519 id=1519 data-nosnippet>1519</a>            pm.review_screening(sid, <span class="bool-val">true</span>).expect(<span class="string">"approve"</span>);
-<a href=#1520 id=1520 data-nosnippet>1520</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
-<a href=#1521 id=1521 data-nosnippet>1521</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">10_000</span>);
-<a href=#1522 id=1522 data-nosnippet>1522</a>            pm.fund_operating_float().expect(<span class="string">"fund"</span>);
-<a href=#1523 id=1523 data-nosnippet>1523</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.charlie);
-<a href=#1524 id=1524 data-nosnippet>1524</a>            <span class="kw">let </span>eid = pm
-<a href=#1525 id=1525 data-nosnippet>1525</a>                .record_expense(
-<a href=#1526 id=1526 data-nosnippet>1526</a>                    <span class="number">1</span>,
-<a href=#1527 id=1527 data-nosnippet>1527</a>                    String::from(<span class="string">"plumbing"</span>),
-<a href=#1528 id=1528 data-nosnippet>1528</a>                    <span class="number">800</span>,
-<a href=#1529 id=1529 data-nosnippet>1529</a>                    accounts.bob,
-<a href=#1530 id=1530 data-nosnippet>1530</a>                    Hash::from([<span class="number">6u8</span>; <span class="number">32</span>]),
-<a href=#1531 id=1531 data-nosnippet>1531</a>                )
-<a href=#1532 id=1532 data-nosnippet>1532</a>                .expect(<span class="string">"exp"</span>);
-<a href=#1533 id=1533 data-nosnippet>1533</a>            pm.pay_expense(eid).expect(<span class="string">"pay exp"</span>);
-<a href=#1534 id=1534 data-nosnippet>1534</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.charlie);
-<a href=#1535 id=1535 data-nosnippet>1535</a>            <span class="kw">let </span>iid = pm
-<a href=#1536 id=1536 data-nosnippet>1536</a>                .schedule_inspection(<span class="number">1</span>, accounts.charlie, <span class="number">1_700_000_000</span>)
-<a href=#1537 id=1537 data-nosnippet>1537</a>                .expect(<span class="string">"sched"</span>);
-<a href=#1538 id=1538 data-nosnippet>1538</a>            pm.complete_inspection(iid, Hash::from([<span class="number">5u8</span>; <span class="number">32</span>]), <span class="bool-val">true</span>)
-<a href=#1539 id=1539 data-nosnippet>1539</a>                .expect(<span class="string">"insp"</span>);
-<a href=#1540 id=1540 data-nosnippet>1540</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
-<a href=#1541 id=1541 data-nosnippet>1541</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">50</span>);
-<a href=#1542 id=1542 data-nosnippet>1542</a>            <span class="kw">let </span>did = pm
-<a href=#1543 id=1543 data-nosnippet>1543</a>                .open_dispute(<span class="number">1</span>, accounts.alice, Hash::from([<span class="number">4u8</span>; <span class="number">32</span>]))
-<a href=#1544 id=1544 data-nosnippet>1544</a>                .expect(<span class="string">"dispute"</span>);
-<a href=#1545 id=1545 data-nosnippet>1545</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
-<a href=#1546 id=1546 data-nosnippet>1546</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">50</span>);
-<a href=#1547 id=1547 data-nosnippet>1547</a>            pm.counterparty_stake_dispute(did).expect(<span class="string">"stake"</span>);
-<a href=#1548 id=1548 data-nosnippet>1548</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
-<a href=#1549 id=1549 data-nosnippet>1549</a>            pm.resolve_dispute(did, <span class="prelude-val">Some</span>(<span class="bool-val">true</span>))
-<a href=#1550 id=1550 data-nosnippet>1550</a>                .expect(<span class="string">"resolve dispute"</span>);
-<a href=#1551 id=1551 data-nosnippet>1551</a>            <span class="macro">assert_eq!</span>(
-<a href=#1552 id=1552 data-nosnippet>1552</a>                pm.get_dispute(did).expect(<span class="string">"d"</span>).status,
-<a href=#1553 id=1553 data-nosnippet>1553</a>                DisputeStatus::ResolvedInitiator
-<a href=#1554 id=1554 data-nosnippet>1554</a>            );
-<a href=#1555 id=1555 data-nosnippet>1555</a>            <span class="kw">let </span>dash = pm.get_management_dashboard();
-<a href=#1556 id=1556 data-nosnippet>1556</a>            <span class="macro">assert!</span>(dash.total_rent_collected &gt;= <span class="number">2000</span>);
-<a href=#1557 id=1557 data-nosnippet>1557</a>            <span class="kw">let </span>a = pm.get_property_analytics(<span class="number">1</span>);
-<a href=#1558 id=1558 data-nosnippet>1558</a>            <span class="macro">assert!</span>(a.rent_collected &gt;= <span class="number">2000</span>);
-<a href=#1559 id=1559 data-nosnippet>1559</a>            <span class="macro">assert!</span>(a.maintenance_resolved &gt;= <span class="number">1</span>);
-<a href=#1560 id=1560 data-nosnippet>1560</a>        }
-<a href=#1561 id=1561 data-nosnippet>1561</a>    }
-<a href=#1562 id=1562 data-nosnippet>1562</a>}
-<a href=#1563 id=1563 data-nosnippet>1563</a>
-<a href=#1564 id=1564 data-nosnippet>1564</a><span class="kw">pub mod </span>submodules;
+<a href=#1341 id=1341 data-nosnippet>1341</a>        <span class="kw">use </span>ink::env::{test, DefaultEnvironment};
+<a href=#1342 id=1342 data-nosnippet>1342</a>
+<a href=#1343 id=1343 data-nosnippet>1343</a>        <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#1344 id=1344 data-nosnippet>1344</a>
+<a href=#1345 id=1345 data-nosnippet>1345</a>        <span class="kw">fn </span>setup() -&gt; PropertyManagement {
+<a href=#1346 id=1346 data-nosnippet>1346</a>            PropertyManagement::new()
+<a href=#1347 id=1347 data-nosnippet>1347</a>        }
+<a href=#1348 id=1348 data-nosnippet>1348</a>
+<a href=#1349 id=1349 data-nosnippet>1349</a>        <span class="attr">#[ink::test]
+<a href=#1350 id=1350 data-nosnippet>1350</a>        </span><span class="kw">fn </span>create_lease_and_pay_rent_distributes() {
+<a href=#1351 id=1351 data-nosnippet>1351</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
+<a href=#1352 id=1352 data-nosnippet>1352</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
+<a href=#1353 id=1353 data-nosnippet>1353</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
+<a href=#1354 id=1354 data-nosnippet>1354</a>            <span class="kw">let </span>lease_id = pm
+<a href=#1355 id=1355 data-nosnippet>1355</a>                .create_lease(<span class="number">1</span>, accounts.bob, accounts.alice, <span class="number">1000</span>, <span class="number">86_400</span>, <span class="number">500</span>, <span class="number">0</span>, <span class="number">0</span>)
+<a href=#1356 id=1356 data-nosnippet>1356</a>                .expect(<span class="string">"lease"</span>);
+<a href=#1357 id=1357 data-nosnippet>1357</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
+<a href=#1358 id=1358 data-nosnippet>1358</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">1000</span>);
+<a href=#1359 id=1359 data-nosnippet>1359</a>            pm.pay_rent(lease_id).expect(<span class="string">"pay rent"</span>);
+<a href=#1360 id=1360 data-nosnippet>1360</a>            <span class="kw">let </span>lease = pm.get_lease(lease_id).expect(<span class="string">"lease exists"</span>);
+<a href=#1361 id=1361 data-nosnippet>1361</a>            <span class="macro">assert_eq!</span>(lease.next_due, <span class="number">86_400</span>);
+<a href=#1362 id=1362 data-nosnippet>1362</a>            <span class="kw">let </span>dash = pm.get_management_dashboard();
+<a href=#1363 id=1363 data-nosnippet>1363</a>            <span class="macro">assert_eq!</span>(dash.total_rent_collected, <span class="number">1000</span>);
+<a href=#1364 id=1364 data-nosnippet>1364</a>        }
+<a href=#1365 id=1365 data-nosnippet>1365</a>
+<a href=#1366 id=1366 data-nosnippet>1366</a>        <span class="attr">#[ink::test]
+<a href=#1367 id=1367 data-nosnippet>1367</a>        </span><span class="kw">fn </span>maintenance_workflow() {
+<a href=#1368 id=1368 data-nosnippet>1368</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
+<a href=#1369 id=1369 data-nosnippet>1369</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
+<a href=#1370 id=1370 data-nosnippet>1370</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
+<a href=#1371 id=1371 data-nosnippet>1371</a>            pm.add_manager(accounts.charlie).ok();
+<a href=#1372 id=1372 data-nosnippet>1372</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
+<a href=#1373 id=1373 data-nosnippet>1373</a>            <span class="kw">let </span>mid = pm
+<a href=#1374 id=1374 data-nosnippet>1374</a>                .submit_maintenance_request(<span class="number">7</span>, String::from(<span class="string">"Leak"</span>), Hash::from([<span class="number">1u8</span>; <span class="number">32</span>]))
+<a href=#1375 id=1375 data-nosnippet>1375</a>                .expect(<span class="string">"m"</span>);
+<a href=#1376 id=1376 data-nosnippet>1376</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.charlie);
+<a href=#1377 id=1377 data-nosnippet>1377</a>            pm.update_maintenance_status(
+<a href=#1378 id=1378 data-nosnippet>1378</a>                mid,
+<a href=#1379 id=1379 data-nosnippet>1379</a>                MaintenanceStatus::InProgress,
+<a href=#1380 id=1380 data-nosnippet>1380</a>                <span class="prelude-val">Some</span>(accounts.charlie),
+<a href=#1381 id=1381 data-nosnippet>1381</a>            )
+<a href=#1382 id=1382 data-nosnippet>1382</a>            .expect(<span class="string">"upd"</span>);
+<a href=#1383 id=1383 data-nosnippet>1383</a>            pm.resolve_maintenance(mid, Hash::from([<span class="number">2u8</span>; <span class="number">32</span>]))
+<a href=#1384 id=1384 data-nosnippet>1384</a>                .expect(<span class="string">"res"</span>);
+<a href=#1385 id=1385 data-nosnippet>1385</a>            <span class="kw">let </span>m = pm.get_maintenance(mid).expect(<span class="string">"get"</span>);
+<a href=#1386 id=1386 data-nosnippet>1386</a>            <span class="macro">assert_eq!</span>(m.status, MaintenanceStatus::Resolved);
+<a href=#1387 id=1387 data-nosnippet>1387</a>        }
+<a href=#1388 id=1388 data-nosnippet>1388</a>
+<a href=#1389 id=1389 data-nosnippet>1389</a>        <span class="attr">#[ink::test]
+<a href=#1390 id=1390 data-nosnippet>1390</a>        </span><span class="kw">fn </span>screening_review() {
+<a href=#1391 id=1391 data-nosnippet>1391</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
+<a href=#1392 id=1392 data-nosnippet>1392</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
+<a href=#1393 id=1393 data-nosnippet>1393</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
+<a href=#1394 id=1394 data-nosnippet>1394</a>            pm.add_manager(accounts.alice).ok();
+<a href=#1395 id=1395 data-nosnippet>1395</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
+<a href=#1396 id=1396 data-nosnippet>1396</a>            <span class="kw">let </span>sid = pm
+<a href=#1397 id=1397 data-nosnippet>1397</a>                .submit_screening_application(<span class="number">1</span>, Hash::from([<span class="number">3u8</span>; <span class="number">32</span>]), <span class="number">2</span>, <span class="number">3000</span>)
+<a href=#1398 id=1398 data-nosnippet>1398</a>                .expect(<span class="string">"s"</span>);
+<a href=#1399 id=1399 data-nosnippet>1399</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
+<a href=#1400 id=1400 data-nosnippet>1400</a>            pm.review_screening(sid, <span class="bool-val">true</span>).expect(<span class="string">"review"</span>);
+<a href=#1401 id=1401 data-nosnippet>1401</a>            <span class="kw">let </span>s = pm.get_screening(sid).expect(<span class="string">"get"</span>);
+<a href=#1402 id=1402 data-nosnippet>1402</a>            <span class="macro">assert_eq!</span>(s.status, ScreeningStatus::Approved);
+<a href=#1403 id=1403 data-nosnippet>1403</a>        }
+<a href=#1404 id=1404 data-nosnippet>1404</a>
+<a href=#1405 id=1405 data-nosnippet>1405</a>        <span class="attr">#[ink::test]
+<a href=#1406 id=1406 data-nosnippet>1406</a>        </span><span class="kw">fn </span>expense_pay_from_float() {
+<a href=#1407 id=1407 data-nosnippet>1407</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
+<a href=#1408 id=1408 data-nosnippet>1408</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
+<a href=#1409 id=1409 data-nosnippet>1409</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
+<a href=#1410 id=1410 data-nosnippet>1410</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">5000</span>);
+<a href=#1411 id=1411 data-nosnippet>1411</a>            pm.fund_operating_float().expect(<span class="string">"fund"</span>);
+<a href=#1412 id=1412 data-nosnippet>1412</a>            <span class="kw">let </span>eid = pm
+<a href=#1413 id=1413 data-nosnippet>1413</a>                .record_expense(
+<a href=#1414 id=1414 data-nosnippet>1414</a>                    <span class="number">1</span>,
+<a href=#1415 id=1415 data-nosnippet>1415</a>                    String::from(<span class="string">"repair"</span>),
+<a href=#1416 id=1416 data-nosnippet>1416</a>                    <span class="number">500</span>,
+<a href=#1417 id=1417 data-nosnippet>1417</a>                    accounts.bob,
+<a href=#1418 id=1418 data-nosnippet>1418</a>                    Hash::from([<span class="number">4u8</span>; <span class="number">32</span>]),
+<a href=#1419 id=1419 data-nosnippet>1419</a>                )
+<a href=#1420 id=1420 data-nosnippet>1420</a>                .expect(<span class="string">"exp"</span>);
+<a href=#1421 id=1421 data-nosnippet>1421</a>            pm.pay_expense(eid).expect(<span class="string">"pay"</span>);
+<a href=#1422 id=1422 data-nosnippet>1422</a>            <span class="macro">assert_eq!</span>(pm.operating_float_balance(), <span class="number">4500</span>);
+<a href=#1423 id=1423 data-nosnippet>1423</a>            <span class="kw">let </span>e = pm.get_expense(eid).expect(<span class="string">"e"</span>);
+<a href=#1424 id=1424 data-nosnippet>1424</a>            <span class="macro">assert_eq!</span>(e.status, ExpenseStatus::Paid);
+<a href=#1425 id=1425 data-nosnippet>1425</a>        }
+<a href=#1426 id=1426 data-nosnippet>1426</a>
+<a href=#1427 id=1427 data-nosnippet>1427</a>        <span class="attr">#[ink::test]
+<a href=#1428 id=1428 data-nosnippet>1428</a>        </span><span class="kw">fn </span>dispute_escrow_split() {
+<a href=#1429 id=1429 data-nosnippet>1429</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
+<a href=#1430 id=1430 data-nosnippet>1430</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
+<a href=#1431 id=1431 data-nosnippet>1431</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
+<a href=#1432 id=1432 data-nosnippet>1432</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">100</span>);
+<a href=#1433 id=1433 data-nosnippet>1433</a>            <span class="kw">let </span>did = pm
+<a href=#1434 id=1434 data-nosnippet>1434</a>                .open_dispute(<span class="number">1</span>, accounts.bob, Hash::from([<span class="number">5u8</span>; <span class="number">32</span>]))
+<a href=#1435 id=1435 data-nosnippet>1435</a>                .expect(<span class="string">"open"</span>);
+<a href=#1436 id=1436 data-nosnippet>1436</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
+<a href=#1437 id=1437 data-nosnippet>1437</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">100</span>);
+<a href=#1438 id=1438 data-nosnippet>1438</a>            pm.counterparty_stake_dispute(did).expect(<span class="string">"counter"</span>);
+<a href=#1439 id=1439 data-nosnippet>1439</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
+<a href=#1440 id=1440 data-nosnippet>1440</a>            pm.resolve_dispute(did, <span class="prelude-val">None</span>).expect(<span class="string">"split"</span>);
+<a href=#1441 id=1441 data-nosnippet>1441</a>            <span class="kw">let </span>d = pm.get_dispute(did).expect(<span class="string">"d"</span>);
+<a href=#1442 id=1442 data-nosnippet>1442</a>            <span class="macro">assert_eq!</span>(d.status, DisputeStatus::Split);
+<a href=#1443 id=1443 data-nosnippet>1443</a>        }
+<a href=#1444 id=1444 data-nosnippet>1444</a>
+<a href=#1445 id=1445 data-nosnippet>1445</a>        <span class="attr">#[ink::test]
+<a href=#1446 id=1446 data-nosnippet>1446</a>        </span><span class="kw">fn </span>compliance_blocks_overlarge_deposit() {
+<a href=#1447 id=1447 data-nosnippet>1447</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
+<a href=#1448 id=1448 data-nosnippet>1448</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
+<a href=#1449 id=1449 data-nosnippet>1449</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
+<a href=#1450 id=1450 data-nosnippet>1450</a>            pm.set_jurisdiction_compliance(
+<a href=#1451 id=1451 data-nosnippet>1451</a>                <span class="number">9</span>,
+<a href=#1452 id=1452 data-nosnippet>1452</a>                JurisdictionCompliance {
+<a href=#1453 id=1453 data-nosnippet>1453</a>                    jurisdiction_code: String::from(<span class="string">"US-CA"</span>),
+<a href=#1454 id=1454 data-nosnippet>1454</a>                    max_security_deposit_bps: <span class="number">1000</span>,
+<a href=#1455 id=1455 data-nosnippet>1455</a>                    min_notice_period_days: <span class="number">30</span>,
+<a href=#1456 id=1456 data-nosnippet>1456</a>                    late_fee_cap_bps: <span class="number">500</span>,
+<a href=#1457 id=1457 data-nosnippet>1457</a>                    last_audit_ts: <span class="number">0</span>,
+<a href=#1458 id=1458 data-nosnippet>1458</a>                    compliant: <span class="bool-val">true</span>,
+<a href=#1459 id=1459 data-nosnippet>1459</a>                },
+<a href=#1460 id=1460 data-nosnippet>1460</a>            )
+<a href=#1461 id=1461 data-nosnippet>1461</a>            .expect(<span class="string">"legal"</span>);
+<a href=#1462 id=1462 data-nosnippet>1462</a>            <span class="comment">// 10% of implied annual (1000 * 365) = 36_500 cap
+<a href=#1463 id=1463 data-nosnippet>1463</a>            </span><span class="kw">let </span>r = pm.create_lease(<span class="number">9</span>, accounts.bob, accounts.alice, <span class="number">1000</span>, <span class="number">86_400</span>, <span class="number">0</span>, <span class="number">40_000</span>, <span class="number">0</span>);
+<a href=#1464 id=1464 data-nosnippet>1464</a>            <span class="macro">assert_eq!</span>(r, <span class="prelude-val">Err</span>(Error::ComplianceViolation));
+<a href=#1465 id=1465 data-nosnippet>1465</a>        }
+<a href=#1466 id=1466 data-nosnippet>1466</a>
+<a href=#1467 id=1467 data-nosnippet>1467</a>        <span class="comment">// ── #826: Cross-chain identity verification tests ────────────────────
+<a href=#1468 id=1468 data-nosnippet>1468</a>
+<a href=#1469 id=1469 data-nosnippet>1469</a>        </span><span class="attr">#[ink::test]
+<a href=#1470 id=1470 data-nosnippet>1470</a>        </span><span class="kw">fn </span>register_property_fails_without_identity_registry() {
+<a href=#1471 id=1471 data-nosnippet>1471</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
+<a href=#1472 id=1472 data-nosnippet>1472</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
+<a href=#1473 id=1473 data-nosnippet>1473</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
+<a href=#1474 id=1474 data-nosnippet>1474</a>            <span class="kw">let </span>result = pm.register_property(<span class="number">1</span>, Hash::from([<span class="number">0u8</span>; <span class="number">32</span>]));
+<a href=#1475 id=1475 data-nosnippet>1475</a>            <span class="macro">assert_eq!</span>(result, <span class="prelude-val">Err</span>(Error::ComplianceViolation));
+<a href=#1476 id=1476 data-nosnippet>1476</a>        }
+<a href=#1477 id=1477 data-nosnippet>1477</a>
+<a href=#1478 id=1478 data-nosnippet>1478</a>        <span class="attr">#[ink::test]
+<a href=#1479 id=1479 data-nosnippet>1479</a>        </span><span class="kw">fn </span>full_management_workflow() {
+<a href=#1480 id=1480 data-nosnippet>1480</a>            <span class="kw">let </span>accounts = test::default_accounts::&lt;DefaultEnvironment&gt;();
+<a href=#1481 id=1481 data-nosnippet>1481</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
+<a href=#1482 id=1482 data-nosnippet>1482</a>            <span class="kw">let </span><span class="kw-2">mut </span>pm = setup();
+<a href=#1483 id=1483 data-nosnippet>1483</a>            pm.add_manager(accounts.charlie).expect(<span class="string">"manager"</span>);
+<a href=#1484 id=1484 data-nosnippet>1484</a>            pm.set_jurisdiction_compliance(
+<a href=#1485 id=1485 data-nosnippet>1485</a>                <span class="number">1</span>,
+<a href=#1486 id=1486 data-nosnippet>1486</a>                JurisdictionCompliance {
+<a href=#1487 id=1487 data-nosnippet>1487</a>                    jurisdiction_code: String::from(<span class="string">"US"</span>),
+<a href=#1488 id=1488 data-nosnippet>1488</a>                    max_security_deposit_bps: <span class="number">2000</span>,
+<a href=#1489 id=1489 data-nosnippet>1489</a>                    min_notice_period_days: <span class="number">30</span>,
+<a href=#1490 id=1490 data-nosnippet>1490</a>                    late_fee_cap_bps: <span class="number">500</span>,
+<a href=#1491 id=1491 data-nosnippet>1491</a>                    last_audit_ts: <span class="number">0</span>,
+<a href=#1492 id=1492 data-nosnippet>1492</a>                    compliant: <span class="bool-val">true</span>,
+<a href=#1493 id=1493 data-nosnippet>1493</a>                },
+<a href=#1494 id=1494 data-nosnippet>1494</a>            )
+<a href=#1495 id=1495 data-nosnippet>1495</a>            .expect(<span class="string">"compliance"</span>);
+<a href=#1496 id=1496 data-nosnippet>1496</a>            <span class="kw">let </span>lease_id = pm
+<a href=#1497 id=1497 data-nosnippet>1497</a>                .create_lease(<span class="number">1</span>, accounts.bob, accounts.alice, <span class="number">2000</span>, <span class="number">86_400</span>, <span class="number">250</span>, <span class="number">100</span>, <span class="number">0</span>)
+<a href=#1498 id=1498 data-nosnippet>1498</a>                .expect(<span class="string">"lease"</span>);
+<a href=#1499 id=1499 data-nosnippet>1499</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
+<a href=#1500 id=1500 data-nosnippet>1500</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">2000</span>);
+<a href=#1501 id=1501 data-nosnippet>1501</a>            pm.pay_rent(lease_id).expect(<span class="string">"rent"</span>);
+<a href=#1502 id=1502 data-nosnippet>1502</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
+<a href=#1503 id=1503 data-nosnippet>1503</a>            <span class="kw">let </span>mid = pm
+<a href=#1504 id=1504 data-nosnippet>1504</a>                .submit_maintenance_request(<span class="number">1</span>, String::from(<span class="string">"HVAC"</span>), Hash::from([<span class="number">9u8</span>; <span class="number">32</span>]))
+<a href=#1505 id=1505 data-nosnippet>1505</a>                .expect(<span class="string">"maint"</span>);
+<a href=#1506 id=1506 data-nosnippet>1506</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.charlie);
+<a href=#1507 id=1507 data-nosnippet>1507</a>            pm.update_maintenance_status(
+<a href=#1508 id=1508 data-nosnippet>1508</a>                mid,
+<a href=#1509 id=1509 data-nosnippet>1509</a>                MaintenanceStatus::Acknowledged,
+<a href=#1510 id=1510 data-nosnippet>1510</a>                <span class="prelude-val">Some</span>(accounts.charlie),
+<a href=#1511 id=1511 data-nosnippet>1511</a>            )
+<a href=#1512 id=1512 data-nosnippet>1512</a>            .expect(<span class="string">"ack"</span>);
+<a href=#1513 id=1513 data-nosnippet>1513</a>            pm.resolve_maintenance(mid, Hash::from([<span class="number">8u8</span>; <span class="number">32</span>]))
+<a href=#1514 id=1514 data-nosnippet>1514</a>                .expect(<span class="string">"resolve"</span>);
+<a href=#1515 id=1515 data-nosnippet>1515</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
+<a href=#1516 id=1516 data-nosnippet>1516</a>            <span class="kw">let </span>sid = pm
+<a href=#1517 id=1517 data-nosnippet>1517</a>                .submit_screening_application(<span class="number">1</span>, Hash::from([<span class="number">7u8</span>; <span class="number">32</span>]), <span class="number">3</span>, <span class="number">2800</span>)
+<a href=#1518 id=1518 data-nosnippet>1518</a>                .expect(<span class="string">"screen"</span>);
+<a href=#1519 id=1519 data-nosnippet>1519</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.charlie);
+<a href=#1520 id=1520 data-nosnippet>1520</a>            pm.review_screening(sid, <span class="bool-val">true</span>).expect(<span class="string">"approve"</span>);
+<a href=#1521 id=1521 data-nosnippet>1521</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
+<a href=#1522 id=1522 data-nosnippet>1522</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">10_000</span>);
+<a href=#1523 id=1523 data-nosnippet>1523</a>            pm.fund_operating_float().expect(<span class="string">"fund"</span>);
+<a href=#1524 id=1524 data-nosnippet>1524</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.charlie);
+<a href=#1525 id=1525 data-nosnippet>1525</a>            <span class="kw">let </span>eid = pm
+<a href=#1526 id=1526 data-nosnippet>1526</a>                .record_expense(
+<a href=#1527 id=1527 data-nosnippet>1527</a>                    <span class="number">1</span>,
+<a href=#1528 id=1528 data-nosnippet>1528</a>                    String::from(<span class="string">"plumbing"</span>),
+<a href=#1529 id=1529 data-nosnippet>1529</a>                    <span class="number">800</span>,
+<a href=#1530 id=1530 data-nosnippet>1530</a>                    accounts.bob,
+<a href=#1531 id=1531 data-nosnippet>1531</a>                    Hash::from([<span class="number">6u8</span>; <span class="number">32</span>]),
+<a href=#1532 id=1532 data-nosnippet>1532</a>                )
+<a href=#1533 id=1533 data-nosnippet>1533</a>                .expect(<span class="string">"exp"</span>);
+<a href=#1534 id=1534 data-nosnippet>1534</a>            pm.pay_expense(eid).expect(<span class="string">"pay exp"</span>);
+<a href=#1535 id=1535 data-nosnippet>1535</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.charlie);
+<a href=#1536 id=1536 data-nosnippet>1536</a>            <span class="kw">let </span>iid = pm
+<a href=#1537 id=1537 data-nosnippet>1537</a>                .schedule_inspection(<span class="number">1</span>, accounts.charlie, <span class="number">1_700_000_000</span>)
+<a href=#1538 id=1538 data-nosnippet>1538</a>                .expect(<span class="string">"sched"</span>);
+<a href=#1539 id=1539 data-nosnippet>1539</a>            pm.complete_inspection(iid, Hash::from([<span class="number">5u8</span>; <span class="number">32</span>]), <span class="bool-val">true</span>)
+<a href=#1540 id=1540 data-nosnippet>1540</a>                .expect(<span class="string">"insp"</span>);
+<a href=#1541 id=1541 data-nosnippet>1541</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.bob);
+<a href=#1542 id=1542 data-nosnippet>1542</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">50</span>);
+<a href=#1543 id=1543 data-nosnippet>1543</a>            <span class="kw">let </span>did = pm
+<a href=#1544 id=1544 data-nosnippet>1544</a>                .open_dispute(<span class="number">1</span>, accounts.alice, Hash::from([<span class="number">4u8</span>; <span class="number">32</span>]))
+<a href=#1545 id=1545 data-nosnippet>1545</a>                .expect(<span class="string">"dispute"</span>);
+<a href=#1546 id=1546 data-nosnippet>1546</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
+<a href=#1547 id=1547 data-nosnippet>1547</a>            test::set_value_transferred::&lt;DefaultEnvironment&gt;(<span class="number">50</span>);
+<a href=#1548 id=1548 data-nosnippet>1548</a>            pm.counterparty_stake_dispute(did).expect(<span class="string">"stake"</span>);
+<a href=#1549 id=1549 data-nosnippet>1549</a>            test::set_caller::&lt;DefaultEnvironment&gt;(accounts.alice);
+<a href=#1550 id=1550 data-nosnippet>1550</a>            pm.resolve_dispute(did, <span class="prelude-val">Some</span>(<span class="bool-val">true</span>))
+<a href=#1551 id=1551 data-nosnippet>1551</a>                .expect(<span class="string">"resolve dispute"</span>);
+<a href=#1552 id=1552 data-nosnippet>1552</a>            <span class="macro">assert_eq!</span>(
+<a href=#1553 id=1553 data-nosnippet>1553</a>                pm.get_dispute(did).expect(<span class="string">"d"</span>).status,
+<a href=#1554 id=1554 data-nosnippet>1554</a>                DisputeStatus::ResolvedInitiator
+<a href=#1555 id=1555 data-nosnippet>1555</a>            );
+<a href=#1556 id=1556 data-nosnippet>1556</a>            <span class="kw">let </span>dash = pm.get_management_dashboard();
+<a href=#1557 id=1557 data-nosnippet>1557</a>            <span class="macro">assert!</span>(dash.total_rent_collected &gt;= <span class="number">2000</span>);
+<a href=#1558 id=1558 data-nosnippet>1558</a>            <span class="kw">let </span>a = pm.get_property_analytics(<span class="number">1</span>);
+<a href=#1559 id=1559 data-nosnippet>1559</a>            <span class="macro">assert!</span>(a.rent_collected &gt;= <span class="number">2000</span>);
+<a href=#1560 id=1560 data-nosnippet>1560</a>            <span class="macro">assert!</span>(a.maintenance_resolved &gt;= <span class="number">1</span>);
+<a href=#1561 id=1561 data-nosnippet>1561</a>        }
+<a href=#1562 id=1562 data-nosnippet>1562</a>    }
+<a href=#1563 id=1563 data-nosnippet>1563</a>}
+<a href=#1564 id=1564 data-nosnippet>1564</a>
+<a href=#1565 id=1565 data-nosnippet>1565</a><span class="kw">pub mod </span>submodules;
 </code></pre></div></section></main></body></html>
