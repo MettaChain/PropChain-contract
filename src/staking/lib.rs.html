@@ -1344,7 +1344,7 @@
 <a href=#1344 id=1344 data-nosnippet>1344</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(Error::InvalidCommissionRate);
 <a href=#1345 id=1345 data-nosnippet>1345</a>            }
 <a href=#1346 id=1346 data-nosnippet>1346</a>            <span class="self">self</span>.update_validator_rewards(caller);
-<a href=#1347 id=1347 data-nosnippet>1347</a>            <span class="kw">let </span><span class="kw-2">mut </span>info = <span class="self">self</span>.validators.get(caller).ok_or(Error::Unauthorized)<span class="question-mark">?</span>;
+<a href=#1347 id=1347 data-nosnippet>1347</a>            <span class="kw">let </span><span class="kw-2">mut </span>info = <span class="self">self</span>.validators.get(caller).unwrap();
 <a href=#1348 id=1348 data-nosnippet>1348</a>            <span class="kw">let </span>old_rate = info.commission_rate;
 <a href=#1349 id=1349 data-nosnippet>1349</a>            info.commission_rate = new_rate;
 <a href=#1350 id=1350 data-nosnippet>1350</a>            <span class="self">self</span>.validators.insert(caller, <span class="kw-2">&amp;</span>info);
@@ -1408,7 +1408,7 @@
 <a href=#1408 id=1408 data-nosnippet>1408</a>                }
 <a href=#1409 id=1409 data-nosnippet>1409</a>
 <a href=#1410 id=1410 data-nosnippet>1410</a>                <span class="self">self</span>.update_validator_rewards(validator);
-<a href=#1411 id=1411 data-nosnippet>1411</a>                <span class="kw">let </span><span class="kw-2">mut </span>info = <span class="self">self</span>.validators.get(validator).ok_or(Error::ValidatorNotFound)<span class="question-mark">?</span>;
+<a href=#1411 id=1411 data-nosnippet>1411</a>                <span class="kw">let </span><span class="kw-2">mut </span>info = <span class="self">self</span>.validators.get(validator).unwrap();
 <a href=#1412 id=1412 data-nosnippet>1412</a>
 <a href=#1413 id=1413 data-nosnippet>1413</a>                <span class="comment">// Slash validator self-stake
 <a href=#1414 id=1414 data-nosnippet>1414</a>                </span><span class="kw">let </span>self_slash = info.self_stake.saturating_mul(SLASH_PERCENT) / <span class="number">100</span>;
@@ -1482,7 +1482,7 @@
 <a href=#1482 id=1482 data-nosnippet>1482</a>                }
 <a href=#1483 id=1483 data-nosnippet>1483</a>
 <a href=#1484 id=1484 data-nosnippet>1484</a>                <span class="self">self</span>.update_validator_rewards(validator);
-<a href=#1485 id=1485 data-nosnippet>1485</a>                <span class="kw">let </span>info = <span class="self">self</span>.validators.get(validator).ok_or(Error::ValidatorNotFound)<span class="question-mark">?</span>;
+<a href=#1485 id=1485 data-nosnippet>1485</a>                <span class="kw">let </span>info = <span class="self">self</span>.validators.get(validator).unwrap();
 <a href=#1486 id=1486 data-nosnippet>1486</a>
 <a href=#1487 id=1487 data-nosnippet>1487</a>                <span class="kw">let </span>reward_debt =
 <a href=#1488 id=1488 data-nosnippet>1488</a>                    info.acc_reward_per_share.saturating_mul(amount) / REWARD_PRECISION;
@@ -1503,7 +1503,7 @@
 <a href=#1503 id=1503 data-nosnippet>1503</a>                <span class="self">self</span>.delegator_validator.insert(caller, <span class="kw-2">&amp;</span>validator);
 <a href=#1504 id=1504 data-nosnippet>1504</a>
 <a href=#1505 id=1505 data-nosnippet>1505</a>                <span class="comment">// Update validator totals
-<a href=#1506 id=1506 data-nosnippet>1506</a>                </span><span class="kw">let </span><span class="kw-2">mut </span>info = <span class="self">self</span>.validators.get(validator).ok_or(Error::ValidatorNotFound)<span class="question-mark">?</span>;
+<a href=#1506 id=1506 data-nosnippet>1506</a>                </span><span class="kw">let </span><span class="kw-2">mut </span>info = <span class="self">self</span>.validators.get(validator).unwrap();
 <a href=#1507 id=1507 data-nosnippet>1507</a>                info.total_delegated = info.total_delegated.saturating_add(amount);
 <a href=#1508 id=1508 data-nosnippet>1508</a>                <span class="self">self</span>.validators.insert(validator, <span class="kw-2">&amp;</span>info);
 <a href=#1509 id=1509 data-nosnippet>1509</a>                <span class="self">self</span>.total_delegated_stake = <span class="self">self</span>.total_delegated_stake.saturating_add(amount);
@@ -1532,7 +1532,7 @@
 <a href=#1532 id=1532 data-nosnippet>1532</a>                }
 <a href=#1533 id=1533 data-nosnippet>1533</a>
 <a href=#1534 id=1534 data-nosnippet>1534</a>                <span class="self">self</span>.update_validator_rewards(validator);
-<a href=#1535 id=1535 data-nosnippet>1535</a>                <span class="kw">let </span><span class="kw-2">mut </span>info = <span class="self">self</span>.validators.get(validator).ok_or(Error::ValidatorNotFound)<span class="question-mark">?</span>;
+<a href=#1535 id=1535 data-nosnippet>1535</a>                <span class="kw">let </span><span class="kw-2">mut </span>info = <span class="self">self</span>.validators.get(validator).unwrap();
 <a href=#1536 id=1536 data-nosnippet>1536</a>
 <a href=#1537 id=1537 data-nosnippet>1537</a>                <span class="kw">let </span>now = <span class="self">self</span>.env().block_number() <span class="kw">as </span>u64;
 <a href=#1538 id=1538 data-nosnippet>1538</a>                record.unbonding_start = <span class="prelude-val">Some</span>(now);
@@ -1599,7 +1599,7 @@
 <a href=#1599 id=1599 data-nosnippet>1599</a>                    .ok_or(Error::DelegationNotFound)<span class="question-mark">?</span>;
 <a href=#1600 id=1600 data-nosnippet>1600</a>
 <a href=#1601 id=1601 data-nosnippet>1601</a>                <span class="self">self</span>.update_validator_rewards(validator);
-<a href=#1602 id=1602 data-nosnippet>1602</a>                <span class="kw">let </span>info = <span class="self">self</span>.validators.get(validator).ok_or(Error::ValidatorNotFound)<span class="question-mark">?</span>;
+<a href=#1602 id=1602 data-nosnippet>1602</a>                <span class="kw">let </span>info = <span class="self">self</span>.validators.get(validator).unwrap();
 <a href=#1603 id=1603 data-nosnippet>1603</a>
 <a href=#1604 id=1604 data-nosnippet>1604</a>                <span class="kw">let </span>reward = <span class="self">self</span>.pending_delegation_reward(<span class="kw-2">&amp;</span>record, <span class="kw-2">&amp;</span>info);
 <a href=#1605 id=1605 data-nosnippet>1605</a>                <span class="kw">if </span>reward == <span class="number">0 </span>{
@@ -1611,7 +1611,7 @@
 <a href=#1611 id=1611 data-nosnippet>1611</a>
 <a href=#1612 id=1612 data-nosnippet>1612</a>                <span class="self">self</span>.reward_pool = <span class="self">self</span>.reward_pool.saturating_sub(reward);
 <a href=#1613 id=1613 data-nosnippet>1613</a>
-<a href=#1614 id=1614 data-nosnippet>1614</a>                <span class="kw">let </span><span class="kw-2">mut </span>record = <span class="self">self</span>.delegations.get((caller, validator)).ok_or(Error::DelegationNotFound)<span class="question-mark">?</span>;
+<a href=#1614 id=1614 data-nosnippet>1614</a>                <span class="kw">let </span><span class="kw-2">mut </span>record = <span class="self">self</span>.delegations.get((caller, validator)).unwrap();
 <a href=#1615 id=1615 data-nosnippet>1615</a>                record.reward_debt =
 <a href=#1616 id=1616 data-nosnippet>1616</a>                    info.acc_reward_per_share.saturating_mul(record.amount) / REWARD_PRECISION;
 <a href=#1617 id=1617 data-nosnippet>1617</a>                <span class="self">self</span>.delegations.insert((caller, validator), <span class="kw-2">&amp;</span>record);
@@ -1635,7 +1635,7 @@
 <a href=#1635 id=1635 data-nosnippet>1635</a>                }
 <a href=#1636 id=1636 data-nosnippet>1636</a>
 <a href=#1637 id=1637 data-nosnippet>1637</a>                <span class="self">self</span>.update_validator_rewards(caller);
-<a href=#1638 id=1638 data-nosnippet>1638</a>                <span class="kw">let </span><span class="kw-2">mut </span>info = <span class="self">self</span>.validators.get(caller).ok_or(Error::Unauthorized)<span class="question-mark">?</span>;
+<a href=#1638 id=1638 data-nosnippet>1638</a>                <span class="kw">let </span><span class="kw-2">mut </span>info = <span class="self">self</span>.validators.get(caller).unwrap();
 <a href=#1639 id=1639 data-nosnippet>1639</a>
 <a href=#1640 id=1640 data-nosnippet>1640</a>                <span class="kw">if </span>info.accumulated_commission == <span class="number">0 </span>{
 <a href=#1641 id=1641 data-nosnippet>1641</a>                    <span class="kw">return </span><span class="prelude-val">Err</span>(Error::NoRewards);
