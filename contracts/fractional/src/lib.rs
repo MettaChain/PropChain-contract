@@ -348,16 +348,41 @@ pub mod fractional {
     }
 
     impl Fractional {
+        /// Records the last-known price per share for `token_id`.
+        ///
+        /// Not payable. Open to any caller -- this message performs no
+        /// access-control or ownership check, and unconditionally
+        /// overwrites any previously stored price. Never fails; there is no
+        /// `Result` return. The stored value feeds `redeem_shares`'s payout
+        /// calculation and is used as the fallback price in
+        /// `aggregate_portfolio` when a caller does not supply its own
+        /// price for a token.
         #[ink(message)]
         pub fn set_last_price(&mut self, token_id: u64, price_per_share: u128) {
             self.last_prices.insert(token_id, &price_per_share);
         }
 
+        /// Returns the last-known price per share for `token_id`, as most
+        /// recently set by `set_last_price`.
+        ///
+        /// Open to any caller. Returns `None` if no price has ever been set
+        /// for `token_id`.
         #[ink(message)]
         pub fn get_last_price(&self, token_id: u64) -> Option<u128> {
             self.last_prices.get(token_id)
         }
 
+        /// Computes the total value of a caller-supplied list of holdings, a
+        /// read-only convenience calculation that does not touch this
+        /// contract's own balance records.
+        ///
+        /// Open to any caller. For each `PortfolioItem`, uses
+        /// `item.price_per_share` if it is nonzero, otherwise falls back to
+        /// this contract's stored `last_prices` for `item.token_id` (`0` if
+        /// none is stored). Returns the summed `total_value` along with a
+        /// per-item `(token_id, shares, price_used)` breakdown in
+        /// `positions`, in the same order as the input `items`. All
+        /// arithmetic saturates rather than overflowing. Never fails.
         #[ink(message)]
         pub fn aggregate_portfolio(&self, items: Vec<PortfolioItem>) -> PortfolioAggregation {
             let mut total: u128 = 0;
@@ -378,6 +403,15 @@ pub mod fractional {
             }
         }
 
+        /// Summarizes caller-supplied dividend and proceeds records into
+        /// total dividends, total proceeds, and a transaction count.
+        ///
+        /// Open to any caller. This is a pure calculation over the `dividends`
+        /// and `proceeds` arguments; it does not read or write any of this
+        /// contract's own storage, so it reflects only what the caller
+        /// passes in, not this contract's actual transaction history.
+        /// `transactions` is the combined length of both input lists. All
+        /// arithmetic saturates rather than overflowing. Never fails.
         #[ink(message)]
         pub fn summarize_tax(
             &self,

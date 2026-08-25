@@ -260,6 +260,12 @@ pub mod sanctions_screening {
             Ok(())
         }
 
+        /// Returns the sanctioned-entity record for `entity_id`, if one exists.
+        ///
+        /// Open to any caller. Returns `None` if `entity_id` has never been
+        /// registered. The returned record may have `active == false` if the
+        /// entity was later removed via `remove_sanctioned_entity`; callers that
+        /// care about current sanction status should check `active` themselves.
         #[ink(message)]
         pub fn get_sanctioned_entity(&self, entity_id: u64) -> Option<SanctionedEntity> {
             self.sanctioned_entities.get(entity_id)
@@ -267,6 +273,15 @@ pub mod sanctions_screening {
 
         // ── Admin: Manage sanctioned properties ─────────────────────────────
 
+        /// Adds a property to the sanctions list, keyed by caller-supplied
+        /// `property_id`. Admin-only.
+        ///
+        /// Unlike `add_sanctioned_entity`, `property_id` is not auto-assigned;
+        /// calling this again with the same `property_id` overwrites the
+        /// existing record. Emits `PropertySanctioned`.
+        ///
+        /// # Errors
+        /// - `Error::NotAuthorized` if the caller is not the contract admin.
         #[ink(message)]
         pub fn add_sanctioned_property(
             &mut self,
@@ -294,6 +309,16 @@ pub mod sanctions_screening {
             Ok(())
         }
 
+        /// Deactivates a sanctioned property. Admin-only.
+        ///
+        /// Sets the property's `active` flag to `false`. The record is kept
+        /// (not deleted) so it remains queryable via `get_sanctioned_property`.
+        /// Emits `PropertyCleared`.
+        ///
+        /// # Errors
+        /// - `Error::NotAuthorized` if the caller is not the contract admin.
+        /// - `Error::PropertyNotFound` if no property is registered under
+        ///   `property_id`.
         #[ink(message)]
         pub fn clear_sanctioned_property(&mut self, property_id: u64) -> Result<()> {
             self.ensure_admin()?;
@@ -310,6 +335,13 @@ pub mod sanctions_screening {
             Ok(())
         }
 
+        /// Returns the sanctioned-property record for `property_id`, if one
+        /// exists.
+        ///
+        /// Open to any caller. Returns `None` if `property_id` was never listed.
+        /// The returned record may have `active == false` if it was later
+        /// cleared via `clear_sanctioned_property`; callers that care about
+        /// current sanction status should check `active` themselves.
         #[ink(message)]
         pub fn get_sanctioned_property(&self, property_id: u64) -> Option<SanctionedProperty> {
             self.sanctioned_properties.get(property_id)
@@ -317,6 +349,35 @@ pub mod sanctions_screening {
 
         // ── Screening ───────────────────────────────────────────────────────
 
+        /// Screens a property (and, optionally, an associated entity) against
+        /// the sanctions lists, and records the outcome. Admin-only.
+        ///
+        /// Checks are evaluated in order and the first match wins:
+        /// 1. If `property_id` is itself an active sanctioned property, the
+        ///    screening fails (`passed = false`) with that property's
+        ///    `sanction_level`, regardless of `entity_id`.
+        /// 2. Otherwise, if `entity_id` is `Some` and refers to an active
+        ///    sanctioned entity whose `jurisdiction_code` matches the one
+        ///    passed in, the screening fails with that entity's
+        ///    `sanction_level`.
+        /// 3. Otherwise the screening passes with `SanctionLevel::None`. This
+        ///    includes the case where `jurisdiction_code` does not match any
+        ///    known jurisdiction: an unrecognized jurisdiction is not itself
+        ///    grounds for failure.
+        ///
+        /// Every call stores a new `ScreeningResult` (auto-incrementing
+        /// `screening_id`), appends it to the property's screening history
+        /// (see `get_property_screenings`), and emits `ScreeningsPerformed`.
+        ///
+        /// # Screening guarantee
+        /// This lookup runs in time proportional to whether `property_id` and
+        /// `entity_id` are present in storage (a `Mapping::get` per check), not
+        /// in constant time.
+        ///
+        /// # Errors
+        /// - `Error::NotAuthorized` if the caller is not the contract admin.
+        /// - `Error::ThresholdExceeded` if the internal screening-id counter
+        ///   has been exhausted (`u64::MAX` screenings recorded).
         #[ink(message)]
         pub fn screen_property(
             &mut self,
@@ -421,11 +482,23 @@ pub mod sanctions_screening {
             self.property_screenings.insert(property_id, &existing);
         }
 
+        /// Returns a single screening result by its `screening_id`, if one
+        /// exists.
+        ///
+        /// Open to any caller. Returns `None` if `screening_id` was never
+        /// recorded (every `screen_property` call produces exactly one).
         #[ink(message)]
         pub fn get_screening_result(&self, screening_id: u64) -> Option<ScreeningResult> {
             self.screening_results.get(screening_id)
         }
 
+        /// Returns the full screening history for a property, in the order
+        /// the screenings were performed.
+        ///
+        /// Open to any caller. Returns an empty `Vec` if `property_id` has
+        /// never been screened. Any screening id recorded against the property
+        /// that can no longer be resolved to a stored result is silently
+        /// skipped rather than causing an error.
         #[ink(message)]
         pub fn get_property_screenings(&self, property_id: u64) -> Vec<ScreeningResult> {
             match self.property_screenings.get(property_id) {
@@ -442,16 +515,40 @@ pub mod sanctions_screening {
             }
         }
 
+        /// Returns whether `property_id` has ever been screened, i.e. whether
+        /// `screen_property` has been called for it at least once.
+        ///
+        /// Open to any caller. This does not indicate pass/fail status, only
+        /// that a screening history exists; use `get_property_screenings` or
+        /// `get_screening_result` to inspect outcomes.
         #[ink(message)]
         pub fn is_property_screened(&self, property_id: u64) -> bool {
             self.property_screenings.get(property_id).is_some()
         }
 
+        /// Returns the account currently authorized to call the admin-only
+        /// messages on this contract (`add_sanctioned_entity`,
+        /// `remove_sanctioned_entity`, `add_sanctioned_property`,
+        /// `clear_sanctioned_property`, `screen_property`,
+        /// `set_screening_threshold`, and `set_max_sanctioned_entities`).
+        ///
+        /// Open to any caller. There is no message to transfer admin rights;
+        /// the admin is fixed to the account that called the constructor.
         #[ink(message)]
         pub fn admin(&self) -> AccountId {
             self.admin
         }
 
+        /// Updates the screening-threshold configuration value (in days).
+        /// Admin-only.
+        ///
+        /// Note: this value is stored and returned by `screening_threshold`,
+        /// but is not currently read anywhere else in this contract, including
+        /// `screen_property` -- there is no re-screening cadence or expiry
+        /// enforced from it today. Emits `SanctionThresholdUpdated`.
+        ///
+        /// # Errors
+        /// - `Error::NotAuthorized` if the caller is not the contract admin.
         #[ink(message)]
         pub fn set_screening_threshold(&mut self, days: u32) -> Result<()> {
             self.ensure_admin()?;
@@ -463,6 +560,11 @@ pub mod sanctions_screening {
             Ok(())
         }
 
+        /// Returns the current screening-threshold configuration value (in
+        /// days), as last set by `set_screening_threshold` or the default of
+        /// 90 set in the constructor.
+        ///
+        /// Open to any caller.
         #[ink(message)]
         pub fn screening_threshold(&self) -> u32 {
             self.screening_threshold_days
@@ -667,6 +769,8 @@ pub mod sanctions_screening {
             let decoded =
                 SanctionThresholdUpdated::decode(&mut &events[0].data[..]).expect("decode event");
             assert_eq!(decoded.threshold, 30);
+        }
+
         #[ink::test]
         fn test_add_entity_at_exact_cap_succeeds_next_fails() {
             let mut contract = default_contract();
