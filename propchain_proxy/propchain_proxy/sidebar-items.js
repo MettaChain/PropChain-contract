@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["TransparentProxy","TransparentProxyRef"]};
+window.SIDEBAR_ITEMS = {"enum":["ProxyError"],"struct":["TransparentProxy","TransparentProxyRef","UpgradeConfirmed","UpgradeStaged"]};

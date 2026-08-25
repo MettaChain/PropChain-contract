@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["property_management"]};
+window.SIDEBAR_ITEMS = {"mod":["permit_module","property_management"]};

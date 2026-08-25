@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["quorum_guard"]};
+window.SIDEBAR_ITEMS = {"mod":["monitoring","quorum_guard"]};

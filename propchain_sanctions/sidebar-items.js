@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["src"]};
+window.SIDEBAR_ITEMS = {"mod":["sanctions_screening"]};

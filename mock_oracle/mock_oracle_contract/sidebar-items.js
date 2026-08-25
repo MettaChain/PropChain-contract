@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["AllPricesReset","MockOracle","MockOracleRef","PricePushed","PriceReset","ValuationRequested"]};

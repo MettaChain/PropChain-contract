@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Error","MarketStatus","PredictionDirection"],"struct":["BacktestValidated","MarketCreated","MarketResolved","OracleMarket","OracleMarketCreated","OracleMarketResolved","OracleWinningsClaimed","PredictionMarket","PredictionMarketInfo","PredictionMarketRef","PredictionStaked","RewardClaimed","Stake","UserReputation"],"type":["OracleMetric"]};

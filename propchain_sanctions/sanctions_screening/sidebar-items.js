@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["EntityType","Error","SanctionLevel"],"struct":["EntityRemovedFromSanctions","EntitySanctioned","PropertyCleared","PropertySanctioned","SanctionThresholdUpdated","SanctionedEntity","SanctionedProperty","SanctionsScreening","SanctionsScreeningRef","ScreeningResult","ScreeningsPerformed"],"type":["Result"]};

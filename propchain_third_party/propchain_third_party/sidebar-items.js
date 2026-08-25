@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Error","RequestStatus","ServiceStatus","ServiceType"],"struct":["KycRecord","KycRequest","KycRequestInitiated","KycStatusUpdated","MonitoringAlert","PaymentCompleted","PaymentInitiated","PaymentRequest","ServiceConfig","ServiceRegistered","ServiceStatusChanged","ThirdPartyIntegration","ThirdPartyIntegrationRef"],"type":["RequestId","ServiceId"]};

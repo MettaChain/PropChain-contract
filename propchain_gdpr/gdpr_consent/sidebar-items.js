@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ConsentStatus","Error","ProcessingPurpose"],"struct":["ConsentExpired","ConsentGranted","ConsentRecord","ConsentWithdrawn","DataAccessFulfilled","DataAccessRequest","DataAccessRequested","DataRetentionPolicy","GdprConsent","GdprConsentRef","RetentionPolicyUpdated"],"type":["Result"]};

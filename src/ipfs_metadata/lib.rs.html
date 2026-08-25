@@ -8,7 +8,7 @@
 <a href=#8 id=8 data-nosnippet>8</a>
 <a href=#9 id=9 data-nosnippet>9</a><span class="attr">#[ink::contract]
 <a href=#10 id=10 data-nosnippet>10</a>#[allow(clippy::too_many_arguments)]
-<a href=#11 id=11 data-nosnippet>11</a></span><span class="kw">mod </span>ipfs_metadata {
+<a href=#11 id=11 data-nosnippet>11</a></span><span class="kw">pub mod </span>ipfs_metadata {
 <a href=#12 id=12 data-nosnippet>12</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
 <a href=#13 id=13 data-nosnippet>13</a>
 <a href=#14 id=14 data-nosnippet>14</a>    <span class="comment">// ============================================================================
@@ -1229,6 +1229,168 @@
 <a href=#1229 id=1229 data-nosnippet>1229</a>            <span class="kw">let </span>result = contract.verify_document_notarization(property_id, document_hash);
 <a href=#1230 id=1230 data-nosnippet>1230</a>            <span class="macro">assert_eq!</span>(result, <span class="prelude-val">None</span>);
 <a href=#1231 id=1231 data-nosnippet>1231</a>        }
-<a href=#1232 id=1232 data-nosnippet>1232</a>    }
-<a href=#1233 id=1233 data-nosnippet>1233</a>}
+<a href=#1232 id=1232 data-nosnippet>1232</a>
+<a href=#1233 id=1233 data-nosnippet>1233</a>        <span class="comment">// ── Issue #990: access control &amp; media registration coverage ──────
+<a href=#1234 id=1234 data-nosnippet>1234</a>
+<a href=#1235 id=1235 data-nosnippet>1235</a>        </span><span class="doccomment">/// Deterministic metadata fixture that passes default validation.
+<a href=#1236 id=1236 data-nosnippet>1236</a>        </span><span class="kw">fn </span>seeded_metadata(seed: u8) -&gt; PropertyMetadata {
+<a href=#1237 id=1237 data-nosnippet>1237</a>            PropertyMetadata {
+<a href=#1238 id=1238 data-nosnippet>1238</a>                location: String::from(<span class="string">"123 Test Street, Test City"</span>),
+<a href=#1239 id=1239 data-nosnippet>1239</a>                size: <span class="number">250</span>,
+<a href=#1240 id=1240 data-nosnippet>1240</a>                legal_description: String::from(<span class="string">"Lot 42, Block 7, Test Subdivision"</span>),
+<a href=#1241 id=1241 data-nosnippet>1241</a>                valuation: <span class="number">350_000</span>,
+<a href=#1242 id=1242 data-nosnippet>1242</a>                documents_ipfs_cid: <span class="prelude-val">None</span>,
+<a href=#1243 id=1243 data-nosnippet>1243</a>                images_ipfs_cid: <span class="prelude-val">None</span>,
+<a href=#1244 id=1244 data-nosnippet>1244</a>                legal_docs_ipfs_cid: <span class="prelude-val">None</span>,
+<a href=#1245 id=1245 data-nosnippet>1245</a>                created_at: <span class="number">0</span>,
+<a href=#1246 id=1246 data-nosnippet>1246</a>                content_hash: Hash::from([seed; <span class="number">32</span>]),
+<a href=#1247 id=1247 data-nosnippet>1247</a>                is_encrypted: <span class="bool-val">false</span>,
+<a href=#1248 id=1248 data-nosnippet>1248</a>            }
+<a href=#1249 id=1249 data-nosnippet>1249</a>        }
+<a href=#1250 id=1250 data-nosnippet>1250</a>
+<a href=#1251 id=1251 data-nosnippet>1251</a>        <span class="doccomment">/// Documents the (current) bootstrap behaviour of
+<a href=#1252 id=1252 data-nosnippet>1252</a>        /// `validate_and_register_metadata`: only the contract admin may
+<a href=#1253 id=1253 data-nosnippet>1253</a>        /// register metadata for a fresh property and receives persistent
+<a href=#1254 id=1254 data-nosnippet>1254</a>        /// property-level `Admin`, which they use to delegate access.
+<a href=#1255 id=1255 data-nosnippet>1255</a>        /// Unauthenticated callers are rejected without gaining any access,
+<a href=#1256 id=1256 data-nosnippet>1256</a>        /// and delegated readers cannot escalate by granting permissions.
+<a href=#1257 id=1257 data-nosnippet>1257</a>        </span><span class="attr">#[ink::test]
+<a href=#1258 id=1258 data-nosnippet>1258</a>        </span><span class="kw">fn </span>validate_and_register_metadata_grants_caller_admin() {
+<a href=#1259 id=1259 data-nosnippet>1259</a>            <span class="kw">let </span>accounts = ink::env::test::default_accounts::&lt;ink::env::DefaultEnvironment&gt;();
+<a href=#1260 id=1260 data-nosnippet>1260</a>            <span class="comment">// Alice constructs the contract and is the platform admin.
+<a href=#1261 id=1261 data-nosnippet>1261</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>contract = IpfsMetadataRegistry::new();
+<a href=#1262 id=1262 data-nosnippet>1262</a>
+<a href=#1263 id=1263 data-nosnippet>1263</a>            <span class="comment">// An unauthenticated caller cannot register a fresh property...
+<a href=#1264 id=1264 data-nosnippet>1264</a>            </span>ink::env::test::set_caller::&lt;ink::env::DefaultEnvironment&gt;(accounts.bob);
+<a href=#1265 id=1265 data-nosnippet>1265</a>            <span class="macro">assert_eq!</span>(
+<a href=#1266 id=1266 data-nosnippet>1266</a>                contract.validate_and_register_metadata(<span class="number">1</span>, seeded_metadata(<span class="number">0x01</span>)),
+<a href=#1267 id=1267 data-nosnippet>1267</a>                <span class="prelude-val">Err</span>(Error::Unauthorized)
+<a href=#1268 id=1268 data-nosnippet>1268</a>            );
+<a href=#1269 id=1269 data-nosnippet>1269</a>            <span class="comment">// ...and gains no access on it.
+<a href=#1270 id=1270 data-nosnippet>1270</a>            </span><span class="macro">assert_eq!</span>(contract.access_permissions.get((<span class="number">1</span>, accounts.bob)), <span class="prelude-val">None</span>);
+<a href=#1271 id=1271 data-nosnippet>1271</a>
+<a href=#1272 id=1272 data-nosnippet>1272</a>            <span class="comment">// The contract admin bootstraps the property and receives
+<a href=#1273 id=1273 data-nosnippet>1273</a>            // persistent property-level Admin (documented behaviour).
+<a href=#1274 id=1274 data-nosnippet>1274</a>            </span>ink::env::test::set_caller::&lt;ink::env::DefaultEnvironment&gt;(accounts.alice);
+<a href=#1275 id=1275 data-nosnippet>1275</a>            contract
+<a href=#1276 id=1276 data-nosnippet>1276</a>                .validate_and_register_metadata(<span class="number">1</span>, seeded_metadata(<span class="number">0x02</span>))
+<a href=#1277 id=1277 data-nosnippet>1277</a>                .unwrap();
+<a href=#1278 id=1278 data-nosnippet>1278</a>            <span class="macro">assert_eq!</span>(
+<a href=#1279 id=1279 data-nosnippet>1279</a>                contract.access_permissions.get((<span class="number">1</span>, accounts.alice)),
+<a href=#1280 id=1280 data-nosnippet>1280</a>                <span class="prelude-val">Some</span>(AccessLevel::Admin)
+<a href=#1281 id=1281 data-nosnippet>1281</a>            );
+<a href=#1282 id=1282 data-nosnippet>1282</a>
+<a href=#1283 id=1283 data-nosnippet>1283</a>            <span class="comment">// As the property admin, Alice can grant Read access to Charlie.
+<a href=#1284 id=1284 data-nosnippet>1284</a>            </span>contract
+<a href=#1285 id=1285 data-nosnippet>1285</a>                .grant_access(<span class="number">1</span>, accounts.charlie, AccessLevel::Read)
+<a href=#1286 id=1286 data-nosnippet>1286</a>                .unwrap();
+<a href=#1287 id=1287 data-nosnippet>1287</a>            <span class="macro">assert_eq!</span>(
+<a href=#1288 id=1288 data-nosnippet>1288</a>                contract.access_permissions.get((<span class="number">1</span>, accounts.charlie)),
+<a href=#1289 id=1289 data-nosnippet>1289</a>                <span class="prelude-val">Some</span>(AccessLevel::Read)
+<a href=#1290 id=1290 data-nosnippet>1290</a>            );
+<a href=#1291 id=1291 data-nosnippet>1291</a>
+<a href=#1292 id=1292 data-nosnippet>1292</a>            <span class="comment">// A delegated reader cannot escalate by granting access.
+<a href=#1293 id=1293 data-nosnippet>1293</a>            </span>ink::env::test::set_caller::&lt;ink::env::DefaultEnvironment&gt;(accounts.charlie);
+<a href=#1294 id=1294 data-nosnippet>1294</a>            <span class="macro">assert_eq!</span>(
+<a href=#1295 id=1295 data-nosnippet>1295</a>                contract.grant_access(<span class="number">1</span>, accounts.eve, AccessLevel::Write),
+<a href=#1296 id=1296 data-nosnippet>1296</a>                <span class="prelude-val">Err</span>(Error::Unauthorized)
+<a href=#1297 id=1297 data-nosnippet>1297</a>            );
+<a href=#1298 id=1298 data-nosnippet>1298</a>        }
+<a href=#1299 id=1299 data-nosnippet>1299</a>
+<a href=#1300 id=1300 data-nosnippet>1300</a>        <span class="doccomment">/// Media registration stores a queryable document; duplicate CIDs are
+<a href=#1301 id=1301 data-nosnippet>1301</a>        /// rejected so content addressing stays unique.
+<a href=#1302 id=1302 data-nosnippet>1302</a>        </span><span class="attr">#[ink::test]
+<a href=#1303 id=1303 data-nosnippet>1303</a>        </span><span class="kw">fn </span>media_registration_and_duplicate_cid_rejected() {
+<a href=#1304 id=1304 data-nosnippet>1304</a>            <span class="kw">let </span><span class="kw-2">mut </span>contract = IpfsMetadataRegistry::new(); <span class="comment">// alice = admin
+<a href=#1305 id=1305 data-nosnippet>1305</a>
+<a href=#1306 id=1306 data-nosnippet>1306</a>            </span><span class="kw">let </span>cid: IpfsCid = String::from(<span class="string">"QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG"</span>);
+<a href=#1307 id=1307 data-nosnippet>1307</a>            <span class="kw">let </span>content_hash = Hash::from([<span class="number">0xAB</span>; <span class="number">32</span>]);
+<a href=#1308 id=1308 data-nosnippet>1308</a>            <span class="kw">let </span>doc_id = contract
+<a href=#1309 id=1309 data-nosnippet>1309</a>                .register_ipfs_document(
+<a href=#1310 id=1310 data-nosnippet>1310</a>                    <span class="number">10</span>,
+<a href=#1311 id=1311 data-nosnippet>1311</a>                    cid.clone(),
+<a href=#1312 id=1312 data-nosnippet>1312</a>                    DocumentType::Inspection,
+<a href=#1313 id=1313 data-nosnippet>1313</a>                    content_hash,
+<a href=#1314 id=1314 data-nosnippet>1314</a>                    <span class="number">1024</span>,
+<a href=#1315 id=1315 data-nosnippet>1315</a>                    String::from(<span class="string">"image/jpeg"</span>),
+<a href=#1316 id=1316 data-nosnippet>1316</a>                    <span class="bool-val">false</span>,
+<a href=#1317 id=1317 data-nosnippet>1317</a>                )
+<a href=#1318 id=1318 data-nosnippet>1318</a>                .unwrap();
+<a href=#1319 id=1319 data-nosnippet>1319</a>
+<a href=#1320 id=1320 data-nosnippet>1320</a>            <span class="macro">assert_eq!</span>(doc_id, <span class="number">1</span>);
+<a href=#1321 id=1321 data-nosnippet>1321</a>            <span class="macro">assert_eq!</span>(contract.document_count(), <span class="number">1</span>);
+<a href=#1322 id=1322 data-nosnippet>1322</a>
+<a href=#1323 id=1323 data-nosnippet>1323</a>            <span class="kw">let </span>doc = contract.get_document(doc_id).unwrap();
+<a href=#1324 id=1324 data-nosnippet>1324</a>            <span class="macro">assert_eq!</span>(doc.property_id, <span class="number">10</span>);
+<a href=#1325 id=1325 data-nosnippet>1325</a>            <span class="macro">assert_eq!</span>(doc.ipfs_cid, cid);
+<a href=#1326 id=1326 data-nosnippet>1326</a>            <span class="macro">assert_eq!</span>(doc.document_type, DocumentType::Inspection);
+<a href=#1327 id=1327 data-nosnippet>1327</a>            <span class="macro">assert_eq!</span>(doc.content_hash, content_hash);
+<a href=#1328 id=1328 data-nosnippet>1328</a>            <span class="macro">assert!</span>(!doc.is_pinned);
+<a href=#1329 id=1329 data-nosnippet>1329</a>            <span class="macro">assert!</span>(!doc.is_encrypted);
+<a href=#1330 id=1330 data-nosnippet>1330</a>
+<a href=#1331 id=1331 data-nosnippet>1331</a>            <span class="comment">// Reachable by property listing and by CID lookup.
+<a href=#1332 id=1332 data-nosnippet>1332</a>            </span><span class="macro">assert_eq!</span>(contract.get_property_documents(<span class="number">10</span>), <span class="macro">vec!</span>[doc_id]);
+<a href=#1333 id=1333 data-nosnippet>1333</a>            <span class="macro">assert_eq!</span>(
+<a href=#1334 id=1334 data-nosnippet>1334</a>                contract
+<a href=#1335 id=1335 data-nosnippet>1335</a>                    .get_document_by_cid(cid.clone())
+<a href=#1336 id=1336 data-nosnippet>1336</a>                    .unwrap()
+<a href=#1337 id=1337 data-nosnippet>1337</a>                    .document_id,
+<a href=#1338 id=1338 data-nosnippet>1338</a>                doc_id
+<a href=#1339 id=1339 data-nosnippet>1339</a>            );
+<a href=#1340 id=1340 data-nosnippet>1340</a>
+<a href=#1341 id=1341 data-nosnippet>1341</a>            <span class="comment">// Registering the same CID again must fail...
+<a href=#1342 id=1342 data-nosnippet>1342</a>            </span><span class="macro">assert_eq!</span>(
+<a href=#1343 id=1343 data-nosnippet>1343</a>                contract.register_ipfs_document(
+<a href=#1344 id=1344 data-nosnippet>1344</a>                    <span class="number">10</span>,
+<a href=#1345 id=1345 data-nosnippet>1345</a>                    cid.clone(),
+<a href=#1346 id=1346 data-nosnippet>1346</a>                    DocumentType::Deed,
+<a href=#1347 id=1347 data-nosnippet>1347</a>                    Hash::from([<span class="number">0xCD</span>; <span class="number">32</span>]),
+<a href=#1348 id=1348 data-nosnippet>1348</a>                    <span class="number">2048</span>,
+<a href=#1349 id=1349 data-nosnippet>1349</a>                    String::from(<span class="string">"application/pdf"</span>),
+<a href=#1350 id=1350 data-nosnippet>1350</a>                    <span class="bool-val">true</span>,
+<a href=#1351 id=1351 data-nosnippet>1351</a>                ),
+<a href=#1352 id=1352 data-nosnippet>1352</a>                <span class="prelude-val">Err</span>(Error::DocumentAlreadyExists)
+<a href=#1353 id=1353 data-nosnippet>1353</a>            );
+<a href=#1354 id=1354 data-nosnippet>1354</a>            <span class="comment">// ...and must not have modified the stored document.
+<a href=#1355 id=1355 data-nosnippet>1355</a>            </span><span class="macro">assert_eq!</span>(contract.document_count(), <span class="number">1</span>);
+<a href=#1356 id=1356 data-nosnippet>1356</a>            <span class="macro">assert_eq!</span>(
+<a href=#1357 id=1357 data-nosnippet>1357</a>                contract.get_document_by_cid(cid).unwrap().document_type,
+<a href=#1358 id=1358 data-nosnippet>1358</a>                DocumentType::Inspection
+<a href=#1359 id=1359 data-nosnippet>1359</a>            );
+<a href=#1360 id=1360 data-nosnippet>1360</a>        }
+<a href=#1361 id=1361 data-nosnippet>1361</a>
+<a href=#1362 id=1362 data-nosnippet>1362</a>        <span class="doccomment">/// Accounts without any permission on a property are rejected from
+<a href=#1363 id=1363 data-nosnippet>1363</a>        /// both document registration and access granting.
+<a href=#1364 id=1364 data-nosnippet>1364</a>        </span><span class="attr">#[ink::test]
+<a href=#1365 id=1365 data-nosnippet>1365</a>        </span><span class="kw">fn </span>non_admin_rejected_from_registration_and_grants() {
+<a href=#1366 id=1366 data-nosnippet>1366</a>            <span class="kw">let </span>accounts = ink::env::test::default_accounts::&lt;ink::env::DefaultEnvironment&gt;();
+<a href=#1367 id=1367 data-nosnippet>1367</a>            <span class="kw">let </span><span class="kw-2">mut </span>contract = IpfsMetadataRegistry::new(); <span class="comment">// alice = platform admin
+<a href=#1368 id=1368 data-nosnippet>1368</a>
+<a href=#1369 id=1369 data-nosnippet>1369</a>            </span>ink::env::test::set_caller::&lt;ink::env::DefaultEnvironment&gt;(accounts.eve);
+<a href=#1370 id=1370 data-nosnippet>1370</a>
+<a href=#1371 id=1371 data-nosnippet>1371</a>            <span class="comment">// Eve has no permissions on property 7 at all.
+<a href=#1372 id=1372 data-nosnippet>1372</a>            </span><span class="macro">assert_eq!</span>(
+<a href=#1373 id=1373 data-nosnippet>1373</a>                contract.register_ipfs_document(
+<a href=#1374 id=1374 data-nosnippet>1374</a>                    <span class="number">7</span>,
+<a href=#1375 id=1375 data-nosnippet>1375</a>                    String::from(<span class="string">"QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG"</span>),
+<a href=#1376 id=1376 data-nosnippet>1376</a>                    DocumentType::Survey,
+<a href=#1377 id=1377 data-nosnippet>1377</a>                    Hash::from([<span class="number">0xEE</span>; <span class="number">32</span>]),
+<a href=#1378 id=1378 data-nosnippet>1378</a>                    <span class="number">512</span>,
+<a href=#1379 id=1379 data-nosnippet>1379</a>                    String::from(<span class="string">"application/pdf"</span>),
+<a href=#1380 id=1380 data-nosnippet>1380</a>                    <span class="bool-val">false</span>,
+<a href=#1381 id=1381 data-nosnippet>1381</a>                ),
+<a href=#1382 id=1382 data-nosnippet>1382</a>                <span class="prelude-val">Err</span>(Error::Unauthorized)
+<a href=#1383 id=1383 data-nosnippet>1383</a>            );
+<a href=#1384 id=1384 data-nosnippet>1384</a>            <span class="macro">assert_eq!</span>(
+<a href=#1385 id=1385 data-nosnippet>1385</a>                contract.grant_access(<span class="number">7</span>, accounts.charlie, AccessLevel::Write),
+<a href=#1386 id=1386 data-nosnippet>1386</a>                <span class="prelude-val">Err</span>(Error::Unauthorized)
+<a href=#1387 id=1387 data-nosnippet>1387</a>            );
+<a href=#1388 id=1388 data-nosnippet>1388</a>
+<a href=#1389 id=1389 data-nosnippet>1389</a>            <span class="comment">// Nothing was created by the rejected calls.
+<a href=#1390 id=1390 data-nosnippet>1390</a>            </span><span class="macro">assert_eq!</span>(contract.document_count(), <span class="number">0</span>);
+<a href=#1391 id=1391 data-nosnippet>1391</a>            <span class="macro">assert!</span>(contract.get_property_documents(<span class="number">7</span>).is_empty());
+<a href=#1392 id=1392 data-nosnippet>1392</a>            <span class="macro">assert_eq!</span>(contract.access_permissions.get((<span class="number">7</span>, accounts.charlie)), <span class="prelude-val">None</span>);
+<a href=#1393 id=1393 data-nosnippet>1393</a>        }
+<a href=#1394 id=1394 data-nosnippet>1394</a>    }
+<a href=#1395 id=1395 data-nosnippet>1395</a>}
 </code></pre></div></section></main></body></html>

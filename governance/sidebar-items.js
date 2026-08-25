@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["delegation","treasury"]};
+window.SIDEBAR_ITEMS = {"mod":["delegation","governance","treasury"]};
