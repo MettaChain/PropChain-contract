@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["StakingError"],"struct":["RewardClaimed","RewardDistributed","Staked","StakerRecord","StakingDashboard","StakingStats","Unstaked"],"type":["Result"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["propchain_analytics"]};
+window.SIDEBAR_ITEMS = {"mod":["propchain_analytics","staking_dashboard"]};

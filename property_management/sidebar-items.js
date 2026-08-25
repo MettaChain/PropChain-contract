@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["property_management","submodules"]};
+window.SIDEBAR_ITEMS = {"mod":["property_management"]};
