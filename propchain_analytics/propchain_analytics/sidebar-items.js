@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AnalyticsError"],"struct":["AdminRotationCancelled","AdminRotationConfirmed","AdminRotationRequested","AnalyticsDashboard","AnalyticsDashboardRef","BatchMetricsUpdated","MarketMetrics","MarketReport","MarketSentiment","MarketTrend","MetricUpdate","PortfolioPerformance","PortfolioPosition","RebalancingSuggestion","UserBehavior"]};

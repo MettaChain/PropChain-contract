@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DataType","Error","SyncStatus"],"struct":["AnalyticsSnapshot","AnalyticsSnapshotRecorded","DataExportCompleted","DataExportRequested","DataSyncEvent","DatabaseIntegration","DatabaseIntegrationRef","ExportRequest","IndexerInfo","IndexerRegistered","SyncConfirmed","SyncRecord"],"type":["ExportBatchId","SyncId"]};
