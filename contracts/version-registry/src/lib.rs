@@ -422,10 +422,15 @@ mod version_registry {
 
             // next_version advanced past 100 and registering v2 did not rewind
             // it: the next sequential id continues after the highest version.
-            let next_id = registry.register_deployment("svc".into(), [3u8; 32]).unwrap();
+            let next_id = registry
+                .register_deployment("svc".into(), [3u8; 32])
+                .unwrap();
             assert_eq!(next_id, 101);
             assert_eq!(
-                registry.get_deployment("svc".into(), 101).unwrap().code_hash,
+                registry
+                    .get_deployment("svc".into(), 101)
+                    .unwrap()
+                    .code_hash,
                 [3u8; 32]
             );
             // Plain registration books itself as the newest deployment.

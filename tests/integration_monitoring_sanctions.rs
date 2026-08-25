@@ -16,21 +16,19 @@
 ///   check Screening FAILs while a property is linked to sanctioned state
 ///   check Screening PASSes after clearing; results are queryable
 ///   check Entity-based screening honors jurisdiction matching
-
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod integration_monitoring_sanctions {
     // ── Contracts under test ─────────────────────────────────────────────
+    use ink::env::{test, DefaultEnvironment};
     use propchain_monitoring::monitoring::MonitoringContract;
     use propchain_sanctions::sanctions_screening::{
         EntityType, Error as SanctionsError, SanctionLevel, SanctionsScreening,
     };
-
     // Shared types live in the traits crate.
     use propchain_traits::monitoring::{
         AlertType, HealthStatus, MonitoringError, MonitoringSystem, OperationType,
     };
-
-    use ink::env::{test, DefaultEnvironment};
 
     // ═════════════════════════════════════════════════════════════════════
     // Issue #1003 — Monitoring
@@ -182,7 +180,11 @@ mod integration_monitoring_sanctions {
         );
 
         // Default config for untouched alert types is inactive.
-        assert!(!monitoring.get_alert_config(AlertType::SystemDegraded).is_active);
+        assert!(
+            !monitoring
+                .get_alert_config(AlertType::SystemDegraded)
+                .is_active
+        );
     }
 
     /// Pause blocks operation recording; resume restores normal operation.
@@ -212,7 +214,9 @@ mod integration_monitoring_sanctions {
             "Operation recording must be gated while paused"
         );
 
-        monitoring.resume().expect("Admin should resume the contract");
+        monitoring
+            .resume()
+            .expect("Admin should resume the contract");
         assert_eq!(monitoring.get_system_status(), HealthStatus::Healthy);
         monitoring
             .record_operation(OperationType::Generic, true)
@@ -381,9 +385,9 @@ mod integration_monitoring_sanctions {
             3,
             "Clean + failed + cleared screenings must be recorded"
         );
-        assert_eq!(history[0].passed, true);
-        assert_eq!(history[1].passed, false);
-        assert_eq!(history[2].passed, true);
+        assert!(history[0].passed);
+        assert!(!history[1].passed);
+        assert!(history[2].passed);
     }
 
     /// Entity-based screening matches only within the sanctioned

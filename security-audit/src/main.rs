@@ -288,7 +288,7 @@ fn main() -> Result<()> {
                     // and large allocations that could be pre-sized.
                     audit_report.gas_analysis.large_allocations +=
                         content.matches("Vec::new()").count()
-                        + content.matches("Vec::with_capacity(0)").count();
+                            + content.matches("Vec::with_capacity(0)").count();
                     audit_report.gas_analysis.storage_access_violations +=
                         content.matches(".get(").count().saturating_sub(1);
                 }

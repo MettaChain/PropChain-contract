@@ -1,12 +1,20 @@
 #[derive(Clone, Debug, PartialEq)]
-pub struct Delegation { pub delegator: [u8; 32], pub delegate: [u8; 32] }
+pub struct Delegation {
+    pub delegator: [u8; 32],
+    pub delegate: [u8; 32],
+}
 
 pub struct DelegationRegistry {
     pairs: alloc::vec::Vec<([u8; 32], [u8; 32])>,
 }
 
 impl DelegationRegistry {
-    pub fn new() -> Self { Self { pairs: alloc::vec::Vec::new() } }
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self {
+            pairs: alloc::vec::Vec::new(),
+        }
+    }
 
     pub fn delegate_to(&mut self, delegator: [u8; 32], delegate: [u8; 32]) {
         self.undelegate(delegator);
@@ -18,7 +26,10 @@ impl DelegationRegistry {
     }
 
     pub fn get_delegate(&self, delegator: &[u8; 32]) -> Option<[u8; 32]> {
-        self.pairs.iter().find(|(d, _)| d == delegator).map(|(_, t)| *t)
+        self.pairs
+            .iter()
+            .find(|(d, _)| d == delegator)
+            .map(|(_, t)| *t)
     }
 
     pub fn delegated_count(&self, delegate: &[u8; 32]) -> usize {

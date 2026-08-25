@@ -28,22 +28,20 @@
 ///   check Invalid CIDs are rejected by validate_ipfs_cid
 ///   check Invalid metadata (missing fields / bounds) is rejected by validate_metadata
 ///   check Unauthorized accounts cannot register documents or verify content
-
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod integration_factory_ipfs {
     // Contract factory
-    use propchain_factory::contract_factory::{
-        ContractFactory, ContractType, DeploymentConfig, Error as FactoryError,
-    };
-
+    use ink::env::{test, DefaultEnvironment};
+    use ink::primitives::Hash;
     // IPFS metadata registry
     use ipfs_metadata::ipfs_metadata::{
         AccessLevel, DocumentType, Error as IpfsError, IpfsMetadataRegistry, PropertyMetadata,
         ValidationRules,
     };
-
-    use ink::env::{test, DefaultEnvironment};
-    use ink::primitives::Hash;
+    use propchain_factory::contract_factory::{
+        ContractFactory, ContractType, DeploymentConfig, Error as FactoryError,
+    };
 
     fn hash(byte: u8) -> Hash {
         Hash::from([byte; 32])
@@ -70,8 +68,14 @@ mod integration_factory_ipfs {
             .set_code_hash(ContractType::Escrow, hash(0xB2))
             .expect("Admin should register a second code hash");
 
-        assert_eq!(factory.get_code_hash(ContractType::PropertyToken), Some(hash(0xA1)));
-        assert_eq!(factory.get_code_hash(ContractType::Escrow), Some(hash(0xB2)));
+        assert_eq!(
+            factory.get_code_hash(ContractType::PropertyToken),
+            Some(hash(0xA1))
+        );
+        assert_eq!(
+            factory.get_code_hash(ContractType::Escrow),
+            Some(hash(0xB2))
+        );
         assert_eq!(
             factory.get_code_hash(ContractType::Oracle),
             None,
@@ -141,7 +145,9 @@ mod integration_factory_ipfs {
         let deployer_ids = factory.get_deployer_contracts(accounts.alice);
         assert_eq!(deployer_ids, vec![0], "First deployment id should be 0");
 
-        let record = factory.get_deployment(0).expect("Deployment should be stored");
+        let record = factory
+            .get_deployment(0)
+            .expect("Deployment should be stored");
         assert_eq!(record.contract_type, ContractType::Fractional);
         assert_eq!(record.deployer, accounts.alice);
         assert_eq!(record.code_hash, hash(0xCD));
@@ -184,7 +190,10 @@ mod integration_factory_ipfs {
         factory
             .set_code_hash(ContractType::Bridge, hash(0x03))
             .expect("New admin should hold full privileges");
-        assert_eq!(factory.get_code_hash(ContractType::Bridge), Some(hash(0x03)));
+        assert_eq!(
+            factory.get_code_hash(ContractType::Bridge),
+            Some(hash(0x03))
+        );
     }
 
     // ── Issue #1007: IPFS Metadata Registry ─────────────────────────────────
@@ -247,23 +256,42 @@ mod integration_factory_ipfs {
     /// is observable because they can then grant/revoke access on it even
     /// though they are not the contract admin.
     #[ink::test]
-    fn test_registered_caller_escalates_to_property_admin() {
+    fn test_registration_gating_and_admin_bootstrap() {
         let accounts = test::default_accounts::<DefaultEnvironment>();
         let mut registry = IpfsMetadataRegistry::new_with_rules(default_rules());
 
-        // bob (not the contract admin) registers his own property
+        // Since the #966 hardening, an unauthenticated caller cannot register
+        // metadata for a fresh property and gains no access by trying.
         test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            registry.validate_and_register_metadata(42, valid_metadata(None)),
+            Err(IpfsError::Unauthorized)
+        );
+        // ...and he cannot register documents against it either.
+        assert_eq!(
+            registry.register_ipfs_document(
+                42,
+                format!("b{}", "c".repeat(52)),
+                DocumentType::Deed,
+                Hash::from([0x33u8; 32]),
+                1_024,
+                String::from("application/pdf"),
+                false,
+            ),
+            Err(IpfsError::Unauthorized)
+        );
+
+        // The contract admin bootstraps property 42 and receives persistent
+        // property-level Admin.
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
         registry
             .validate_and_register_metadata(42, valid_metadata(None))
-            .expect("bob should register metadata");
+            .expect("admin bootstraps the property");
 
-        // Escalation proof 1: bob grants charlie Write access on property 42.
-        // Without the implicit Admin grant this would fail with Unauthorized.
+        // Behavioural proof of the Admin grant: only the admin may delegate.
         registry
             .grant_access(42, accounts.charlie, AccessLevel::Write)
-            .expect("Property registrar must hold Admin access over the property");
-
-        // Proof 2: charlie can now register a document against bob's property.
+            .expect("property admin delegates Write access");
         let doc_id = registry
             .register_ipfs_document(
                 42,
@@ -277,9 +305,13 @@ mod integration_factory_ipfs {
             .expect("Granted Write access must allow document registration");
         assert_eq!(doc_id, 1);
 
-        // The contract admin never granted anything - only the escalation did.
-        assert_ne!(registry.admin(), accounts.bob);
-        assert_ne!(registry.admin(), accounts.charlie);
+        // Neither the rejected registrant nor the delegated writer can
+        // escalate: granting access stays admin-only.
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        assert_eq!(
+            registry.grant_access(42, accounts.bob, AccessLevel::Read),
+            Err(IpfsError::Unauthorized)
+        );
     }
 
     /// CID validation matrix: empty, wrong-prefix, too-short v1 and malformed
@@ -376,7 +408,10 @@ mod integration_factory_ipfs {
             Err(IpfsError::InvalidIpfsCid),
             "validate_and_register_metadata must reject invalid CIDs"
         );
-        assert!(registry.get_metadata(9).is_none(), "Rejected metadata must not be stored");
+        assert!(
+            registry.get_metadata(9).is_none(),
+            "Rejected metadata must not be stored"
+        );
     }
 
     /// Unauthorized access attempts are rejected:

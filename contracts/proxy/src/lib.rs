@@ -164,10 +164,7 @@ pub mod propchain_proxy {
         /// Only affects future `set_implementation` calls; a pending upgrade's
         /// `effective_at` is not retroactively changed.
         #[ink(message)]
-        pub fn set_upgrade_delay_blocks(
-            &mut self,
-            new_delay: u64,
-        ) -> Result<(), ProxyError> {
+        pub fn set_upgrade_delay_blocks(&mut self, new_delay: u64) -> Result<(), ProxyError> {
             self.ensure_admin()?;
             self.upgrade_delay_blocks = new_delay;
             Ok(())
@@ -224,10 +221,8 @@ pub mod propchain_proxy {
             let call_result = build_call::<ink::env::DefaultEnvironment>()
                 .call_v1(self.implementation)
                 .exec_input(
-                    ink::env::call::ExecutionInput::new(
-                        ink::env::call::Selector::new(selector),
-                    )
-                    .push_arg(&input),
+                    ink::env::call::ExecutionInput::new(ink::env::call::Selector::new(selector))
+                        .push_arg(&input),
                 )
                 .returns::<Vec<u8>>()
                 .try_invoke();
@@ -318,10 +313,7 @@ pub mod propchain_proxy {
 
             assert!(proxy.confirm_implementation().is_ok());
             assert_eq!(proxy.implementation(), accounts.charlie);
-            assert_eq!(
-                proxy.pending_implementation(),
-                AccountId::from([0u8; 32])
-            );
+            assert_eq!(proxy.pending_implementation(), AccountId::from([0u8; 32]));
         }
 
         #[ink::test]
@@ -358,5 +350,4 @@ pub mod propchain_proxy {
             );
         }
     }
-
 }

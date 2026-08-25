@@ -550,7 +550,7 @@ mod tests {
         gov.vote(p0, true).unwrap();
         set_caller(accounts.bob);
         gov.vote(p0, true).unwrap(); // reaches Approved
-        assert_analytics_match_recount(&mut gov);
+        assert_analytics_match_recount(&gov);
         advance_block(11);
         set_caller(accounts.alice); // signer executes after timelock
         gov.execute_proposal(p0).unwrap();
@@ -561,23 +561,23 @@ mod tests {
         gov.vote(p1, false).unwrap();
         set_caller(accounts.bob);
         gov.vote(p1, false).unwrap();
-        assert_analytics_match_recount(&mut gov);
+        assert_analytics_match_recount(&gov);
 
         // p2: cancelled by proposer while still active.
         let p2 = gov.create_proposal(dummy_hash(), GovernanceAction::SaleApproval, None).unwrap();
         gov.cancel_proposal(p2).unwrap();
-        assert_analytics_match_recount(&mut gov);
+        assert_analytics_match_recount(&gov);
 
         // p3: emergency-rejected straight from Active.
         let p3 = gov.create_proposal(dummy_hash(), GovernanceAction::SaleApproval, None).unwrap();
         set_caller(accounts.alice); // admin-only
         gov.emergency_override(p3, false).unwrap();
-        assert_analytics_match_recount(&mut gov);
+        assert_analytics_match_recount(&gov);
 
         // p4: emergency-executed from Active.
         let p4 = gov.create_proposal(dummy_hash(), GovernanceAction::SaleApproval, None).unwrap();
         gov.emergency_override(p4, true).unwrap();
-        assert_analytics_match_recount(&mut gov);
+        assert_analytics_match_recount(&gov);
 
         // p5: approved but never executed (stays in Approved/timelock state).
         let p5 = gov.create_proposal(dummy_hash(), GovernanceAction::SaleApproval, None).unwrap();
@@ -585,13 +585,13 @@ mod tests {
         gov.vote(p5, true).unwrap();
         set_caller(accounts.bob);
         gov.vote(p5, true).unwrap();
-        assert_analytics_match_recount(&mut gov);
+        assert_analytics_match_recount(&gov);
 
         // Tricky case: emergency-execute an already-rejected proposal.
         // The recount reads final statuses, so p1 moves rejected -> executed.
         set_caller(accounts.alice); // admin-only
         gov.emergency_override(p1, true).unwrap();
-        assert_analytics_match_recount(&mut gov);
+        assert_analytics_match_recount(&gov);
 
         // Final sanity snapshot.
         let stats = gov.get_analytics();
@@ -604,7 +604,9 @@ mod tests {
         // p1 contributed its participation exactly once (when it was
         // rejected), so re-closing it via override must not skew the average.
         // Closures: p0 (6666 bps), p1 (6666 bps), p3 (0), p4 (0) -> avg 3333.
-        let expected_avg = ((2 * 10_000 / 3) + (2 * 10_000 / 3) + 0 + 0) / 4;
+        let closed_bps = (2 * 10_000 / 3) as u32;
+        let zero_turnouts = [0u32, 0];
+        let expected_avg = (closed_bps + closed_bps + zero_turnouts[0] + zero_turnouts[1]) / 4;
         assert_eq!(stats.avg_participation_bps, expected_avg);
     }
 
@@ -612,7 +614,7 @@ mod tests {
     /// analytics: counters are maintained incrementally per transition.
     #[ink::test]
     fn analytics_stays_consistent_over_thousand_proposal_history() {
-        let accounts = default_accounts();
+        let _ = default_accounts();
         let mut gov = create_governance();
 
         // GOVERNANCE_MAX_ACTIVE_PROPOSALS caps concurrent active proposals,
@@ -637,7 +639,7 @@ mod tests {
         assert_eq!(stats.rejected_proposals, 0);
         assert_eq!(stats.avg_participation_bps, 0);
 
-        assert_analytics_match_recount(&mut gov);
+        assert_analytics_match_recount(&gov);
     }
 }
 

@@ -117,12 +117,9 @@ impl IdentityDashboard {
                 dispute_count: reputation_metrics.dispute_count,
                 average_transaction_value: reputation_metrics.average_transaction_value,
                 total_value_transacted: reputation_metrics.total_value_transacted,
-                success_rate: if reputation_metrics.total_transactions > 0 {
-                    (reputation_metrics.successful_transactions * 100)
-                        / reputation_metrics.total_transactions
-                } else {
-                    0
-                },
+                success_rate: (reputation_metrics.successful_transactions * 100)
+                    .checked_div(reputation_metrics.total_transactions)
+                    .unwrap_or(0),
             },
             privacy_settings: identity.privacy_settings,
             cross_chain_verifications,

@@ -1063,7 +1063,10 @@ pub mod propchain_prediction_market {
             assert_eq!(rep.accuracy_score, 0);
 
             // Stake stays unclaimed but marked as loser-owned; retry keeps failing
-            assert_eq!(contract.claim_reward(market_id), Err(Error::LoserCannotClaim));
+            assert_eq!(
+                contract.claim_reward(market_id),
+                Err(Error::LoserCannotClaim)
+            );
         }
 
         #[ink::test]

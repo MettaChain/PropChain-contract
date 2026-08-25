@@ -73,7 +73,9 @@ mod integration_crowdfunding {
             .expect("admin verifies bob");
         assert!(cf.is_accredited(accounts.bob));
         test::set_caller::<DefaultEnvironment>(accounts.bob);
+        ink::env::test::set_value_transferred::<DefaultEnvironment>(40_000);
         cf.invest(campaign, 40_000).expect("first investment");
+        ink::env::test::set_value_transferred::<DefaultEnvironment>(20_000);
         cf.invest(campaign, 20_000).expect("top-up investment");
         assert_eq!(cf.get_investment(campaign, accounts.bob), 60_000);
 
@@ -108,8 +110,10 @@ mod integration_crowdfunding {
         }
 
         test::set_caller::<DefaultEnvironment>(accounts.bob);
+        ink::env::test::set_value_transferred::<DefaultEnvironment>(30_000);
         cf.invest(campaign, 30_000).expect("bob invests");
         test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        ink::env::test::set_value_transferred::<DefaultEnvironment>(25_000);
         cf.invest(campaign, 25_000)
             .expect("charlie overshoots target");
 
@@ -199,6 +203,7 @@ mod integration_crowdfunding {
         test::set_caller::<DefaultEnvironment>(accounts.alice);
         cf.verify_accreditation(accounts.bob).expect("ok");
         test::set_caller::<DefaultEnvironment>(accounts.bob);
+        ink::env::test::set_value_transferred::<DefaultEnvironment>(25_000);
         cf.invest(campaign, 25_000).expect("invested");
 
         // Refunds only exist after the admin cancels the campaign.

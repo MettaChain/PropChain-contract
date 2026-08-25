@@ -31,6 +31,7 @@ staking = { path = "../contracts/staking", default-features = false }
 propchain-bridge = { path = "../contracts/bridge", default-features = false }
 oracle = { path = "../contracts/oracle", default-features = false }
 propchain-insurance = { path = "../contracts/insurance", default-features = false }
+fractional = { path = "../contracts/fractional", default-features = false }
 # Issues #926 / #927: batching and prediction-market coverage targets
 propchain-multicall = { path = "../contracts/multicall", default-features = false }
 propchain-prediction-market = { path = "../contracts/prediction-market", default-features = false }
@@ -71,7 +72,6 @@ rand = "0.8"
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
 propchain-contracts = { path = "../contracts/lib", default-features = false }
-propchain-monitoring = { path = "../contracts/monitoring", default-features = false, features = ["ink-as-dependency"] }
 compliance_registry = { path = "../contracts/compliance_registry", default-features = false }
 proptest = { version = "1.4", features = ["std"] }
 
@@ -97,10 +97,12 @@ std = [
     "staking/std",
     "propchain-bridge/std",
     "propchain-insurance/std",
+    "fractional/std",
     "propchain-multicall/std",
     "propchain-prediction-market/std",
     "propchain-third-party/std",
     "mock-oracle/std",
+    "compliance_registry/std",
     "propchain-gdpr/std",
     "propchain-factory/std",
     "ipfs-metadata/std",
@@ -157,3 +159,11 @@ path = "integration_analytics.rs"
 [[test]]
 name = "integration_identity"
 path = "integration_identity.rs"
+
+[[test]]
+name = "integration_insurance"
+path = "integration_insurance.rs"
+
+[[test]]
+name = "integration_monitoring_sanctions"
+path = "integration_monitoring_sanctions.rs"

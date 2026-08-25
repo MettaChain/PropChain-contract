@@ -830,7 +830,7 @@ mod propchain_metadata {
                 property_type: MetadataPropertyType::Residential,
                 valuation: 750_000,
                 legal_description: "Freehold townhouse".into(),
-                coordinates: Some((38_722_3, -9_139_3)),
+                coordinates: Some((3_872_230, -913_930)),
                 year_built: Some(2015),
                 bedrooms: Some(4),
                 bathrooms: Some(3),

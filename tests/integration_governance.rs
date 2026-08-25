@@ -17,13 +17,12 @@
 ///   check Non-signers cannot propose or vote
 ///   check Double voting is rejected
 ///   check Certain majority-against proposals are rejected and not executable
-
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod integration_governance {
     use governance::governance::{
         Error as GovernanceError, Governance, GovernanceAction, ProposalStatus,
     };
-
     use ink::env::{test, DefaultEnvironment};
     use ink::primitives::Hash;
 
@@ -37,11 +36,7 @@ mod integration_governance {
     fn setup() -> Governance {
         let accounts = test::default_accounts::<DefaultEnvironment>();
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        Governance::new(
-            vec![accounts.alice, accounts.bob],
-            2,
-            TIMELOCK_BLOCKS,
-        )
+        Governance::new(vec![accounts.alice, accounts.bob], 2, TIMELOCK_BLOCKS)
     }
 
     /// Three signers (alice, bob, charlie), threshold 2.
@@ -209,7 +204,9 @@ mod integration_governance {
         // Two rejections out of three signers make approval mathematically
         // impossible: remaining votes (1) + votes_for (0) < threshold (2).
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        governance.vote(proposal_id, false).expect("Alice reject works");
+        governance
+            .vote(proposal_id, false)
+            .expect("Alice reject works");
 
         // Not yet decided: approval is still theoretically possible.
         assert_eq!(
@@ -218,7 +215,9 @@ mod integration_governance {
         );
 
         test::set_caller::<DefaultEnvironment>(accounts.bob);
-        governance.vote(proposal_id, false).expect("Bob reject works");
+        governance
+            .vote(proposal_id, false)
+            .expect("Bob reject works");
 
         let rejected = governance.get_proposal(proposal_id).unwrap();
         assert_eq!(rejected.status, ProposalStatus::Rejected);

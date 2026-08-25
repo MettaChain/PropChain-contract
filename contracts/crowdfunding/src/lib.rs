@@ -1386,7 +1386,10 @@ pub mod propchain_crowdfunding {
             // this campaign. Each entry is keyed by (campaign_id, investor).
             let mut largest_investment = 0u128;
             for investor_id in self.campaign_investors.get(campaign_id).unwrap_or_default() {
-                let amount = self.investments.get((campaign_id, investor_id)).unwrap_or(0);
+                let amount = self
+                    .investments
+                    .get((campaign_id, investor_id))
+                    .unwrap_or(0);
                 if amount > largest_investment {
                     largest_investment = amount;
                 }
@@ -1409,7 +1412,11 @@ pub mod propchain_crowdfunding {
                 let elapsed_blocks = current_block.saturating_sub(campaign.created_at);
                 let elapsed_seconds = elapsed_blocks.saturating_mul(6);
                 let days = elapsed_seconds / 86_400;
-                if days == 0 { 1 } else { days }
+                if days == 0 {
+                    1
+                } else {
+                    days
+                }
             } else {
                 1 // Fallback: treat as 1 day old
             };
@@ -2024,41 +2031,75 @@ mod tests {
     fn test_unauthorized_milestone_approval_rejected() {
         let mut contract = setup();
         let accounts = test::default_accounts::<DefaultEnvironment>();
-        let campaign_id = contract.create_campaign("Approval Gate".into(), 100_000).unwrap();
-        let milestone_id = contract.add_milestone(campaign_id, "Framing".into(), 25_000).unwrap();
+        let campaign_id = contract
+            .create_campaign("Approval Gate".into(), 100_000)
+            .unwrap();
+        let milestone_id = contract
+            .add_milestone(campaign_id, "Framing".into(), 25_000)
+            .unwrap();
         test::set_caller::<DefaultEnvironment>(accounts.charlie);
-        assert_eq!(contract.approve_milestone(milestone_id), Err(CrowdfundingError::Unauthorized));
-        assert_ne!(contract.get_milestone(milestone_id).unwrap().status, MilestoneStatus::Approved);
+        assert_eq!(
+            contract.approve_milestone(milestone_id),
+            Err(CrowdfundingError::Unauthorized)
+        );
+        assert_ne!(
+            contract.get_milestone(milestone_id).unwrap().status,
+            MilestoneStatus::Approved
+        );
     }
 
     #[ink::test]
     fn test_release_before_approval_rejected() {
         let mut contract = setup();
-        let campaign_id = contract.create_campaign("Order Check".into(), 100_000).unwrap();
-        let milestone_id = contract.add_milestone(campaign_id, "Roofing".into(), 25_000).unwrap();
-        assert_eq!(contract.release_milestone(milestone_id), Err(CrowdfundingError::MilestoneNotApproved));
+        let campaign_id = contract
+            .create_campaign("Order Check".into(), 100_000)
+            .unwrap();
+        let milestone_id = contract
+            .add_milestone(campaign_id, "Roofing".into(), 25_000)
+            .unwrap();
+        assert_eq!(
+            contract.release_milestone(milestone_id),
+            Err(CrowdfundingError::MilestoneNotApproved)
+        );
     }
 
     #[ink::test]
     fn test_double_release_rejected_after_release() {
         let mut contract = setup();
-        let campaign_id = contract.create_campaign("One Shot".into(), 100_000).unwrap();
-        let milestone_id = contract.add_milestone(campaign_id, "Handover".into(), 25_000).unwrap();
-        contract.oracle_verify_milestone(milestone_id, [7u8; 32]).unwrap();
+        let campaign_id = contract
+            .create_campaign("One Shot".into(), 100_000)
+            .unwrap();
+        let milestone_id = contract
+            .add_milestone(campaign_id, "Handover".into(), 25_000)
+            .unwrap();
+        contract
+            .oracle_verify_milestone(milestone_id, [7u8; 32])
+            .unwrap();
         contract.approve_milestone(milestone_id).unwrap();
         contract.release_milestone(milestone_id).unwrap();
-        assert_eq!(contract.release_milestone(milestone_id), Err(CrowdfundingError::MilestoneNotApproved));
+        assert_eq!(
+            contract.release_milestone(milestone_id),
+            Err(CrowdfundingError::MilestoneNotApproved)
+        );
     }
 
     #[ink::test]
     fn test_refund_rejected_for_funded_campaign() {
         let mut contract = setup();
         let accounts = test::default_accounts::<DefaultEnvironment>();
-        let campaign_id = contract.create_campaign("Funded Tower".into(), 100_000).unwrap();
+        let campaign_id = contract
+            .create_campaign("Funded Tower".into(), 100_000)
+            .unwrap();
         fund_campaign_to_target(&mut contract, campaign_id);
-        assert_eq!(contract.get_campaign(campaign_id).unwrap().status, CampaignStatus::Funded);
+        assert_eq!(
+            contract.get_campaign(campaign_id).unwrap().status,
+            CampaignStatus::Funded
+        );
         test::set_caller::<DefaultEnvironment>(accounts.bob);
-        assert_eq!(contract.claim_refund(campaign_id), Err(CrowdfundingError::CampaignNotFailed));
+        assert_eq!(
+            contract.claim_refund(campaign_id),
+            Err(CrowdfundingError::CampaignNotFailed)
+        );
         assert!(!contract.is_refunded(campaign_id, accounts.bob));
     }
 
@@ -2080,10 +2121,15 @@ mod tests {
     fn test_invest_amount_beyond_share_capacity_rejected_atomically() {
         let mut contract = setup();
         let accounts = test::default_accounts::<DefaultEnvironment>();
-        let campaign_id = contract.create_campaign("Overflow Guard".into(), u128::MAX).unwrap();
+        let campaign_id = contract
+            .create_campaign("Overflow Guard".into(), u128::MAX)
+            .unwrap();
         contract.activate_campaign(campaign_id).unwrap();
         onboard_accredited_investor(&mut contract, accounts.bob);
-        assert_eq!(invest_with(&mut contract, campaign_id, u128::MAX), Err(CrowdfundingError::ArithmeticOverflow));
+        assert_eq!(
+            invest_with(&mut contract, campaign_id, u128::MAX),
+            Err(CrowdfundingError::ArithmeticOverflow)
+        );
         assert_eq!(contract.get_investment(campaign_id, accounts.bob), 0);
         let campaign = contract.get_campaign(campaign_id).unwrap();
         assert_eq!(campaign.raised_amount, 0);
@@ -2096,28 +2142,48 @@ mod tests {
     fn test_share_ledger_accumulation_overflow_rejected() {
         let mut contract = setup();
         let accounts = test::default_accounts::<DefaultEnvironment>();
-        let campaign_id = contract.create_campaign("Share Saturation".into(), u128::MAX).unwrap();
+        let campaign_id = contract
+            .create_campaign("Share Saturation".into(), u128::MAX)
+            .unwrap();
         contract.activate_campaign(campaign_id).unwrap();
         onboard_accredited_investor(&mut contract, accounts.bob);
         let saturating_amount = u64::MAX as u128 * 1000;
-        invest_with(&mut contract, campaign_id, saturating_amount).expect("first investment within capacity");
-        assert_eq!(invest_with(&mut contract, campaign_id, 2_000), Err(CrowdfundingError::ArithmeticOverflow));
-        assert_eq!(contract.get_investment(campaign_id, accounts.bob), saturating_amount);
-        assert_eq!(contract.get_campaign(campaign_id).unwrap().raised_amount, saturating_amount);
+        invest_with(&mut contract, campaign_id, saturating_amount)
+            .expect("first investment within capacity");
+        assert_eq!(
+            invest_with(&mut contract, campaign_id, 2_000),
+            Err(CrowdfundingError::ArithmeticOverflow)
+        );
+        assert_eq!(
+            contract.get_investment(campaign_id, accounts.bob),
+            saturating_amount
+        );
+        assert_eq!(
+            contract.get_campaign(campaign_id).unwrap().raised_amount,
+            saturating_amount
+        );
     }
 
     #[ink::test]
     fn test_invest_requires_exact_transferred_value() {
         let mut contract = setup();
         let accounts = test::default_accounts::<DefaultEnvironment>();
-        let campaign_id = contract.create_campaign("Sunset Villas".into(), 100_000).unwrap();
+        let campaign_id = contract
+            .create_campaign("Sunset Villas".into(), 100_000)
+            .unwrap();
         contract.activate_campaign(campaign_id).unwrap();
         test::set_caller::<DefaultEnvironment>(accounts.bob);
         contract.onboard_investor("US".into(), true).unwrap();
         test::set_value_transferred::<DefaultEnvironment>(0);
-        assert_eq!(contract.invest(campaign_id, 50_000), Err(CrowdfundingError::ValueMismatch));
+        assert_eq!(
+            contract.invest(campaign_id, 50_000),
+            Err(CrowdfundingError::ValueMismatch)
+        );
         test::set_value_transferred::<DefaultEnvironment>(60_000);
-        assert_eq!(contract.invest(campaign_id, 50_000), Err(CrowdfundingError::ValueMismatch));
+        assert_eq!(
+            contract.invest(campaign_id, 50_000),
+            Err(CrowdfundingError::ValueMismatch)
+        );
         test::set_value_transferred::<DefaultEnvironment>(0);
         invest_with(&mut contract, campaign_id, 50_000).unwrap();
         assert_eq!(contract.get_investment(campaign_id, accounts.bob), 50_000);
@@ -2128,11 +2194,16 @@ mod tests {
     fn test_invest_rejects_overflowing_amount() {
         let mut contract = setup();
         let accounts = test::default_accounts::<DefaultEnvironment>();
-        let campaign_id = contract.create_campaign("Overflow Proof".into(), u128::MAX).unwrap();
+        let campaign_id = contract
+            .create_campaign("Overflow Proof".into(), u128::MAX)
+            .unwrap();
         contract.activate_campaign(campaign_id).unwrap();
         test::set_caller::<DefaultEnvironment>(accounts.bob);
         contract.onboard_investor("US".into(), true).unwrap();
-        assert_eq!(invest_with(&mut contract, campaign_id, u128::MAX), Err(CrowdfundingError::ArithmeticOverflow));
+        assert_eq!(
+            invest_with(&mut contract, campaign_id, u128::MAX),
+            Err(CrowdfundingError::ArithmeticOverflow)
+        );
         assert_eq!(contract.get_investment(campaign_id, accounts.bob), 0);
         assert_eq!(contract.get_shares(campaign_id, accounts.bob), 0);
         let campaign = contract.get_campaign(campaign_id).unwrap();

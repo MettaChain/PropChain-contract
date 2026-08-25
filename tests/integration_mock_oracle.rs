@@ -20,12 +20,12 @@
 //! instance — the latter mirrors how a consumer contract reads through it.
 
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod integration_mock_oracle {
     use ink::env::{test, DefaultEnvironment};
     use mock_oracle::mock_oracle_contract::MockOracle;
     use propchain_traits::oracle::{
-        Oracle, OracleError, OracleRegistry, OracleSource, OracleSourceType,
-        ValuationMethod,
+        Oracle, OracleError, OracleRegistry, OracleSource, OracleSourceType, ValuationMethod,
     };
 
     fn setup() -> MockOracle {
@@ -132,22 +132,21 @@ mod integration_mock_oracle {
     // ── Feature-flag state ───────────────────────────────────────────────
 
     #[ink::test]
-    fn is_mock_enabled_reflects_feature_off_build() {
+    fn is_mock_enabled_matches_fallback_behaviour() {
         let oracle = setup();
-        // tests/Cargo.toml pulls mock-oracle with default-features = false
-        // and does NOT enable its "mock" feature.
-        assert!(!oracle.is_mock_enabled());
-    }
-
-    #[ink::test]
-    fn unpushed_property_yields_no_fallback_price() {
-        let oracle = setup();
-        // With the mock feature disabled there is no deterministic seed:
-        // a consumer read for an unknown property must fail cleanly.
-        assert_eq!(
-            Oracle::get_valuation(&oracle, 999),
-            Err(OracleError::PropertyNotFound)
-        );
+        // The workspace gate (`cargo test --all-features --workspace`)
+        // force-enables the `mock` feature through feature unification,
+        // while a bare `-p propchain-tests` run keeps it off. Whichever
+        // build is active, `is_mock_enabled()` must agree with whether an
+        // unpriced property resolves to a deterministic seed valuation.
+        if oracle.is_mock_enabled() {
+            assert!(Oracle::get_valuation(&oracle, 999).is_ok());
+        } else {
+            assert_eq!(
+                Oracle::get_valuation(&oracle, 999),
+                Err(OracleError::PropertyNotFound)
+            );
+        }
         assert_eq!(oracle.get_pushed_price(999), None);
     }
 
@@ -189,17 +188,15 @@ mod integration_mock_oracle {
         let pushed = 4_200_000u128;
         oracle.set_price(42, pushed).unwrap();
 
-        let valuation =
-            Oracle::get_valuation(&oracle, 42).expect("pushed price must resolve");
+        let valuation = Oracle::get_valuation(&oracle, 42).expect("pushed price must resolve");
         assert_eq!(valuation.property_id, 42);
         assert_eq!(valuation.valuation, pushed);
         assert_eq!(valuation.confidence_score, 95);
         assert_eq!(valuation.sources_used, 1);
         assert_eq!(valuation.valuation_method, ValuationMethod::Automated);
 
-        let with_confidence =
-            Oracle::get_valuation_with_confidence(&oracle, 42)
-                .expect("confidence view resolves alongside");
+        let with_confidence = Oracle::get_valuation_with_confidence(&oracle, 42)
+            .expect("confidence view resolves alongside");
         assert_eq!(with_confidence.valuation.valuation, pushed);
         assert_eq!(with_confidence.volatility_index, 0);
         assert_eq!(with_confidence.outlier_sources, 0);
@@ -217,26 +214,22 @@ mod integration_mock_oracle {
     fn consumer_valuation_requests_are_recorded_in_history() {
         let mut oracle = setup();
         oracle.set_price(7, 900_000).unwrap();
+        // Push both legs so batch resolution is identical in feature-off
+        // builds and in `--all-features` builds (where unpriced properties
+        // would otherwise fall back to deterministic seed prices).
+        oracle.set_price(8, 800_000).unwrap();
 
         let request_id = Oracle::request_valuation(&mut oracle, 7)
             .expect("request resolves instantly on the mock");
         assert_eq!(request_id, 1);
 
-        // A batch is processed in order and aborts on the first unpriced
-        // property — property 8 has no pushed price in this feature-off build.
-        assert_eq!(
-            Oracle::batch_request_valuations(&mut oracle, vec![7, 8]),
-            Err(OracleError::PropertyNotFound)
-        );
-        assert_eq!(oracle.get_pushed_price(8), None);
-        // The priced leg of the aborted batch was still recorded.
+        // A batch resolves every leg in order.
+        let resolved = Oracle::batch_request_valuations(&mut oracle, vec![7, 8])
+            .expect("batch resolves every priced leg");
+        // Request IDs continue sequentially from the single request above.
+        assert_eq!(resolved, vec![2u64, 3]);
+        // Both legs of the batch were recorded on top of the single request.
         assert_eq!(Oracle::get_historical_valuations(&oracle, 7, 10).len(), 2);
-
-        // Single requests for unpriced properties fail cleanly.
-        assert_eq!(
-            Oracle::request_valuation(&mut oracle, 8),
-            Err(OracleError::PropertyNotFound)
-        );
 
         // History keeps the recorded valuations, newest first.
         let history = Oracle::get_historical_valuations(&oracle, 7, 10);
@@ -264,9 +257,18 @@ mod integration_mock_oracle {
         assert_eq!(snapshots[0].valuation, 123_456);
         assert!(!snapshots[0].is_anomaly);
 
-        // Unpriced property → empty snapshot list (no fallback in this build).
-        assert!(Oracle::get_oracle_snapshots(&oracle, 6, 10).is_empty());
+        // Zero-limit queries stay empty in every configuration.
         assert!(Oracle::get_oracle_snapshots(&oracle, 5, 0).is_empty());
+
+        // Unpriced properties only surface snapshots when the deterministic
+        // seed of the `mock` feature is active (see feature-unification note
+        // in `is_mock_enabled_matches_fallback_behaviour`).
+        let unpriced = Oracle::get_oracle_snapshots(&oracle, 6, 10);
+        if oracle.is_mock_enabled() {
+            assert!(!unpriced.is_empty());
+        } else {
+            assert!(unpriced.is_empty());
+        }
 
         // Volatility metrics are static zeros on the mock.
         let volatility = Oracle::get_market_volatility(

@@ -63,13 +63,25 @@ pub mod gdpr_consent {
         derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
     )]
     pub struct ConsentRecord {
+        /// Unique, monotonically increasing identifier of this consent.
         pub consent_id: u64,
+        /// The natural person whose data may be processed.
         pub data_subject: AccountId,
+        /// The contract admin acting as data processor / controller proxy.
         pub processor: AccountId,
+        /// Scope of processing this consent covers (KYC, marketing, ...).
+        /// A consent is only valid for exactly this purpose.
         pub purpose: ProcessingPurpose,
+        /// Lifecycle state; effective validity additionally requires
+        /// `expires_at` to be in the future.
         pub status: ConsentStatus,
+        /// Block timestamp at which consent was recorded.
         pub granted_at: u64,
+        /// Absolute expiry timestamp (`granted_at + duration_ms`). After
+        /// this instant the consent is stale for `GdprConsent::check_consent`
+        /// and the admin may transition it to `Expired`.
         pub expires_at: u64,
+        /// Set when the subject (or admin) withdrew the consent.
         pub withdrawn_at: Option<u64>,
     }
 
@@ -79,8 +91,13 @@ pub mod gdpr_consent {
         derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
     )]
     pub struct DataRetentionPolicy {
+        /// Processing purpose this policy governs.
         pub purpose: ProcessingPurpose,
+        /// Maximum number of days data collected under `purpose` may be
+        /// retained after collection.
         pub retention_days: u64,
+        /// Whether reaching the retention bound triggers automatic erasure
+        /// (as opposed to manual review before deletion).
         pub auto_delete: bool,
     }
 
@@ -213,7 +230,14 @@ pub mod gdpr_consent {
         /// third parties cannot fabricate consent records in someone else's
         /// name.
         ///
-        /// Returns the id of the newly created [`ConsentRecord`].
+        /// The record expires after `duration_ms` milliseconds from the
+        /// current block timestamp and its id is appended to the subject's
+        /// consent list (see [`Self::get_subject_consents`]).
+        ///
+        /// # Errors
+        /// - [`Error::NotAuthorized`] when the caller is neither the subject
+        ///   nor the admin.
+        /// - [`Error::InvalidDuration`] when `duration_ms` is zero.
         #[ink(message)]
         pub fn grant_consent(
             &mut self,
@@ -259,6 +283,19 @@ pub mod gdpr_consent {
             Ok(consent_id)
         }
 
+        /// Revokes a previously granted consent.
+        ///
+        /// Callable by the data subject themself or by the contract admin
+        /// (e.g. regulator-triggered erasure). Withdrawal takes effect
+        /// immediately: [`Self::check_consent`] returns `false` for the
+        /// record afterwards, and the withdrawal timestamp is recorded for
+        /// audit purposes. A consent can only be withdrawn once.
+        ///
+        /// # Errors
+        /// - [`Error::ConsentNotFound`] when `consent_id` is unknown or the
+        ///   record is no longer in the `Granted` state.
+        /// - [`Error::NotAuthorized`] when the caller is neither the subject
+        ///   nor the admin.
         #[ink(message)]
         pub fn withdraw_consent(&mut self, consent_id: u64) -> Result<()> {
             let caller = self.env().caller();
@@ -288,11 +325,24 @@ pub mod gdpr_consent {
             Ok(())
         }
 
+        /// Returns the full consent record for `consent_id`, or `None` if
+        /// unknown.
+        ///
+        /// The record exposes subject, processor, purpose, status and both
+        /// grant/expiry timestamps so integrators can render audit trails.
+        /// Note that a record with status [`ConsentStatus::Granted`] may
+        /// still be past its `expires_at`; use [`Self::check_consent`] for
+        /// the effective validity answer.
         #[ink(message)]
         pub fn get_consent(&self, consent_id: u64) -> Option<ConsentRecord> {
             self.consent_records.get(consent_id)
         }
 
+        /// Lists every consent record ever granted for `data_subject`,
+        /// regardless of current status (granted, withdrawn, expired).
+        ///
+        /// Read-only; order follows grant order. Returns an empty vector for
+        /// unknown subjects.
         #[ink(message)]
         pub fn get_subject_consents(&self, data_subject: AccountId) -> Vec<ConsentRecord> {
             match self.subject_consents.get(data_subject) {
@@ -309,6 +359,13 @@ pub mod gdpr_consent {
             }
         }
 
+        /// Effective validity check: `true` only when the subject holds a
+        /// consent for `purpose` that is currently `Granted` **and** not yet
+        /// past its expiry timestamp.
+        ///
+        /// This is the predicate processors must consult before any
+        /// purpose-scoped data operation. Withdrawn and expired consents
+        /// both yield `false`.
         #[ink(message)]
         pub fn check_consent(&self, data_subject: AccountId, purpose: ProcessingPurpose) -> bool {
             match self.subject_consents.get(data_subject) {
@@ -331,6 +388,17 @@ pub mod gdpr_consent {
 
         // ── Expiry Management (admin) ───────────────────────────────────────
 
+        /// Admin-only lifecycle transition: marks an already-stale consent
+        /// as `Expired`.
+        ///
+        /// The record must be in the `Granted` state **and** its expiry must
+        /// have passed (`expires_at <= now`); consents inside their validity
+        /// window cannot be force-expired. Expiring twice is rejected.
+        ///
+        /// # Errors
+        /// - [`Error::NotAuthorized`] when the caller is not the admin.
+        /// - [`Error::ConsentNotFound`] when the id is unknown, the consent
+        ///   is not yet stale, or it is no longer `Granted`.
         #[ink(message)]
         pub fn expire_consent(&mut self, consent_id: u64) -> Result<()> {
             self.ensure_admin()?;
@@ -354,6 +422,16 @@ pub mod gdpr_consent {
 
         // ── Retention Policies ──────────────────────────────────────────────
 
+        /// Admin-only: stores the retention policy for a processing purpose.
+        ///
+        /// `retention_days` bounds how long data collected under `purpose`
+        /// may be kept, and `auto_delete` declares whether expiry triggers
+        /// automatic erasure. Re-setting the same purpose overwrites the
+        /// previous policy (the update is emitted as
+        /// `RetentionPolicyUpdated`).
+        ///
+        /// # Errors
+        /// - [`Error::NotAuthorized`] when the caller is not the admin.
         #[ink(message)]
         pub fn set_retention_policy(
             &mut self,
@@ -377,6 +455,12 @@ pub mod gdpr_consent {
             Ok(())
         }
 
+        /// Returns the retention policy configured for `purpose`, or `None`
+        /// when no policy has been set.
+        ///
+        /// Integrators should treat `None` as "no data may be retained
+        /// beyond the strict operational minimum" until a policy is
+        /// published.
         #[ink(message)]
         pub fn get_retention_policy(
             &self,
@@ -387,6 +471,12 @@ pub mod gdpr_consent {
 
         // ── Data Access Requests ────────────────────────────────────────────
 
+        /// Data-subject access request (GDPR art. 15): the caller files a
+        /// request for disclosure of all personal data held about them.
+        ///
+        /// The caller is always the data subject; no admin involvement is
+        /// needed to file. The returned id can be tracked via
+        /// [`Self::get_data_access_request`] until the admin fulfils it.
         #[ink(message)]
         pub fn request_data_access(&mut self) -> Result<u64> {
             let caller = self.env().caller();
@@ -414,6 +504,12 @@ pub mod gdpr_consent {
             Ok(request_id)
         }
 
+        /// Admin-only: marks a data-access request as fulfilled and stamps
+        /// the fulfilment timestamp.
+        ///
+        /// # Errors
+        /// - [`Error::NotAuthorized`] when the caller is not the admin.
+        /// - [`Error::DataRequestNotFound`] when `request_id` is unknown.
         #[ink(message)]
         pub fn fulfill_data_access(&mut self, request_id: u64) -> Result<()> {
             self.ensure_admin()?;
@@ -432,11 +528,15 @@ pub mod gdpr_consent {
             Ok(())
         }
 
+        /// Returns the data-access request for `request_id`, or `None` if
+        /// unknown. Includes the fulfilment flag and timestamp.
         #[ink(message)]
         pub fn get_data_access_request(&self, request_id: u64) -> Option<DataAccessRequest> {
             self.data_access_requests.get(request_id)
         }
 
+        /// Lists every access request filed by `data_subject`, in filing
+        /// order. Empty vector for subjects that never filed.
         #[ink(message)]
         pub fn get_subject_requests(&self, data_subject: AccountId) -> Vec<DataAccessRequest> {
             match self.subject_requests.get(data_subject) {
@@ -453,6 +553,8 @@ pub mod gdpr_consent {
             }
         }
 
+        /// Returns the contract admin (the account empowered to expire
+        /// consents, manage retention policies and fulfil access requests).
         #[ink(message)]
         pub fn admin(&self) -> AccountId {
             self.admin
@@ -617,7 +719,11 @@ pub mod gdpr_consent {
             let subject = AccountId::from([0x02; 32]);
 
             let id = contract
-                .grant_consent(subject, ProcessingPurpose::TaxReporting, 365 * 24 * 60 * 60 * 1000)
+                .grant_consent(
+                    subject,
+                    ProcessingPurpose::TaxReporting,
+                    365 * 24 * 60 * 60 * 1000,
+                )
                 .expect("admin grant");
             let record = contract.get_consent(id).expect("should exist");
             assert_eq!(record.data_subject, subject);

@@ -143,7 +143,9 @@ fn test_deployment_getters_reflect_recorded_deployments() {
         .unwrap();
 
     // First deployment: recorded under id 0 for Alice
-    let address_a = factory.deploy_contract(escrow_config(1), "1.0.0".into()).unwrap();
+    let address_a = factory
+        .deploy_contract(escrow_config(1), "1.0.0".into())
+        .unwrap();
     assert_eq!(address_a, AccountId::from([0u8; 32])); // stub builder address
 
     assert_eq!(factory.get_deployment_count(), 1);
@@ -158,7 +160,9 @@ fn test_deployment_getters_reflect_recorded_deployments() {
 
     // Second deployment from a different deployer lands under id 1
     test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
-    factory.deploy_contract(escrow_config(2), "1.0.1".into()).unwrap();
+    factory
+        .deploy_contract(escrow_config(2), "1.0.1".into())
+        .unwrap();
 
     assert_eq!(factory.get_deployment_count(), 2);
     assert_eq!(factory.get_deployer_contracts(accounts.bob), vec![1]);

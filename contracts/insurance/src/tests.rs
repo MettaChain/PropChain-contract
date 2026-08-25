@@ -2505,7 +2505,7 @@ mod premium_engine_tests {
         modifiers.claim_free_years = 5; // +2000 (4+ years tier)
         modifiers.has_safety_features = true; // +1000
         modifiers.loyalty_years = 7; // +1000 (6+ years tier)
-        // Raw sum 5500 bps exceeds the 4000 bps cap → clamped to 4000.
+                                     // Raw sum 5500 bps exceeds the 4000 bps cap → clamped to 4000.
 
         let calc = contract
             .calculate_premium_with_modifiers(
@@ -2612,7 +2612,8 @@ mod premium_engine_tests {
             .update_risk_assessment(1, 75, 80, 85, 90, 86_400 * 365)
             .unwrap();
 
-        let result = contract.calculate_premium(1, 1_000_000_000_000_000_000u128, CoverageType::Fire);
+        let result =
+            contract.calculate_premium(1, 1_000_000_000_000_000_000u128, CoverageType::Fire);
         assert_eq!(result, Err(InsuranceError::PoolNotFound));
     }
 }

@@ -257,6 +257,7 @@ pub mod monitoring {
     impl MonitoringContract {
         /// Deploys the monitoring contract. The caller becomes admin.
         #[ink(constructor)]
+        #[allow(clippy::new_without_default)]
         pub fn new() -> Self {
             let caller = Self::env().caller();
             Self {
@@ -916,7 +917,9 @@ pub mod monitoring {
             c.take_metrics_snapshot().unwrap();
 
             let first = c.get_metrics_snapshot(0).expect("slot 0");
-            let second = c.get_metrics_snapshot(1).expect("second snapshot at slot 1");
+            let second = c
+                .get_metrics_snapshot(1)
+                .expect("second snapshot at slot 1");
             assert_eq!(first.snapshot_id, 0);
             assert_eq!(second.snapshot_id, 1);
             assert_eq!(second.total_calls, 2);
@@ -943,8 +946,7 @@ pub mod monitoring {
             // snapshot whose id maps onto slot 0 (id = max).
             let wrapped = c.get_metrics_snapshot(0).expect("slot 0 rewritten");
             assert_eq!(
-                wrapped.snapshot_id,
-                max,
+                wrapped.snapshot_id, max,
                 "oldest snapshot in slot 0 must be overwritten"
             );
             // Slot 1 now holds id max+1, slot 2 holds max+2
@@ -963,10 +965,9 @@ pub mod monitoring {
             c.take_metrics_snapshot().unwrap();
             // Slot indices are bounded by MONITORING_MAX_SNAPSHOTS; anything
             // at or above it was never written.
-            assert!(
-                c.get_metrics_snapshot(constants::MONITORING_MAX_SNAPSHOTS)
-                    .is_none()
-            );
+            assert!(c
+                .get_metrics_snapshot(constants::MONITORING_MAX_SNAPSHOTS)
+                .is_none());
         }
     }
 }

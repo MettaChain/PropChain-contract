@@ -1776,7 +1776,6 @@ pub mod property_management {
     }
 }
 
-
 pub mod permit_module {
     include!("permit.rs");
 }

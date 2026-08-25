@@ -379,6 +379,7 @@ mod fee_tests {
         let id = contract.create_premium_auction(1, 500, 3600).unwrap();
 
         ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+        ink::env::test::set_value_transferred::<DefaultEnvironment>(700);
         contract.place_bid(id, 700).unwrap();
 
         assert_eq!(contract.place_bid(id, 700), Err(FeeError::BidTooLow));
@@ -441,8 +442,10 @@ mod fee_tests {
         let fee_one = contract.get_auction(id).unwrap().fee_paid;
         assert_eq!(contract.fee_treasury(), treasury_start + fee_one);
 
+        ink::env::test::set_value_transferred::<DefaultEnvironment>(700);
         contract.place_bid(id, 700).unwrap(); // alice
         ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+        ink::env::test::set_value_transferred::<DefaultEnvironment>(800);
         contract.place_bid(id, 800).unwrap();
 
         let auction = contract.get_auction(id).unwrap();
@@ -479,6 +482,7 @@ mod fee_tests {
 
         // Second auction settles independently.
         ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.charlie);
+        ink::env::test::set_value_transferred::<DefaultEnvironment>(600);
         contract.place_bid(id2, 600).unwrap();
         set_time(7200);
         contract.settle_auction(id2).unwrap();

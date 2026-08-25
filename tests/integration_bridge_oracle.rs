@@ -16,7 +16,6 @@
 ///   check Stale oracle valuation blocks a new bridge request
 ///   check Rejected bridge attestation cannot be executed
 ///   check Oracle circuit breaker blocks bridge after extreme price move
-
 #[cfg(test)]
 mod integration_bridge_oracle {
     // Oracle contract

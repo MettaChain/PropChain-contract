@@ -2632,7 +2632,8 @@ mod propchain_oracle {
             // Computed as the first 4 bytes of the BLAKE2-256 hash of the
             // message signature "OracleFeed.get_price".
             let selector: [u8; 4] = {
-                let mut output = <ink::env::hash::Blake2x256 as ink::env::hash::HashOutput>::Type::default();
+                let mut output =
+                    <ink::env::hash::Blake2x256 as ink::env::hash::HashOutput>::Type::default();
                 ink::env::hash_bytes::<ink::env::hash::Blake2x256>(
                     b"OracleFeed.get_price",
                     &mut output,

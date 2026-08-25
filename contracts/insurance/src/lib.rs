@@ -907,7 +907,8 @@ pub mod propchain_insurance {
                 ph_policies.push(policy_id);
                 self.policyholder_policies.insert(&caller, &ph_policies);
 
-                let mut prop_policies = self.property_policies.get(&property_id).unwrap_or_default();
+                let mut prop_policies =
+                    self.property_policies.get(&property_id).unwrap_or_default();
                 prop_policies.push(policy_id);
                 self.property_policies.insert(&property_id, &prop_policies);
 
@@ -1747,11 +1748,13 @@ pub mod propchain_insurance {
                 self.policies.insert(&token.policy_id, &updated_policy);
 
                 // Update ownership tracking
-                let mut seller_policies = self.policyholder_policies.get(&seller).unwrap_or_default();
+                let mut seller_policies =
+                    self.policyholder_policies.get(&seller).unwrap_or_default();
                 seller_policies.retain(|&p| p != token.policy_id);
                 self.policyholder_policies.insert(&seller, &seller_policies);
 
-                let mut buyer_policies = self.policyholder_policies.get(&caller).unwrap_or_default();
+                let mut buyer_policies =
+                    self.policyholder_policies.get(&caller).unwrap_or_default();
                 buyer_policies.push(token.policy_id);
                 self.policyholder_policies.insert(&caller, &buyer_policies);
 

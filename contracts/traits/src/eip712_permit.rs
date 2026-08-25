@@ -84,7 +84,7 @@ mod tests {
         let mut secret = [0u8; 32];
         secret[31] = index + 1; // deterministic distinct keys
         let secret = SecretKey::from_slice(&secret).expect("valid secret");
-        let msg = Message::from_slice(hash).expect("valid message");
+        let msg = Message::from_digest_slice(hash).expect("valid message");
         let sig = engine.sign_ecdsa_recoverable(&msg, &secret);
         let (recovery_id, data) = sig.serialize_compact();
         let mut signature = [0u8; 65];

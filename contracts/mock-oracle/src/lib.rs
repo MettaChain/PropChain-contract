@@ -115,6 +115,7 @@ pub mod mock_oracle_contract {
     impl MockOracle {
         /// Deploy the mock oracle.
         ///
+        #[allow(clippy::new_without_default)]
         /// The caller becomes the admin.
         #[ink(constructor)]
         pub fn new() -> Self {

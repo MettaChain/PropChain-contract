@@ -5339,6 +5339,8 @@ dependencies = [
 name = "propchain-tests"
 version = "1.0.0"
 dependencies = [
+ "compliance_registry",
+ "fractional",
  "governance",
  "ink 5.1.1",
  "ink_e2e",

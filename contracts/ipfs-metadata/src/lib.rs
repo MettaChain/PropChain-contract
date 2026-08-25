@@ -1233,7 +1233,7 @@ pub mod ipfs_metadata {
         // ── Issue #990: access control & media registration coverage ──────
 
         /// Deterministic metadata fixture that passes default validation.
-        fn sample_metadata(seed: u8) -> PropertyMetadata {
+        fn seeded_metadata(seed: u8) -> PropertyMetadata {
             PropertyMetadata {
                 location: String::from("123 Test Street, Test City"),
                 size: 250,
@@ -1248,31 +1248,39 @@ pub mod ipfs_metadata {
             }
         }
 
-        /// Documents the (current) escalation behaviour of
-        /// `validate_and_register_metadata`: whoever calls it for a property
-        /// is granted property-level `Admin`, which lets them administer
-        /// access grants for that property. Outsiders still cannot grant or
-        /// register anything.
+        /// Documents the (current) bootstrap behaviour of
+        /// `validate_and_register_metadata`: only the contract admin may
+        /// register metadata for a fresh property and receives persistent
+        /// property-level `Admin`, which they use to delegate access.
+        /// Unauthenticated callers are rejected without gaining any access,
+        /// and delegated readers cannot escalate by granting permissions.
         #[ink::test]
         fn validate_and_register_metadata_grants_caller_admin() {
             let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
             // Alice constructs the contract and is the platform admin.
             let mut contract = IpfsMetadataRegistry::new();
 
-            // Bob registers metadata for a fresh property.
+            // An unauthenticated caller cannot register a fresh property...
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
-            contract
-                .validate_and_register_metadata(1, sample_metadata(0x01))
-                .unwrap();
-
-            // Caller received property-level Admin (documented behaviour).
             assert_eq!(
-                contract.access_permissions.get((1, accounts.bob)),
+                contract.validate_and_register_metadata(1, seeded_metadata(0x01)),
+                Err(Error::Unauthorized)
+            );
+            // ...and gains no access on it.
+            assert_eq!(contract.access_permissions.get((1, accounts.bob)), None);
+
+            // The contract admin bootstraps the property and receives
+            // persistent property-level Admin (documented behaviour).
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract
+                .validate_and_register_metadata(1, seeded_metadata(0x02))
+                .unwrap();
+            assert_eq!(
+                contract.access_permissions.get((1, accounts.alice)),
                 Some(AccessLevel::Admin)
             );
-            assert_eq!(contract.access_permissions.get((1, accounts.charlie)), None);
 
-            // As the property admin, Bob can grant Read access to Charlie.
+            // As the property admin, Alice can grant Read access to Charlie.
             contract
                 .grant_access(1, accounts.charlie, AccessLevel::Read)
                 .unwrap();
@@ -1281,10 +1289,10 @@ pub mod ipfs_metadata {
                 Some(AccessLevel::Read)
             );
 
-            // An unrelated account cannot grant access on that property.
-            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.eve);
+            // A delegated reader cannot escalate by granting access.
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.charlie);
             assert_eq!(
-                contract.grant_access(1, accounts.charlie, AccessLevel::Write),
+                contract.grant_access(1, accounts.eve, AccessLevel::Write),
                 Err(Error::Unauthorized)
             );
         }

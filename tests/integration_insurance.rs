@@ -19,15 +19,14 @@
 ///   check Claim cooldown blocks a second claim on the same property
 ///   check report_oracle_event rejects unauthorized callers
 ///   check Authorized oracle reports fire parametric triggers exactly once
-
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod integration_insurance {
+    use ink::env::{test, DefaultEnvironment};
     use propchain_insurance::propchain_insurance::{
         ClaimStatus, CoverageType, InsuranceError, PayoutMode, PremiumCalculation,
         PropertyInsurance, TriggerComparator, TriggerMetric,
     };
-
-    use ink::env::{test, DefaultEnvironment};
 
     const COVERAGE_AMOUNT: u128 = 100_000_000;
     const POOL_LIQUIDITY: u128 = 1_000_000_000_000;
@@ -110,7 +109,10 @@ mod integration_insurance {
 
         let pool = contract.get_pool(pool_id).unwrap();
         assert_eq!(pool.active_policies, 1);
-        assert!(pool.total_premiums_collected > 0, "Premium share must be pooled");
+        assert!(
+            pool.total_premiums_collected > 0,
+            "Premium share must be pooled"
+        );
 
         // Step 3: policyholder submits a claim
         test::set_caller::<DefaultEnvironment>(accounts.bob);

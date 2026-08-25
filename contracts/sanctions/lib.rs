@@ -667,12 +667,14 @@ pub mod sanctions_screening {
             let decoded =
                 SanctionThresholdUpdated::decode(&mut &events[0].data[..]).expect("decode event");
             assert_eq!(decoded.threshold, 30);
+        }
+
         #[ink::test]
         fn test_add_entity_at_exact_cap_succeeds_next_fails() {
             let mut contract = default_contract();
             contract.set_max_sanctioned_entities(2).expect("set cap");
 
-            let first = contract
+            let _first = contract
                 .add_sanctioned_entity(
                     b"One".to_vec(),
                     EntityType::Individual,

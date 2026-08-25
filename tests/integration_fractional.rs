@@ -13,12 +13,11 @@
 ///   check Underpayment is rejected with InsufficientPayment
 ///   check cancel_listing removes the listing and blocks subsequent buys
 ///   check Sellers cannot list more shares than they hold
-
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod integration_fractional {
     // Fractional share contract
     use fractional::fractional::{Fractional, FractionalError};
-
     use ink::env::{test, DefaultEnvironment};
 
     const TOKEN_ID: u64 = 1;
@@ -178,7 +177,9 @@ mod integration_fractional {
 
         // Seller cancels successfully
         test::set_caller::<DefaultEnvironment>(accounts.alice);
-        fractional.cancel_listing(TOKEN_ID).expect("Seller should cancel own listing");
+        fractional
+            .cancel_listing(TOKEN_ID)
+            .expect("Seller should cancel own listing");
         assert!(fractional.get_listing(accounts.alice, TOKEN_ID).is_none());
 
         // A buyer can no longer purchase against the cancelled listing

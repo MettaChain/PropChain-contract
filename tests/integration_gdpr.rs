@@ -14,15 +14,14 @@
 ///   check Non-admin cannot fulfill a data access request
 ///   check get_data_access_request reflects fulfilled status afterwards
 ///   check Zero-duration consent grants are rejected with InvalidDuration
-
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod integration_gdpr {
     // GDPR consent contract
+    use ink::env::{test, DefaultEnvironment};
     use propchain_gdpr::gdpr_consent::{
         ConsentStatus, Error as GdprError, GdprConsent, ProcessingPurpose,
     };
-
-    use ink::env::{test, DefaultEnvironment};
 
     /// Duration used for "valid" grants (1 year in milliseconds).
     const ONE_YEAR_MS: u64 = 365 * 24 * 60 * 60 * 1000;
@@ -48,22 +47,31 @@ mod integration_gdpr {
             .grant_consent(accounts.bob, ProcessingPurpose::KYC, ONE_YEAR_MS)
             .expect("Admin should be able to grant consent");
 
-        assert!(gdpr.check_consent(accounts.bob, ProcessingPurpose::KYC),
-            "Consent must be active right after granting");
-        assert!(!gdpr.check_consent(accounts.bob, ProcessingPurpose::Marketing),
-            "Consent must be purpose-scoped: other purposes stay false");
+        assert!(
+            gdpr.check_consent(accounts.bob, ProcessingPurpose::KYC),
+            "Consent must be active right after granting"
+        );
+        assert!(
+            !gdpr.check_consent(accounts.bob, ProcessingPurpose::Marketing),
+            "Consent must be purpose-scoped: other purposes stay false"
+        );
 
         // Subject withdraws their own consent
         test::set_caller::<DefaultEnvironment>(accounts.bob);
         gdpr.withdraw_consent(consent_id)
             .expect("Data subject must be able to withdraw own consent");
 
-        assert!(!gdpr.check_consent(accounts.bob, ProcessingPurpose::KYC),
-            "Withdrawn consent must fail check_consent");
+        assert!(
+            !gdpr.check_consent(accounts.bob, ProcessingPurpose::KYC),
+            "Withdrawn consent must fail check_consent"
+        );
 
         let record = gdpr.get_consent(consent_id).expect("Record should persist");
         assert_eq!(record.status, ConsentStatus::Withdrawn);
-        assert!(record.withdrawn_at.is_some(), "withdrawn_at must be recorded");
+        assert!(
+            record.withdrawn_at.is_some(),
+            "withdrawn_at must be recorded"
+        );
     }
 
     /// Scenario 2 - Withdrawal authorization matrix:
@@ -77,7 +85,11 @@ mod integration_gdpr {
             .grant_consent(accounts.bob, ProcessingPurpose::TaxReporting, ONE_YEAR_MS)
             .expect("Grant for bob should succeed");
         let id_charlie = gdpr
-            .grant_consent(accounts.charlie, ProcessingPurpose::RiskAssessment, ONE_YEAR_MS)
+            .grant_consent(
+                accounts.charlie,
+                ProcessingPurpose::RiskAssessment,
+                ONE_YEAR_MS,
+            )
             .expect("Grant for charlie should succeed");
 
         // Unrelated party (charlie) cannot withdraw bob's consent
@@ -111,9 +123,13 @@ mod integration_gdpr {
 
         // Bob submits a data access request
         test::set_caller::<DefaultEnvironment>(accounts.bob);
-        let request_id = gdpr.request_data_access().expect("Subject should request access");
+        let request_id = gdpr
+            .request_data_access()
+            .expect("Subject should request access");
 
-        let pending = gdpr.get_data_access_request(request_id).expect("Request should exist");
+        let pending = gdpr
+            .get_data_access_request(request_id)
+            .expect("Request should exist");
         assert_eq!(pending.data_subject, accounts.bob);
         assert!(!pending.fulfilled, "Request must start unfulfilled");
 
@@ -134,9 +150,14 @@ mod integration_gdpr {
         gdpr.fulfill_data_access(request_id)
             .expect("Admin should fulfill the data access request");
 
-        let fulfilled = gdpr.get_data_access_request(request_id).expect("Request should exist");
+        let fulfilled = gdpr
+            .get_data_access_request(request_id)
+            .expect("Request should exist");
         assert!(fulfilled.fulfilled, "Request must be marked fulfilled");
-        assert!(fulfilled.fulfilled_at.is_some(), "fulfilled_at must be recorded");
+        assert!(
+            fulfilled.fulfilled_at.is_some(),
+            "fulfilled_at must be recorded"
+        );
 
         // The subject sees the fulfilled request in their history
         let history = gdpr.get_subject_requests(accounts.bob);
@@ -180,12 +201,17 @@ mod integration_gdpr {
 
         // Withdrawing marketing keeps KYC active
         test::set_caller::<DefaultEnvironment>(accounts.bob);
-        gdpr.withdraw_consent(marketing_id).expect("Withdraw should succeed");
+        gdpr.withdraw_consent(marketing_id)
+            .expect("Withdraw should succeed");
 
-        assert!(gdpr.check_consent(accounts.bob, ProcessingPurpose::KYC),
-            "KYC consent must remain granted");
-        assert!(!gdpr.check_consent(accounts.bob, ProcessingPurpose::Marketing),
-            "Marketing consent must be withdrawn");
+        assert!(
+            gdpr.check_consent(accounts.bob, ProcessingPurpose::KYC),
+            "KYC consent must remain granted"
+        );
+        assert!(
+            !gdpr.check_consent(accounts.bob, ProcessingPurpose::Marketing),
+            "Marketing consent must be withdrawn"
+        );
     }
 
     /// Scenario 6 - Unknown ids surface ConsentNotFound / DataRequestNotFound.

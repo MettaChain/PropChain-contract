@@ -64,13 +64,7 @@ where
 
     /// Insert or overwrite a value, marking it dirty (needs flush to storage).
     pub fn set(&mut self, key: K, value: V) {
-        self.entries.insert(
-            key,
-            CacheEntry {
-                value,
-                dirty: true,
-            },
-        );
+        self.entries.insert(key, CacheEntry { value, dirty: true });
     }
 
     /// Invalidate a single key, forcing the next `get_or_insert_with` to miss.

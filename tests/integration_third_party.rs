@@ -17,16 +17,15 @@
 ///   check get_service_config / get_kyc_record / get_payment_request state assertions
 ///   check Fiat payment initiate -> complete happy path
 ///   check Non-providers cannot update KYC status or complete payments
-
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod integration_third_party {
     // Third-party contract
+    use ink::env::{test, DefaultEnvironment};
     use propchain_third_party::propchain_third_party::{
         Error as ThirdPartyError, KycRecord, PaymentRequest, RequestStatus, ServiceConfig,
         ServiceStatus, ServiceType, ThirdPartyIntegration,
     };
-
-    use ink::env::{test, DefaultEnvironment};
 
     fn setup_contract() -> ThirdPartyIntegration {
         let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -131,11 +130,8 @@ mod integration_third_party {
 
         // Unknown service id
         test::set_caller::<DefaultEnvironment>(accounts.charlie);
-        let unknown = contract.initiate_kyc_request(
-            999,
-            accounts.charlie,
-            String::from("ref-unknown"),
-        );
+        let unknown =
+            contract.initiate_kyc_request(999, accounts.charlie, String::from("ref-unknown"));
         assert_eq!(
             unknown,
             Err(ThirdPartyError::ServiceNotFound),
@@ -204,7 +200,10 @@ mod integration_third_party {
             accounts.charlie,
             String::from("ref-resumed"),
         );
-        assert!(resumed.is_ok(), "Reactivated service must accept KYC requests");
+        assert!(
+            resumed.is_ok(),
+            "Reactivated service must accept KYC requests"
+        );
     }
 
     /// Scenario 4 - Only the service provider can update KYC status
@@ -221,12 +220,7 @@ mod integration_third_party {
 
         // A random account must not update the request
         test::set_caller::<DefaultEnvironment>(accounts.django);
-        let rejected = contract.update_kyc_status(
-            request_id,
-            RequestStatus::Approved,
-            2,
-            30,
-        );
+        let rejected = contract.update_kyc_status(request_id, RequestStatus::Approved, 2, 30);
         assert_eq!(
             rejected,
             Err(ThirdPartyError::Unauthorized),

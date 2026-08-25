@@ -335,8 +335,9 @@ impl StakingDashboard {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ink::env::test::default_accounts;
+
+    use super::*;
 
     /// Build a fresh dashboard with zeroed-out state.
     ///
@@ -528,7 +529,10 @@ mod tests {
         let mut d = fresh();
         let acc = accounts();
         d.record_stake(acc.alice, 100, 1).unwrap();
-        assert_eq!(d.claim_rewards(acc.alice), Err(StakingError::NoRewardsToClaim));
+        assert_eq!(
+            d.claim_rewards(acc.alice),
+            Err(StakingError::NoRewardsToClaim)
+        );
     }
 
     #[ink::test]

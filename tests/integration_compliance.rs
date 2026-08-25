@@ -16,15 +16,14 @@
 ///   check Revoked accounts fail require_compliance with Error::NotVerified
 ///   check Non-verifiers cannot submit or revoke verifications
 ///   check get_compliance_data reflects all stored fields
-
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod integration_compliance {
     // Compliance registry contract
     use compliance_registry::compliance_registry::{
         AMLRiskFactors, BiometricMethod, ComplianceRegistry, ConsentStatus, DocumentType, Error,
         Jurisdiction, RiskLevel, SanctionsList, VerificationStatus,
     };
-
     use ink::env::{test, DefaultEnvironment};
 
     fn setup_contract() -> ComplianceRegistry {

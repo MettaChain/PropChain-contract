@@ -1746,7 +1746,7 @@ pub mod propchain_lending {
         #[ink(message)]
         pub fn approve_loan_restructuring(&mut self, loan_id: u64) -> Result<bool, LendingError> {
             let caller = self.env().caller();
-            let mut app = self
+            let app = self
                 .loan_applications
                 .get(loan_id)
                 .ok_or(LendingError::LoanNotFound)?;

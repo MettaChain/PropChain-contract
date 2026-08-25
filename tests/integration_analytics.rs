@@ -46,7 +46,8 @@ mod integration_analytics {
             "fresh dashboard starts empty"
         );
 
-        dash.update_market_metrics(1_000_000, 50_000_000, 120);
+        dash.update_market_metrics(1_000_000, 50_000_000, 120)
+            .expect("metrics accepted");
         let metrics = dash.get_market_metrics();
         assert_eq!(metrics.average_price, 1_000_000);
         assert_eq!(metrics.total_volume, 50_000_000);
@@ -95,9 +96,10 @@ mod integration_analytics {
         test::set_caller::<DefaultEnvironment>(accounts.alice);
         let mut dash = AnalyticsDashboard::new();
 
-        dash.add_market_trend(trend(0, 5));
-        dash.add_market_trend(trend(30, -3));
-        dash.add_market_trend(trend(60, 8));
+        dash.add_market_trend(trend(0, 5)).expect("trend accepted");
+        dash.add_market_trend(trend(30, -3))
+            .expect("trend accepted");
+        dash.add_market_trend(trend(60, 8)).expect("trend accepted");
 
         let trends = dash.get_historical_trends();
         assert_eq!(trends.len(), 3);
@@ -127,7 +129,8 @@ mod integration_analytics {
         let mut dash = AnalyticsDashboard::new();
 
         // Bull-heavy market: ratio lands at 6000 bips (60%).
-        dash.update_market_sentiment(7, 600, 400);
+        dash.update_market_sentiment(7, 600, 400)
+            .expect("sentiment accepted");
         let report = dash.generate_market_report();
         assert_eq!(report.sentiment.bull_volume, 600);
         assert_eq!(report.sentiment.bear_volume, 400);
@@ -135,7 +138,8 @@ mod integration_analytics {
 
         // A bear flip is reflected on the next report: sentiment volumes
         // accumulate across updates (bull 600+100, bear 400+900).
-        dash.update_market_sentiment(7, 100, 900);
+        dash.update_market_sentiment(7, 100, 900)
+            .expect("sentiment accepted");
         let report = dash.generate_market_report();
         assert_eq!(report.sentiment.bull_bear_ratio_bips, 3_500);
     }
@@ -156,7 +160,8 @@ mod integration_analytics {
                 value: 700_000,
             },
         ];
-        dash.set_portfolio_positions(accounts.bob, bob_positions.clone());
+        dash.set_portfolio_positions(accounts.bob, bob_positions.clone())
+            .expect("positions accepted");
 
         let stored = dash.get_portfolio_positions(accounts.bob);
         assert_eq!(stored.len(), 2);
@@ -182,8 +187,10 @@ mod integration_analytics {
             "untracked property type starts at zero"
         );
 
-        dash.update_benchmark_index(PropertyType::Residential, 250);
-        dash.update_benchmark_index(PropertyType::Commercial, -75);
+        dash.update_benchmark_index(PropertyType::Residential, 250)
+            .expect("benchmark accepted");
+        dash.update_benchmark_index(PropertyType::Commercial, -75)
+            .expect("benchmark accepted");
 
         assert_eq!(dash.get_benchmark_index(PropertyType::Residential), 250);
         assert_eq!(dash.get_benchmark_index(PropertyType::Commercial), -75);

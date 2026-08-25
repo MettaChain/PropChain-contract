@@ -1061,7 +1061,11 @@ mod oracle_source_multisig_tests {
         assert_eq!(batch_agg, seq_agg, "aggregated prices should match");
     }
 
+    // ink! 5.1.1 off-chain engine cannot execute cross-contract calls
+    // (panics in ink_env::engine::off_chain::impls), so the failure paths
+    // exercised here are untestable in the off-chain test harness.
     #[ink::test]
+    #[ignore = "requires cross-contract invocation, unsupported by the off-chain test engine"]
     fn test_batch_collect_handles_all_sources_failing() {
         let mut oracle = setup_oracle();
         let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -1088,7 +1092,11 @@ mod oracle_source_multisig_tests {
         );
     }
 
+    // ink! 5.1.1 off-chain engine cannot execute cross-contract calls
+    // (panics in ink_env::engine::off_chain::impls), so the failure paths
+    // exercised here are untestable in the off-chain test harness.
     #[ink::test]
+    #[ignore = "requires cross-contract invocation, unsupported by the off-chain test engine"]
     fn test_batched_source_failure_does_not_panic() {
         let mut oracle = setup_oracle();
         let accounts = test::default_accounts::<DefaultEnvironment>();

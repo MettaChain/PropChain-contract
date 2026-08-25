@@ -1,7 +1,10 @@
 use ink::prelude::vec::Vec;
 
 #[derive(Clone, Debug)]
-pub struct ProposalParticipation { pub proposal_id: u64, pub participation_bps: u32 }
+pub struct ProposalParticipation {
+    pub proposal_id: u64,
+    pub participation_bps: u32,
+}
 
 pub struct QuorumGuard {
     history: Vec<ProposalParticipation>,
@@ -10,18 +13,31 @@ pub struct QuorumGuard {
 
 impl QuorumGuard {
     pub fn new(warning_threshold_bps: u32) -> Self {
-        Self { history: Vec::new(), warning_threshold_bps }
+        Self {
+            history: Vec::new(),
+            warning_threshold_bps,
+        }
     }
 
     pub fn record(&mut self, proposal_id: u64, participation_bps: u32) -> bool {
-        let warned = self.history.last()
-            .map(|prev| prev.participation_bps >= self.warning_threshold_bps && participation_bps < self.warning_threshold_bps)
+        let warned = self
+            .history
+            .last()
+            .map(|prev| {
+                prev.participation_bps >= self.warning_threshold_bps
+                    && participation_bps < self.warning_threshold_bps
+            })
             .unwrap_or(false);
-        self.history.push(ProposalParticipation { proposal_id, participation_bps });
+        self.history.push(ProposalParticipation {
+            proposal_id,
+            participation_bps,
+        });
         warned
     }
 
-    pub fn history_len(&self) -> usize { self.history.len() }
+    pub fn history_len(&self) -> usize {
+        self.history.len()
+    }
 }
 
 #[cfg(test)]
@@ -51,7 +67,8 @@ mod tests {
     #[test]
     fn history_accumulates() {
         let mut g = QuorumGuard::new(500);
-        g.record(1, 800); g.record(2, 300);
+        g.record(1, 800);
+        g.record(2, 300);
         assert_eq!(g.history_len(), 2);
     }
 }

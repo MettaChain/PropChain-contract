@@ -756,16 +756,24 @@ pub mod propchain_analytics {
         #[ink::test]
         fn insights_differ_between_market_states() {
             let mut bullish = AnalyticsDashboard::new();
-            bullish.add_market_trend(trend(5, 10));
-            bullish.update_market_sentiment(1, 800, 200);
+            bullish
+                .add_market_trend(trend(5, 10))
+                .expect("trend accepted");
+            bullish
+                .update_market_sentiment(1, 800, 200)
+                .expect("sentiment accepted");
             let bull_report = bullish.generate_market_report();
             assert!(bull_report.insights.contains("upward"));
             assert!(bull_report.insights.contains("increasing"));
             assert!(bull_report.insights.contains("bullish"));
 
             let mut bearish = AnalyticsDashboard::new();
-            bearish.add_market_trend(trend(-7, -3));
-            bearish.update_market_sentiment(1, 150, 850);
+            bearish
+                .add_market_trend(trend(-7, -3))
+                .expect("trend accepted");
+            bearish
+                .update_market_sentiment(1, 150, 850)
+                .expect("sentiment accepted");
             let bear_report = bearish.generate_market_report();
             assert!(bear_report.insights.contains("downward"));
             assert!(bear_report.insights.contains("decreasing"));
@@ -809,7 +817,10 @@ pub mod propchain_analytics {
             let accounts = accounts();
             let mut c = admin_contract();
             set_caller(accounts.bob);
-            assert_eq!(c.update_market_metrics(100, 200, 3), Err(AnalyticsError::Unauthorized));
+            assert_eq!(
+                c.update_market_metrics(100, 200, 3),
+                Err(AnalyticsError::Unauthorized)
+            );
         }
 
         #[ink::test]
@@ -817,7 +828,10 @@ pub mod propchain_analytics {
             let accounts = accounts();
             let mut c = admin_contract();
             set_caller(accounts.bob);
-            assert_eq!(c.batch_update_metrics(Vec::new()), Err(AnalyticsError::Unauthorized));
+            assert_eq!(
+                c.batch_update_metrics(Vec::new()),
+                Err(AnalyticsError::Unauthorized)
+            );
         }
 
         #[ink::test]
@@ -825,7 +839,10 @@ pub mod propchain_analytics {
             let accounts = accounts();
             let mut c = admin_contract();
             set_caller(accounts.bob);
-            assert_eq!(c.batch_add_trends(Vec::new()), Err(AnalyticsError::Unauthorized));
+            assert_eq!(
+                c.batch_add_trends(Vec::new()),
+                Err(AnalyticsError::Unauthorized)
+            );
         }
 
         #[ink::test]
@@ -833,7 +850,10 @@ pub mod propchain_analytics {
             let accounts = accounts();
             let mut c = admin_contract();
             set_caller(accounts.bob);
-            assert_eq!(c.add_market_trend(sample_trend()), Err(AnalyticsError::Unauthorized));
+            assert_eq!(
+                c.add_market_trend(sample_trend()),
+                Err(AnalyticsError::Unauthorized)
+            );
             assert_eq!(c.get_historical_trends().len(), 0);
         }
 
@@ -842,7 +862,10 @@ pub mod propchain_analytics {
             let accounts = accounts();
             let mut c = admin_contract();
             set_caller(accounts.bob);
-            assert_eq!(c.update_market_sentiment(1, 100, 100), Err(AnalyticsError::Unauthorized));
+            assert_eq!(
+                c.update_market_sentiment(1, 100, 100),
+                Err(AnalyticsError::Unauthorized)
+            );
         }
 
         #[ink::test]
@@ -850,7 +873,10 @@ pub mod propchain_analytics {
             let accounts = accounts();
             let mut c = admin_contract();
             set_caller(accounts.bob);
-            assert_eq!(c.set_portfolio_positions(accounts.alice, Vec::new()), Err(AnalyticsError::Unauthorized));
+            assert_eq!(
+                c.set_portfolio_positions(accounts.alice, Vec::new()),
+                Err(AnalyticsError::Unauthorized)
+            );
         }
 
         #[ink::test]
@@ -858,7 +884,13 @@ pub mod propchain_analytics {
             let accounts = accounts();
             let mut c = admin_contract();
             set_caller(accounts.bob);
-            assert_eq!(c.update_property_type_trend(propchain_traits::PropertyType::Residential, sample_trend()), Err(AnalyticsError::Unauthorized));
+            assert_eq!(
+                c.update_property_type_trend(
+                    propchain_traits::PropertyType::Residential,
+                    sample_trend()
+                ),
+                Err(AnalyticsError::Unauthorized)
+            );
         }
 
         #[ink::test]
@@ -866,7 +898,10 @@ pub mod propchain_analytics {
             let accounts = accounts();
             let mut c = admin_contract();
             set_caller(accounts.bob);
-            assert_eq!(c.update_benchmark_index(propchain_traits::PropertyType::Residential, 7), Err(AnalyticsError::Unauthorized));
+            assert_eq!(
+                c.update_benchmark_index(propchain_traits::PropertyType::Residential, 7),
+                Err(AnalyticsError::Unauthorized)
+            );
         }
 
         #[ink::test]
@@ -877,19 +912,44 @@ pub mod propchain_analytics {
             assert_eq!(c.get_market_metrics().average_price, 150);
             assert_eq!(c.add_market_trend(sample_trend()), Ok(()));
             assert_eq!(c.get_historical_trends().len(), 1);
-            assert_eq!(c.batch_update_metrics(vec![MetricUpdate { average_price: 160, total_volume: 320, properties_listed: 5 }]), Ok(()));
+            assert_eq!(
+                c.batch_update_metrics(vec![MetricUpdate {
+                    average_price: 160,
+                    total_volume: 320,
+                    properties_listed: 5
+                }]),
+                Ok(())
+            );
             assert_eq!(c.batch_add_trends(vec![sample_trend()]), Ok(()));
             assert_eq!(c.get_historical_trends().len(), 2);
             assert_eq!(c.update_market_sentiment(1, 400, 100), Ok(()));
             assert_eq!(c.overall_sentiment.bull_volume, 400);
-            let positions = vec![PortfolioPosition { property_type: propchain_traits::PropertyType::Residential, value: 1_000 }];
+            let positions = vec![PortfolioPosition {
+                property_type: propchain_traits::PropertyType::Residential,
+                value: 1_000,
+            }];
             assert_eq!(c.set_portfolio_positions(accounts.alice, positions), Ok(()));
             assert_eq!(c.get_portfolio_positions(accounts.alice).len(), 1);
-            assert_eq!(c.update_property_type_trend(propchain_traits::PropertyType::Commercial, sample_trend()), Ok(()));
-            assert_eq!(c.get_property_type_trend(propchain_traits::PropertyType::Commercial).price_change_percentage, 5);
-            assert_eq!(c.update_benchmark_index(propchain_traits::PropertyType::Commercial, 9), Ok(()));
-            assert_eq!(c.get_benchmark_index(propchain_traits::PropertyType::Commercial), 9);
-        }
+            assert_eq!(
+                c.update_property_type_trend(
+                    propchain_traits::PropertyType::Commercial,
+                    sample_trend()
+                ),
+                Ok(())
+            );
+            assert_eq!(
+                c.get_property_type_trend(propchain_traits::PropertyType::Commercial)
+                    .price_change_percentage,
+                5
+            );
+            assert_eq!(
+                c.update_benchmark_index(propchain_traits::PropertyType::Commercial, 9),
+                Ok(())
+            );
+            assert_eq!(
+                c.get_benchmark_index(propchain_traits::PropertyType::Commercial),
+                9
+            );
         }
     }
 }
