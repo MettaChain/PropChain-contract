@@ -128,6 +128,25 @@ mod version_registry {
             Ok(())
         }
 
+        /// Registers a new deployment for `name` under the next
+        /// auto-incrementing version number, and returns that version.
+        /// Admin-only.
+        ///
+        /// The version used is one more than the highest version previously
+        /// used for `name` (starting at 1 for a name never seen before),
+        /// tracked internally regardless of whether prior versions were
+        /// registered via this message or via
+        /// `register_deployment_with_version`. Records the caller as
+        /// `deployer` and the current block timestamp as `deployed_at`, then
+        /// emits `ContractDeployed`.
+        ///
+        /// # Errors
+        /// - `Error::Unauthorized` if the caller is not the contract admin.
+        /// - `Error::VersionAlreadyExists` if the computed version number is
+        ///   already registered for `name` (can happen if a higher version
+        ///   was previously registered directly via
+        ///   `register_deployment_with_version` without also advancing past
+        ///   this one).
         #[ink(message)]
         pub fn register_deployment(
             &mut self,
@@ -174,6 +193,22 @@ mod version_registry {
             Ok(version)
         }
 
+        /// Registers a deployment for `name` under a caller-supplied
+        /// `version` number, rather than an auto-incremented one. Admin-only.
+        ///
+        /// Updates `get_latest_version` for `name` only if `version` is
+        /// greater than the current latest. Also advances the internal
+        /// auto-increment counter used by `register_deployment` if `version`
+        /// is greater than or equal to it, so a subsequent
+        /// `register_deployment` call will not collide with this one.
+        /// Records the caller as `deployer` and the current block timestamp
+        /// as `deployed_at`, then emits `ContractDeployed`.
+        ///
+        /// # Errors
+        /// - `Error::Unauthorized` if the caller is not the contract admin.
+        /// - `Error::InvalidVersion` if `version` is `0`.
+        /// - `Error::VersionAlreadyExists` if `version` is already registered
+        ///   for `name`.
         #[ink(message)]
         pub fn register_deployment_with_version(
             &mut self,
@@ -231,16 +266,33 @@ mod version_registry {
             Ok(())
         }
 
+        /// Returns the highest version number registered for `name`, if any.
+        ///
+        /// Open to any caller. Returns `None` if `name` has never been
+        /// registered.
         #[ink(message)]
         pub fn get_latest_version(&self, name: String) -> Option<u32> {
             self.latest_versions.get(&name)
         }
 
+        /// Returns the deployment record for a specific `name` and `version`,
+        /// if one was registered.
+        ///
+        /// Open to any caller. Returns `None` if that exact
+        /// `(name, version)` pair was never registered, even if other
+        /// versions of `name` exist.
         #[ink(message)]
         pub fn get_deployment(&self, name: String, version: u32) -> Option<DeploymentRecord> {
             self.deployments.get(&(name, version))
         }
 
+        /// Returns every deployment record for `name`, from version 1 up to
+        /// the current latest version, in ascending version order.
+        ///
+        /// Open to any caller. Returns an empty `Vec` if `name` has never
+        /// been registered. Any version in the `1..=latest` range that has no
+        /// stored record (a gap left by `register_deployment_with_version`
+        /// skipping ahead) is silently omitted rather than causing an error.
         #[ink(message)]
         pub fn get_deployment_history(&self, name: String) -> Vec<DeploymentRecord> {
             let latest = match self.latest_versions.get(&name) {
@@ -257,6 +309,11 @@ mod version_registry {
             history
         }
 
+        /// Returns every contract name that has ever been registered, in the
+        /// order they were first registered.
+        ///
+        /// Open to any caller. A name only appears once here regardless of
+        /// how many versions have been registered under it.
         #[ink(message)]
         pub fn get_all_names(&self) -> Vec<String> {
             let mut names = Vec::with_capacity(self.name_count as usize);

@@ -243,6 +243,16 @@ pub mod propchain_prediction_market {
             }
         }
 
+        /// Sets the oracle account address for this contract. Admin-only.
+        ///
+        /// Not payable. Note: this address is currently informational only
+        /// for the manual-resolution markets (`create_market` /
+        /// `resolve_market`), which are resolved directly by the admin, not
+        /// by checking this value. It is used as the required caller for
+        /// `submit_oracle_data` on oracle-driven markets.
+        ///
+        /// # Errors
+        /// - `Error::Unauthorized` if the caller is not the contract admin.
         #[ink(message)]
         pub fn set_oracle(&mut self, oracle: AccountId) -> Result<(), Error> {
             self.ensure_admin()?;
@@ -250,6 +260,20 @@ pub mod propchain_prediction_market {
             Ok(())
         }
 
+        /// Creates a new manual-resolution prediction market for a property
+        /// metric and returns its `market_id`. Admin-only.
+        ///
+        /// Not payable. The market starts `Active` with zero stakes on both
+        /// sides. Once `resolution_time` (a block timestamp) has passed, the
+        /// admin resolves the market with `resolve_market`, comparing the
+        /// submitted value against `target_value`. Emits `MarketCreated`.
+        ///
+        /// This is the manual-resolution counterpart to
+        /// `create_oracle_market`; the two market kinds are tracked in
+        /// separate id spaces and are not interchangeable in other messages.
+        ///
+        /// # Errors
+        /// - `Error::Unauthorized` if the caller is not the contract admin.
         #[ink(message)]
         pub fn create_market(
             &mut self,
@@ -286,6 +310,23 @@ pub mod propchain_prediction_market {
             Ok(market_id)
         }
 
+        /// Stakes the transferred value on `direction` (Long or Short) for a
+        /// manual-resolution market. Payable; the transferred value is the
+        /// stake amount.
+        ///
+        /// Open to any caller. Repeated calls for the same `market_id` by the
+        /// same caller add to their existing stake, provided the direction
+        /// matches; this contract does not support hedging both directions
+        /// on the same market from one account. Emits `PredictionStaked`.
+        ///
+        /// # Errors
+        /// - `Error::InvalidAmount` if no value was transferred, or if the
+        ///   caller already holds a stake on this market in the opposite
+        ///   direction.
+        /// - `Error::MarketNotFound` if `market_id` does not exist.
+        /// - `Error::MarketNotActive` if the market is not `Active`, or if
+        ///   its `resolution_time` has already passed (staking closes at
+        ///   resolution time, before `resolve_market` is even called).
         #[ink(message, payable)]
         pub fn stake_prediction(
             &mut self,
@@ -343,6 +384,29 @@ pub mod propchain_prediction_market {
             Ok(())
         }
 
+        /// Resolves a manual-resolution market by admin-submitted
+        /// `resolved_value`, deciding the winning direction. Admin-only.
+        ///
+        /// Not payable. `Long` wins if `resolved_value >= target_value`,
+        /// otherwise `Short` wins. Can only be called once per market, and
+        /// only after `resolution_time` has passed. Emits `MarketResolved`.
+        ///
+        /// # Screening / trust note
+        /// This value is currently supplied directly by the admin account,
+        /// not verified against `oracle_address` or any external data feed.
+        /// Oracle-driven settlement for this market type is tracked
+        /// separately; today's guarantee is only that the admin attests to
+        /// `resolved_value`. Oracle-driven markets created via
+        /// `create_oracle_market` are resolved differently, via
+        /// `submit_oracle_data`.
+        ///
+        /// # Errors
+        /// - `Error::Unauthorized` if the caller is not the contract admin.
+        /// - `Error::MarketNotFound` if `market_id` does not exist.
+        /// - `Error::MarketAlreadyResolved` if the market is not `Active`
+        ///   (already resolved or cancelled).
+        /// - `Error::MarketNotReadyForResolution` if `resolution_time` has
+        ///   not yet passed.
         #[ink(message)]
         pub fn resolve_market(
             &mut self,
@@ -380,6 +444,31 @@ pub mod propchain_prediction_market {
             Ok(())
         }
 
+        /// Claims the caller's payout from a resolved manual-resolution
+        /// market, transferring it to the caller. Not payable.
+        ///
+        /// Open to any caller who holds a stake on `market_id`. A winning
+        /// stake's payout is
+        /// `stake + stake * losing_pool / winning_pool`, minus a protocol
+        /// fee of `fee_bips` (in basis points, set at construction). A
+        /// losing stake cannot claim and instead records unsuccessful-
+        /// prediction reputation for the caller (see `get_user_reputation`);
+        /// a winning claim records successful-prediction reputation. Each
+        /// stake can be claimed at most once. Guarded against reentrancy.
+        /// Emits `RewardClaimed` on success.
+        ///
+        /// # Errors
+        /// - `Error::MarketNotFound` if `market_id` does not exist.
+        /// - `Error::MarketNotActive` if the market has not been resolved
+        ///   yet.
+        /// - `Error::StakeNotFound` if the caller has no stake on this
+        ///   market.
+        /// - `Error::RewardAlreadyClaimed` if the caller already claimed
+        ///   this stake.
+        /// - `Error::LoserCannotClaim` if the caller's stake was on the
+        ///   losing direction.
+        /// - `Error::TransferFailed` if the payout transfer fails.
+        /// - `Error::ReentrantCall` if called reentrantly.
         #[ink(message)]
         pub fn claim_reward(&mut self, market_id: u64) -> Result<(), Error> {
             non_reentrant!(self, {
@@ -438,6 +527,15 @@ pub mod propchain_prediction_market {
             })
         }
 
+        /// Returns `user`'s prediction reputation: total predictions made,
+        /// how many resolved in the user's favor, and an accuracy score out
+        /// of 10000 (e.g. `7500` = 75%).
+        ///
+        /// Open to any caller. Reputation is only updated by
+        /// `claim_reward` (manual-resolution markets), not by
+        /// `claim_winnings` (oracle markets). A user who has never claimed a
+        /// manual-resolution reward gets a zeroed-out `UserReputation`
+        /// rather than an error.
         #[ink(message)]
         pub fn get_user_reputation(&self, user: AccountId) -> UserReputation {
             self.reputations.get(&user).unwrap_or(UserReputation {
@@ -447,11 +545,28 @@ pub mod propchain_prediction_market {
             })
         }
 
+        /// Returns the manual-resolution market info for `market_id`, if it
+        /// exists.
+        ///
+        /// Open to any caller. Returns `None` if `market_id` was never
+        /// created via `create_market`. For oracle-driven markets, use
+        /// `get_oracle_market` instead -- the two id spaces are separate.
         #[ink(message)]
         pub fn get_market(&self, market_id: u64) -> Option<PredictionMarketInfo> {
             self.markets.get(&market_id)
         }
 
+        /// Records a backtest-accuracy attestation for a market and emits
+        /// `BacktestValidated`. Admin-only. Not payable.
+        ///
+        /// This message does not verify `historical_accuracy` or
+        /// `model_version` against anything (no proof check, no stored
+        /// mapping) -- it only accepts the admin's submitted values and
+        /// emits the event for off-chain consumption. It does not affect
+        /// market resolution, staking, or payouts.
+        ///
+        /// # Errors
+        /// - `Error::Unauthorized` if the caller is not the contract admin.
         #[ink(message)]
         pub fn submit_backtest_data(
             &mut self,
