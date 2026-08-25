@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["CrowdfundingError"],"struct":["RealEstateCrowdfunding"]};
+window.SIDEBAR_ITEMS = {"mod":["propchain_crowdfunding"]};

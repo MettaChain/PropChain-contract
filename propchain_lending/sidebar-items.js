@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["LendingError","LoanStatus","PaymentScheduleStatus"],"mod":["liquidation_reentrancy","yield_optimization"],"struct":["LoanServicer","PaymentSchedule","PropertyLending"]};
+window.SIDEBAR_ITEMS = {"mod":["liquidation_reentrancy","propchain_lending","yield_optimization"]};
