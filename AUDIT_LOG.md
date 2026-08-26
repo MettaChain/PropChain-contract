@@ -1,13 +1,23 @@
 # 🛡️ Automated Security & Mutation Audit Log
-Generated on: Tue Aug 25 03:02:28 UTC 2026
+Generated on: Wed Aug 26 03:15:39 UTC 2026
 ---
 ## 📦 Dependency License & Advisory Checks (cargo-deny)
 ```text
-cargo-deny failed or flagged warnings
+[0m[1m[38;5;9merror[deprecated][0m[1m: this key has been removed, see https://github.com/EmbarkStudios/cargo-deny/pull/611 for migration information[0m
+   [0m[36m┌─[0m /home/runner/work/PropChain-contract/PropChain-contract/deny.toml:20:1
+   [0m[36m│[0m
+[0m[36m20[0m [0m[36m│[0m [0m[31munlicensed[0m = "deny"
+   [0m[36m│[0m [0m[31m━━━━━━━━━━[0m
+
+2026-08-26 03:15:39 [[31mERROR[0m] failed to validate configuration file /home/runner/work/PropChain-contract/PropChain-contract/deny.toml[0m
 ```
 ---
 ## 🔍 Vulnerability Advisory Scans (cargo-audit)
 ```text
+[0m[0m[1m[32m    Fetching[0m advisory database from `https://github.com/RustSec/advisory-db.git`
+[0m[0m[1m[32m      Loaded[0m 1226 security advisories (from /home/runner/.cargo/advisory-db)
+[0m[0m[1m[32m    Updating[0m crates.io index
+[0m[0m[1m[32m    Scanning[0m Cargo.lock for vulnerabilities (829 crate dependencies)
 [0m[0m[1m[31mCrate:    [0m h2
 [0m[0m[1m[31mVersion:  [0m 0.3.27
 [0m[0m[1m[31mTitle:    [0m h2 unbounded empty DATA frames
@@ -172,23 +182,25 @@ cargo-deny failed or flagged warnings
 [0m[0m[1m[33mVersion:  [0m 0.9.8
 [0m[0m[1m[33mWarning:  [0m yanked
 
-cargo-audit detected critical vulnerability markers
+[0m[0m[1m[31merror:[0m 8 vulnerabilities found!
+[0m[0m[1m[33mwarning:[0m 13 allowed warnings found
 ```
 ---
 ## 🧬 Mutation Gate: lending
 ```text
-[33m WARN[0m Package "lending" not found in source tree
 Found 0 mutants to test
 [33m WARN[0m No mutants found under the active filters
 ```
+---
 ## 🧬 Mutation Gate: bridge
 ```text
-[33m WARN[0m Package "bridge" not found in source tree
 Found 0 mutants to test
 [33m WARN[0m No mutants found under the active filters
 ```
+---
 ## 🧬 Mutation Gate: oracle
 ```text
 Found 0 mutants to test
 [33m WARN[0m No mutants found under the active filters
 ```
+---
