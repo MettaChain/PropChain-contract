@@ -1611,7 +1611,11 @@ pub mod propchain_contracts {
             }
             self.external_call_breakers.insert(dependency, &state);
         }
-
+        /// Returns the current circuit breaker state for a given external
+        /// dependency (e.g. failure count, whether it is currently open,
+        /// and when it will next allow calls through).
+        ///
+        /// Read-only; callable by anyone.
         #[ink(message)]
         pub fn get_external_dependency_breaker(
             &self,
@@ -1619,12 +1623,25 @@ pub mod propchain_contracts {
         ) -> CircuitBreakerState {
             self.circuit_state(dependency)
         }
-
+        /// Returns the global circuit breaker configuration (failure
+        /// threshold and cooldown period) applied to all external
+        /// dependencies.
+        ///
+        /// Read-only; callable by anyone.
         #[ink(message)]
         pub fn get_external_dependency_breaker_config(&self) -> CircuitBreakerConfig {
             self.external_call_config.clone()
         }
-
+        /// Updates the circuit breaker's failure threshold and cooldown
+        /// period, applied to all tracked external dependencies going
+        /// forward.
+        ///
+        /// Caller must hold the `Admin` role.
+        ///
+        /// # Errors
+        /// - `Error::Unauthorized` if the caller is not an admin.
+        /// - `Error::ValueOutOfBounds` if `failure_threshold` is `0` or
+        ///   greater than `255`, or if `cooldown_period_secs` is `0`.
         #[ink(message)]
         pub fn configure_external_dependency_breaker(
             &mut self,
@@ -1643,7 +1660,18 @@ pub mod propchain_contracts {
             };
             Ok(())
         }
-
+        /// Manually forces the circuit breaker for the given external
+        /// dependency into the open (tripped) state, immediately blocking
+        /// further calls to it until the configured cooldown elapses.
+        ///
+        /// Intended for incident response, e.g. proactively isolating a
+        /// dependency that is known to be misbehaving before it has
+        /// accumulated enough automatic failures to trip on its own.
+        ///
+        /// Caller must hold the `Admin` role.
+        ///
+        /// # Errors
+        /// - `Error::Unauthorized` if the caller is not an admin.
         #[ink(message)]
         pub fn trip_external_dependency_breaker(
             &mut self,
@@ -1664,7 +1692,15 @@ pub mod propchain_contracts {
             self.external_call_breakers.insert(dependency, &state);
             Ok(())
         }
-
+        /// Resets the circuit breaker for the given external dependency
+        /// back to its closed (healthy) default state, immediately
+        /// allowing calls to it again. The cumulative `total_failures`
+        /// counter is preserved for auditing purposes.
+        ///
+        /// Caller must hold the `Admin` role.
+        ///
+        /// # Errors
+        /// - `Error::Unauthorized` if the caller is not an admin.
         #[ink(message)]
         pub fn reset_external_dependency_breaker(
             &mut self,
@@ -2237,7 +2273,16 @@ pub mod propchain_contracts {
         pub fn get_pause_state(&self) -> PauseInfo {
             self.pause_info.clone()
         }
-
+        /// Grants `role` to `account`, giving it the permissions associated
+        /// with that role (and any permissions inherited from it).
+        /// Emits an audit log entry recording the grant.
+        ///
+        /// Caller must hold the `Admin` role (or a role that inherits from
+        /// it).
+        ///
+        /// # Errors
+        /// - `Error::ZeroAddress` if `account` is the zero address.
+        /// - `Error::Unauthorized` if the caller does not hold `Admin`.
         #[ink(message)]
         pub fn grant_role(&mut self, account: AccountId, role: Role) -> Result<(), Error> {
             Self::ensure_not_zero_address(account)?;
@@ -2269,7 +2314,15 @@ pub mod propchain_contracts {
             );
             Ok(())
         }
-
+        /// Revokes `role` from `account`, removing the permissions directly
+        /// associated with that role. Emits an audit log entry recording
+        /// the revocation.
+        ///
+        /// Caller must hold the `Admin` role (or a role that inherits from
+        /// it).
+        ///
+        /// # Errors
+        /// - `Error::Unauthorized` if the caller does not hold `Admin`.
         #[ink(message)]
         pub fn revoke_role(&mut self, account: AccountId, role: Role) -> Result<(), Error> {
             let caller = self.env().caller();
@@ -2300,12 +2353,19 @@ pub mod propchain_contracts {
             );
             Ok(())
         }
-
+        /// Returns whether `account` holds `role`, either directly or by
+        /// inheriting it from an ancestor role in the role hierarchy.
+        ///
+        /// Read-only; callable by anyone.
         #[ink(message)]
         pub fn has_role(&self, account: AccountId, role: Role) -> bool {
             self.access_control.has_role(account, role)
         }
-
+        /// Returns the access-control audit log entry with the given `id`
+        /// (e.g. a role grant/revoke or permission change), or `None` if no
+        /// entry exists with that id.
+        ///
+        /// Read-only; callable by anyone.
         #[ink(message)]
         pub fn get_permission_audit_entry(&self, id: u64) -> Option<PermissionAuditEntry> {
             self.access_control.get_audit_entry(id)
