@@ -81,6 +81,7 @@ mod insurance_tests {
         ClaimStatus, CoverageType, InsuranceError, PayoutMode, PolicyStatus, PropertyInsurance,
         TriggerComparator, TriggerMetric,
     };
+    use propchain_traits::AccountId;
 
     fn setup() -> PropertyInsurance {
         let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -691,6 +692,282 @@ mod insurance_tests {
             86_400,
         );
         assert_eq!(result, Err(InsuranceError::Unauthorized));
+    }
+
+    // =========================================================================
+    // REINSURANCE PATH TESTS (Issue #1026)
+    //
+    // The shared `create_pool` helper uses a 500B reinsurance threshold that
+    // a claim can never cross (coverage is capped by pool exposure and the
+    // payout is reduced by the deductible), so these tests create pools with
+    // a threshold that a realistic claim payout can actually cross.
+    // =========================================================================
+
+    fn create_pool_with_threshold(contract: &mut PropertyInsurance, threshold: u128) -> u64 {
+        contract
+            .create_risk_pool("Reinsurance Pool".into(), CoverageType::Fire, 8000, threshold)
+            .expect("pool creation failed")
+    }
+
+    /// Provide 10T of liquidity to `pool_id` (current caller is the admin).
+    fn capitalize_pool(contract: &mut PropertyInsurance, pool_id: u64) {
+        test::set_value_transferred::<DefaultEnvironment>(10_000_000_000_000u128);
+        contract.provide_pool_liquidity(pool_id).unwrap();
+    }
+
+    /// Create a Fire policy for bob on `property_id`; returns the policy id
+    /// and the deductible that will be applied to claims.
+    fn create_funded_policy(
+        contract: &mut PropertyInsurance,
+        pool_id: u64,
+        property_id: u64,
+        coverage: u128,
+    ) -> (u64, u128) {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let calc = contract
+            .calculate_premium(property_id, coverage, CoverageType::Fire)
+            .unwrap();
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        test::set_value_transferred::<DefaultEnvironment>(calc.annual_premium * 2);
+        let policy_id = contract
+            .create_policy(
+                property_id,
+                CoverageType::Fire,
+                coverage,
+                pool_id,
+                86_400 * 365,
+                "ipfs://test".into(),
+            )
+            .unwrap();
+        (policy_id, calc.deductible)
+    }
+
+    /// Submit a claim as bob and process it as the admin. Returns the claim id
+    /// and the processing result.
+    fn submit_and_process_claim(
+        contract: &mut PropertyInsurance,
+        policy_id: u64,
+        claim_amount: u128,
+    ) -> (u64, Result<(), InsuranceError>) {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let claim_id = contract
+            .submit_claim(
+                policy_id,
+                claim_amount,
+                "Fire damage".into(),
+                "ipfs://evidence".into(),
+            )
+            .expect("claim submission failed");
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result = contract.process_claim(
+            claim_id,
+            true,
+            "ipfs://oracle-report".into(),
+            String::new(),
+        );
+        (claim_id, result)
+    }
+
+    /// Register an ExcessOfLoss agreement (retention 0, huge coverage) as the
+    /// admin so any recovery attempt would record a recovery.
+    fn register_covering_agreement(contract: &mut PropertyInsurance, reinsurer: AccountId) {
+        contract
+            .register_reinsurance(
+                reinsurer,
+                1_000_000_000_000_000u128, // coverage_limit
+                0,                          // retention_limit
+                2000,
+                [CoverageType::Fire].to_vec(),
+                86_400 * 365,
+            )
+            .expect("reinsurance registration failed");
+    }
+
+    /// A payout below the pool's reinsurance threshold must not trigger any
+    /// recovery, even when a covering agreement exists.
+    #[ink::test]
+    fn test_reinsurance_below_threshold_no_recovery() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let mut contract = setup();
+        let pool_id = create_pool_with_threshold(&mut contract, 100_000_000_000);
+        capitalize_pool(&mut contract, pool_id);
+        add_risk_assessment(&mut contract, 1);
+        register_covering_agreement(&mut contract, accounts.bob);
+
+        let (policy_id, deductible) =
+            create_funded_policy(&mut contract, pool_id, 1, 1_000_000_000_000);
+        let claim_amount = 100_000_000_000;
+        let payout = claim_amount - deductible;
+        assert!(payout < 100_000_000_000, "payout must stay below the threshold");
+
+        let (claim_id, result) = submit_and_process_claim(&mut contract, policy_id, claim_amount);
+        assert!(result.is_ok(), "below-threshold payout must succeed");
+        assert_eq!(contract.get_claim(claim_id).unwrap().status, ClaimStatus::Paid);
+
+        // No recovery was attempted or recorded.
+        assert!(contract.get_loss_recovery(1).is_none());
+        let stats = contract.get_reinsurance_stats(1).unwrap();
+        assert_eq!(stats.total_recoveries, 0);
+        assert_eq!(stats.recovery_count, 0);
+    }
+
+    /// A payout exactly equal to the threshold does not trigger recovery:
+    /// the condition is strictly `amount > threshold`.
+    #[ink::test]
+    fn test_reinsurance_at_threshold_no_recovery() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let mut contract = setup();
+        let pool_id = create_pool_with_threshold(&mut contract, 100_000_000_000);
+        capitalize_pool(&mut contract, pool_id);
+        add_risk_assessment(&mut contract, 1);
+        register_covering_agreement(&mut contract, accounts.bob);
+
+        let (policy_id, deductible) =
+            create_funded_policy(&mut contract, pool_id, 1, 1_000_000_000_000);
+        // 155B claim -> 100B payout after the 5.5% deductible on 1T coverage.
+        let claim_amount = 155_000_000_000;
+        let payout = claim_amount - deductible;
+        assert_eq!(payout, 100_000_000_000, "payout must land exactly on the threshold");
+
+        let (_, result) = submit_and_process_claim(&mut contract, policy_id, claim_amount);
+        assert!(result.is_ok());
+        assert!(contract.get_loss_recovery(1).is_none());
+        let stats = contract.get_reinsurance_stats(1).unwrap();
+        assert_eq!(stats.total_recoveries, 0);
+        assert_eq!(stats.recovery_count, 0);
+    }
+
+    /// A payout above the threshold triggers a recovery from the covering
+    /// agreement; the recovery is recorded on the agreement and in the ledger.
+    #[ink::test]
+    fn test_reinsurance_above_threshold_recovers() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let mut contract = setup();
+        let pool_id = create_pool_with_threshold(&mut contract, 10_000_000_000);
+        capitalize_pool(&mut contract, pool_id);
+        add_risk_assessment(&mut contract, 1);
+        register_covering_agreement(&mut contract, accounts.bob);
+
+        let (policy_id, deductible) =
+            create_funded_policy(&mut contract, pool_id, 1, 1_000_000_000_000);
+        let claim_amount = 100_000_000_000;
+        let payout = claim_amount - deductible;
+        assert!(payout > 10_000_000_000, "payout must cross the threshold");
+
+        let (claim_id, result) = submit_and_process_claim(&mut contract, policy_id, claim_amount);
+        assert!(result.is_ok());
+        assert_eq!(contract.get_claim(claim_id).unwrap().status, ClaimStatus::Paid);
+
+        // The full excess was recovered under the ExcessOfLoss (retention 0)
+        // agreement and recorded in the recovery ledger.
+        let recovery = contract.get_loss_recovery(1).expect("recovery must be recorded");
+        assert_eq!(recovery.claim_id, claim_id);
+        assert_eq!(recovery.gross_loss, payout);
+        assert_eq!(recovery.recovered_amount, payout);
+
+        let stats = contract.get_reinsurance_stats(1).unwrap();
+        assert_eq!(stats.recovery_count, 1);
+        assert_eq!(stats.total_recoveries, payout);
+
+        let agreement = contract.get_reinsurance_agreement(1).unwrap();
+        assert_eq!(agreement.recovery_count, 1);
+        assert_eq!(agreement.total_recoveries, payout);
+    }
+
+    /// When recovery fails because no agreement exists, the payout proceeds
+    /// from pool capital instead of failing the claim.
+    #[ink::test]
+    fn test_reinsurance_failure_no_agreement_pays_from_pool() {
+        let mut contract = setup();
+        let pool_id = create_pool_with_threshold(&mut contract, 10_000_000_000);
+        capitalize_pool(&mut contract, pool_id);
+        add_risk_assessment(&mut contract, 1);
+        // No reinsurance agreement is ever registered.
+
+        let (policy_id, deductible) =
+            create_funded_policy(&mut contract, pool_id, 1, 1_000_000_000_000);
+        let claim_amount = 100_000_000_000;
+        let payout = claim_amount - deductible;
+        let pool_before = contract.get_pool(pool_id).unwrap().available_capital;
+
+        let (claim_id, result) = submit_and_process_claim(&mut contract, policy_id, claim_amount);
+        assert!(
+            result.is_ok(),
+            "payout must proceed from pool capital when recovery fails"
+        );
+        assert_eq!(contract.get_claim(claim_id).unwrap().status, ClaimStatus::Paid);
+        assert!(contract.get_loss_recovery(1).is_none());
+        assert_eq!(
+            contract.get_pool(pool_id).unwrap().available_capital,
+            pool_before - payout
+        );
+    }
+
+    /// When recovery fails because the only agreement is inactive, the payout
+    /// likewise proceeds from pool capital.
+    #[ink::test]
+    fn test_reinsurance_failure_inactive_agreement_pays_from_pool() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let mut contract = setup();
+        let pool_id = create_pool_with_threshold(&mut contract, 10_000_000_000);
+        capitalize_pool(&mut contract, pool_id);
+        add_risk_assessment(&mut contract, 1);
+        register_covering_agreement(&mut contract, accounts.bob);
+        contract.deactivate_reinsurance(1).unwrap();
+
+        let (policy_id, deductible) =
+            create_funded_policy(&mut contract, pool_id, 1, 1_000_000_000_000);
+        let claim_amount = 100_000_000_000;
+        let payout = claim_amount - deductible;
+        let pool_before = contract.get_pool(pool_id).unwrap().available_capital;
+
+        let (claim_id, result) = submit_and_process_claim(&mut contract, policy_id, claim_amount);
+        assert!(result.is_ok());
+        assert_eq!(contract.get_claim(claim_id).unwrap().status, ClaimStatus::Paid);
+        assert!(contract.get_loss_recovery(1).is_none());
+        let stats = contract.get_reinsurance_stats(1).unwrap();
+        assert_eq!(stats.recovery_count, 0);
+        assert_eq!(stats.total_recoveries, 0);
+        assert_eq!(
+            contract.get_pool(pool_id).unwrap().available_capital,
+            pool_before - payout
+        );
+    }
+
+    /// When recovery fails and the pool cannot cover the payout, the claim is
+    /// rejected instead of paying out uncovered funds.
+    #[ink::test]
+    fn test_reinsurance_failure_insufficient_pool_rejects_claim() {
+        let mut contract = setup();
+        // 100% exposure ratio: two 6T policies fit in a 10T pool, but two
+        // ~5.67T payouts (after the deductible) do not.
+        let pool_id = contract
+            .create_risk_pool(
+                "Reinsurance Pool".into(),
+                CoverageType::Fire,
+                10_000,
+                1_000_000_000,
+            )
+            .unwrap();
+        capitalize_pool(&mut contract, pool_id);
+        add_risk_assessment(&mut contract, 1);
+        add_risk_assessment(&mut contract, 2);
+
+        let (policy_a, _) = create_funded_policy(&mut contract, pool_id, 1, 6_000_000_000_000);
+        let (policy_b, _) = create_funded_policy(&mut contract, pool_id, 2, 6_000_000_000_000);
+
+        let claim_amount = 6_000_000_000_000;
+        // The first claim drains most of the pool's capital.
+        let (claim_a, result_a) = submit_and_process_claim(&mut contract, policy_a, claim_amount);
+        assert!(result_a.is_ok());
+        assert_eq!(contract.get_claim(claim_a).unwrap().status, ClaimStatus::Paid);
+
+        // The second claim again crosses the (uncovered) threshold, but with
+        // no agreement and no capital left the claim must be rejected.
+        let (_, result_b) = submit_and_process_claim(&mut contract, policy_b, claim_amount);
+        assert_eq!(result_b, Err(InsuranceError::InsufficientPoolFunds));
+        assert!(contract.get_loss_recovery(1).is_none());
     }
 
     // =========================================================================
