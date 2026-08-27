@@ -147,6 +147,49 @@ mod tests {
     }
 
     #[ink::test]
+    fn signer_changes_locked_while_proposal_active() {
+        let mut gov = create_governance();
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+
+        gov.create_proposal(dummy_hash(), GovernanceAction::ModifyProperty, None)
+            .unwrap();
+        assert_eq!(gov.get_active_proposal_count(), 1);
+
+        // The roster is frozen while a proposal is actively voting, so a
+        // mid-vote roster change cannot alter the proposal's quorum math.
+        assert_eq!(gov.add_signer(accounts.django), Err(Error::SignerChangesLocked));
+        assert_eq!(gov.remove_signer(accounts.charlie), Err(Error::SignerChangesLocked));
+        assert_eq!(gov.get_signers().len(), 3);
+    }
+
+    #[ink::test]
+    fn signer_changes_allowed_after_proposal_closes() {
+        let mut gov = create_governance();
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+
+        gov.create_proposal(dummy_hash(), GovernanceAction::ModifyProperty, None)
+            .unwrap();
+
+        // Reject the proposal: alice and bob vote no, leaving no path to the
+        // threshold of 2 with 3 signers.
+        gov.vote(0, false).unwrap();
+        set_caller(accounts.bob);
+        gov.vote(0, false).unwrap();
+        assert_eq!(gov.get_proposal(0).unwrap().status, ProposalStatus::Rejected);
+        assert_eq!(gov.get_active_proposal_count(), 0);
+
+        // With no active proposals the roster can be edited again.
+        set_caller(accounts.alice);
+        gov.add_signer(accounts.django).unwrap();
+        gov.remove_signer(accounts.charlie).unwrap();
+        assert_eq!(gov.get_signers().len(), 3);
+        assert!(gov.get_signers().contains(&accounts.django));
+        assert!(!gov.get_signers().contains(&accounts.charlie));
+    }
+
+    #[ink::test]
     fn cannot_remove_below_min_signers() {
         let accounts = default_accounts();
         set_caller(accounts.alice);

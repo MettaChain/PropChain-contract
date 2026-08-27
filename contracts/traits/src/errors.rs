@@ -430,6 +430,8 @@ pub mod governance_codes {
     pub const GOVERNANCE_MAX_PROPOSALS: u32 = 8011;
     pub const GOVERNANCE_NOT_A_SIGNER: u32 = 8012;
     pub const GOVERNANCE_PROPOSAL_EXPIRED: u32 = 8013;
+    /// Signer roster changes are blocked while proposals are actively voting.
+    pub const GOVERNANCE_SIGNER_CHANGES_LOCKED: u32 = 8014;
 }
 
 /// Staking error codes (9000-9999)
