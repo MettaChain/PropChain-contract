@@ -470,6 +470,38 @@ mod tests {
         );
     }
 
+    #[ink::test]
+    fn register_public_key_emits_public_key_registered_event() {
+        use scale::Decode as _;
+
+        let mut gov = create_governance();
+        let accounts = default_accounts();
+        ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(42);
+        set_caller(accounts.alice);
+
+        gov.register_public_key([0x03; 33]).unwrap();
+
+        let events = ink::env::test::recorded_events().collect::<Vec<_>>();
+        let decoded =
+            PublicKeyRegistered::decode(&mut &events[0].data[..]).expect("decode event");
+        assert_eq!(decoded.signer, accounts.alice);
+        assert_eq!(decoded.public_key, [0x03; 33]);
+        assert_eq!(decoded.timestamp, 42);
+
+        // Overwriting an existing key is a rotation and must also be traceable.
+        ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(99);
+        set_caller(accounts.bob);
+        gov.register_public_key([0x04; 33]).unwrap();
+        gov.register_public_key([0x05; 33]).unwrap();
+
+        let events = ink::env::test::recorded_events().collect::<Vec<_>>();
+        assert_eq!(events.len(), 3);
+        let decoded = PublicKeyRegistered::decode(&mut &events[2].data[..]).expect("decode event");
+        assert_eq!(decoded.signer, accounts.bob);
+        assert_eq!(decoded.public_key, [0x05; 33]);
+        assert_eq!(decoded.timestamp, 99);
+    }
+
     /// Brute-force recount helper mirroring the pre-#972 scan semantics:
     /// tallies each proposal by its *final* status and computes the
     /// participation average over Executed/Rejected proposals.

@@ -156,6 +156,15 @@ pub mod governance {
         pub proposer: AccountId,
     }
 
+    /// Emitted when a signer registers (or overwrites) their ECDSA public key.
+    #[ink(event)]
+    pub struct PublicKeyRegistered {
+        #[ink(topic)]
+        pub signer: AccountId,
+        pub public_key: [u8; 33],
+        pub timestamp: u64,
+    }
+
     // =========================================================================
     // Storage
     // =========================================================================
@@ -575,11 +584,19 @@ pub mod governance {
         }
 
         /// Register an ECDSA public key for cryptographic signature verification.
+        ///
+        /// Emits a `PublicKeyRegistered` event (also on overwrite) so that signer
+        /// key rotations remain observable to auditors and off-chain indexers.
         #[ink(message)]
         pub fn register_public_key(&mut self, public_key: [u8; 33]) -> Result<(), Error> {
             let caller = self.env().caller();
             self.ensure_signer(caller)?;
             self.signer_public_keys.insert(caller, &public_key);
+            self.env().emit_event(PublicKeyRegistered {
+                signer: caller,
+                public_key,
+                timestamp: self.env().block_timestamp(),
+            });
             Ok(())
         }
 
