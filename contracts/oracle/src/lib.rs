@@ -18,9 +18,13 @@ use propchain_traits::access_control::{AccessControl, Action, Permission, Resour
 use propchain_traits::*;
 
 // Aggregation helpers (simple_median, weighted_median, trimmed_mean) live in
-// `oracle/src/aggregation.rs` — declare the module so the file is included
-// into the crate.
+// `oracle/src/aggregation.rs` and are called from `aggregate_prices`.
 mod aggregation;
+
+// Median price cache helpers (compute_median, is_cache_fresh) live in
+// `oracle/src/median_cache.rs`; the aggregation path stores the median of
+// collected source prices and the valuation fallback serves fresh entries.
+mod median_cache;
 
 /// Property Valuation Oracle Contract
 #[ink::contract]
@@ -29,6 +33,10 @@ mod propchain_oracle {
     include!("types.rs");
     use ink::prelude::string::{String, ToString};
     use ink::prelude::vec::Vec;
+
+    /// Default TTL (in seconds) for the median price cache when no per-asset
+    /// TTL has been configured via `set_cache_ttl`.
+    const DEFAULT_CACHE_TTL_SECS: u64 = 3600;
 
     /// Aggregation mode used when combining prices from multiple oracle sources.
     #[derive(
@@ -603,26 +611,43 @@ mod propchain_oracle {
         ) -> Result<PropertyValuation, OracleError> {
             // Fetch the single stored valuation for the requested property;
             // Mapping<u64, PropertyValuation> has no `iter`/`values` cursors in
-            // ink! 5 storage ABI, so we read the requested key directly. The
-            // `aggregation_mode` flag is preserved for future extensibility
-            // once a full enumeration API is available.
+            // ink! 5 storage ABI, so we read the requested key directly.
             if let Some(stored) = self.property_valuations.get(&property_id) {
-                Ok(stored)
-            } else {
-                let aggregated_valuation = match self.aggregation_mode {
-                    AggregationMode::SimpleMedian => 0u128,
-                    AggregationMode::WeightedMedian => 0u128,
-                    AggregationMode::TrimmedMean => 0u128,
-                };
-                Ok(PropertyValuation {
-                    property_id,
-                    valuation: aggregated_valuation,
-                    confidence_score: 0,
-                    sources_used: 0,
-                    last_updated: self.env().block_timestamp(),
-                    valuation_method: ValuationMethod::MarketData,
-                })
+                return Ok(stored);
             }
+
+            // No stored valuation. First consult the median price cache:
+            // `update_valuation_from_sources` stores the median of the prices
+            // it collected, keyed by `(property_id, "default")`, so a fresh
+            // entry (per `set_cache_ttl`) is a real data point to serve.
+            let cache_key = (property_id, "default".to_string());
+            if let Some((cached_price, cached_at)) = self.cached_median_prices.get(&cache_key) {
+                let now = self.env().block_timestamp();
+                let ttl = self.cache_ttls.get(&cache_key).unwrap_or(DEFAULT_CACHE_TTL_SECS);
+                if median_cache::is_cache_fresh(cached_at as u32, now as u32, ttl as u32) {
+                    return Ok(PropertyValuation {
+                        property_id,
+                        valuation: cached_price,
+                        confidence_score: 0,
+                        sources_used: 0,
+                        last_updated: cached_at,
+                        valuation_method: ValuationMethod::MarketData,
+                    });
+                }
+            }
+
+            // Otherwise return a zeroed placeholder rather than an error. This
+            // is intentional: unknown property ids resolve to a "no data"
+            // valuation so read paths stay total (asserted by
+            // `test_get_nonexistent_valuation_fails`).
+            Ok(PropertyValuation {
+                property_id,
+                valuation: 0,
+                confidence_score: 0,
+                sources_used: 0,
+                last_updated: self.env().block_timestamp(),
+                valuation_method: ValuationMethod::MarketData,
+            })
         }
 
         /// Set the cache TTL for a given asset and source class.
@@ -1174,6 +1199,17 @@ mod propchain_oracle {
             let confidence_score = self.calculate_confidence_score(&prices)?;
 
             let now = self.env().block_timestamp();
+
+            // ── Median Price Cache (median_cache.rs) ────────────────────────
+            // Store the median of the collected source prices so that
+            // `get_property_valuation` can serve a fresh cached value when no
+            // stored valuation exists for a property.
+            let price_values: Vec<u128> = prices.iter().map(|p| p.price).collect();
+            let cache_key = (property_id, "default".to_string());
+            if let Some(median_price) = median_cache::compute_median(&price_values) {
+                self.cached_median_prices
+                    .insert(&cache_key, &(median_price, now));
+            }
 
             // ── Track per-source participation (Issue #497) ──────────────────
             // Build the set of sources that responded this round.
@@ -2737,25 +2773,16 @@ mod propchain_oracle {
                     Ok(total_weighted / total_weight as u128)
                 }
                 AggregationMethod::Median => {
+                    // Delegated to the shared helper in `aggregation.rs`.
                     let mut sorted: Vec<u128> = filtered.iter().map(|p| p.price).collect();
-                    sorted.sort();
-                    let len = sorted.len();
-                    if len % 2 == 0 {
-                        Ok((sorted[len / 2 - 1] + sorted[len / 2]) / 2)
-                    } else {
-                        Ok(sorted[len / 2])
-                    }
+                    Ok(aggregation::simple_median(&mut sorted))
                 }
                 AggregationMethod::TrimmedMean(trim_count) => {
+                    // Delegated to the shared helper in `aggregation.rs`; the
+                    // helper caps the trim at one third of the sample, matching
+                    // the previous inline behaviour.
                     let mut sorted: Vec<u128> = filtered.iter().map(|p| p.price).collect();
-                    sorted.sort();
-                    let trim = (trim_count as usize).min(sorted.len() / 3);
-                    let trimmed = &sorted[trim..sorted.len() - trim];
-                    if trimmed.is_empty() {
-                        return Err(OracleError::InsufficientSources);
-                    }
-                    let sum: u128 = trimmed.iter().sum();
-                    Ok(sum / trimmed.len() as u128)
+                    Ok(aggregation::trimmed_mean(&mut sorted, trim_count as usize))
                 }
             }
         }
