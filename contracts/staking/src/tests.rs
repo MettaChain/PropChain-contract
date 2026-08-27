@@ -597,6 +597,31 @@ mod tests {
     }
 
     #[ink::test]
+    fn set_slashing_coordinator_non_admin_fails() {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        let mut staking = Staking::new(500, 1_000);
+
+        // A non-admin caller cannot configure who is allowed to slash.
+        set_caller(accounts.bob);
+        assert_eq!(
+            staking.set_slashing_coordinator(accounts.bob),
+            Err(Error::Unauthorized)
+        );
+
+        // Admin can still set it afterwards, and the coordinator can then slash.
+        set_caller(accounts.alice);
+        staking.set_slashing_coordinator(accounts.bob).unwrap();
+
+        set_caller(accounts.bob);
+        staking.register_validator(MIN_VALIDATOR_STAKE, 500).unwrap();
+        staking.slash_validator(accounts.bob).unwrap();
+        let info = staking.get_validator_info(accounts.bob).unwrap();
+        let expected = MIN_VALIDATOR_STAKE * (100 - SLASH_PERCENT) / 100;
+        assert_eq!(info.self_stake, expected);
+    }
+
+    #[ink::test]
     fn total_delegated_stake_consistency() {
         let mut staking = create_staking();
         let accounts = default_accounts();
