@@ -570,16 +570,35 @@ mod propchain_metadata {
         // METADATA VERSIONING & HISTORY
         // ====================================================================
 
-        /// Gets metadata version history for a property
+        /// Gets a page of metadata version history for a property.
+        ///
+        /// Returns at most `limit` entries in ascending version order, starting
+        /// at `from_version`, so callers can page through the full history with
+        /// a bounded number of storage reads per call (O(limit) instead of
+        /// O(total versions)). Pass the last returned entry's `version + 1` as
+        /// `from_version` to fetch the next page; an empty result means the end
+        /// of the history has been reached (or the property is unknown).
         #[ink(message)]
-        pub fn get_version_history(&self, property_id: PropertyId) -> Vec<MetadataVersionEntry> {
+        pub fn get_version_history(
+            &self,
+            property_id: PropertyId,
+            from_version: MetadataVersion,
+            limit: u32,
+        ) -> Vec<MetadataVersionEntry> {
             let metadata = match self.metadata.get(property_id) {
                 Some(m) => m,
                 None => return Vec::new(),
             };
+            if limit == 0 || from_version > metadata.version {
+                return Vec::new();
+            }
+            let end = u32::min(
+                from_version.saturating_add(limit),
+                metadata.version.saturating_add(1),
+            );
 
-            let mut history = Vec::new();
-            for v in 1..=metadata.version {
+            let mut history = Vec::with_capacity((end - from_version) as usize);
+            for v in from_version..end {
                 if let Some(entry) = self.version_history.get((property_id, v)) {
                     history.push(entry);
                 }
@@ -929,7 +948,7 @@ mod propchain_metadata {
                 Ok(2)
             );
 
-            let history = contract.get_version_history(1);
+            let history = contract.get_version_history(1, 1, 100);
             assert_eq!(history.len(), 2);
             assert_eq!(history[0].version, 1);
             assert_eq!(history[1].version, 2);
@@ -937,7 +956,62 @@ mod propchain_metadata {
             assert_eq!(contract.current_version(1), Some(2));
 
             // Unknown properties have no history
-            assert!(contract.get_version_history(99).is_empty());
+            assert!(contract.get_version_history(99, 1, 100).is_empty());
+        }
+
+        #[ink::test]
+        fn test_paginated_version_history_reconstructs_full_history() {
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+            let mut contract = setup();
+            create_sample_metadata(&mut contract, 1);
+
+            // Grow the history to 1_000 versions: `version` is monotonic and
+            // version entries are never removed, so this is the worst case the
+            // paginated getter has to deal with.
+            test::set_caller::<DefaultEnvironment>(accounts.bob);
+            for i in 2..=1_000u32 {
+                assert_eq!(
+                    contract.update_metadata(
+                        1,
+                        sample_core(),
+                        sample_ipfs(),
+                        [1u8; 32].into(),
+                        format!("update {}", i),
+                        None
+                    ),
+                    Ok(i)
+                );
+            }
+            assert_eq!(contract.current_version(1), Some(1_000));
+
+            // Page through the entire history in bounded chunks; the pages
+            // must reconstruct the full history in ascending version order.
+            let page_size = 100u32;
+            let mut from_version = 1u32;
+            let mut collected = Vec::new();
+            loop {
+                let page = contract.get_version_history(1, from_version, page_size);
+                if page.is_empty() {
+                    break;
+                }
+                assert!(page.len() as u32 <= page_size);
+                for (idx, entry) in page.iter().enumerate() {
+                    assert_eq!(
+                        entry.version,
+                        from_version + idx as u32,
+                        "pages must be contiguous and in order"
+                    );
+                }
+                collected.extend(page.iter().map(|e| e.version));
+                from_version = collected.last().expect("page is not empty") + 1;
+            }
+
+            assert_eq!(collected.len(), 1_000);
+            assert_eq!(collected, (1..=1_000).collect::<Vec<u32>>());
+
+            // A zero limit and an out-of-range start both return empty pages.
+            assert!(contract.get_version_history(1, 1, 0).is_empty());
+            assert!(contract.get_version_history(1, 1_001, 100).is_empty());
         }
 
         #[ink::test]
