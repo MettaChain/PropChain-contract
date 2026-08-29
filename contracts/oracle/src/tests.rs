@@ -96,6 +96,81 @@ mod oracle_tests {
     }
 
     #[ink::test]
+    fn test_median_price_cache_fallback_served_within_ttl() {
+        let mut oracle = setup_oracle();
+        let property_id = 42;
+
+        oracle
+            .set_cache_ttl(property_id, "default".to_string(), 3600)
+            .expect("admin can configure a cache ttl");
+
+        let now = ink::env::block_timestamp::<DefaultEnvironment>();
+        oracle
+            .cached_median_prices
+            .insert(&(property_id, "default".to_string()), &(123_456, now));
+
+        // No stored valuation but a fresh cache entry: the cached median is
+        // served instead of the zeroed placeholder.
+        let valuation = oracle
+            .get_property_valuation(property_id)
+            .expect("must not error");
+        assert_eq!(valuation.valuation, 123_456);
+
+        // Past the TTL the cache entry is stale, so the documented zeroed
+        // placeholder is returned.
+        ink::env::test::set_block_timestamp::<DefaultEnvironment>(now + 7200 * 1000);
+        let valuation = oracle
+            .get_property_valuation(property_id)
+            .expect("must not error");
+        assert_eq!(valuation.valuation, 0);
+    }
+
+    #[ink::test]
+    fn test_aggregate_prices_median_and_trimmed_mean_arms() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        for (id, weight) in &[("source1", 50u32), ("source2", 50u32), ("source3", 50u32)] {
+            oracle
+                .add_oracle_source(OracleSource {
+                    id: id.to_string(),
+                    source_type: OracleSourceType::Manual,
+                    address: accounts.bob,
+                    is_active: true,
+                    weight: *weight,
+                    last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+                })
+                .expect("source registration should succeed");
+        }
+
+        let prices = vec![
+            PriceData {
+                price: 98,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "source1".to_string(),
+            },
+            PriceData {
+                price: 100,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "source2".to_string(),
+            },
+            PriceData {
+                price: 105,
+                timestamp: ink::env::block_timestamp::<DefaultEnvironment>(),
+                source: "source3".to_string(),
+            },
+        ];
+
+        // Median arm delegates to aggregation::simple_median.
+        oracle.aggregation_method = AggregationMethod::Median;
+        assert_eq!(oracle.aggregate_prices(&prices).unwrap(), 100);
+
+        // TrimmedMean arm delegates to aggregation::trimmed_mean.
+        oracle.aggregation_method = AggregationMethod::TrimmedMean(1);
+        assert_eq!(oracle.aggregate_prices(&prices).unwrap(), 100);
+    }
+
+    #[ink::test]
     fn test_set_price_alert_works() {
         let mut oracle = setup_oracle();
         let accounts = test::default_accounts::<DefaultEnvironment>();

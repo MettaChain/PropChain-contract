@@ -1,8 +1,11 @@
-//! Closes #812: median price cache helper for the oracle's aggregation path
-//! (see the `// ── Median Price Cache (Issue #XXX) ──` TODO at
-//! `contracts/oracle/src/lib.rs:218`). Starter pure-function version;
-//! wiring into `Mapping<(SourceId, BlockNumber), u128>` storage plus a Kani
-//! harness are follow-ups.
+//! Median price cache helpers for the oracle's aggregation path.
+//!
+//! Wired into live code paths in `contracts/oracle/src/lib.rs`:
+//! - `compute_median` is used by `update_valuation_from_sources` to store the
+//!   median of the collected source prices in the `cached_median_prices`
+//!   storage mapping under `(property_id, "default")`;
+//! - `is_cache_fresh` is used by `get_property_valuation` to decide whether a
+//!   cached entry is still within its TTL (configured via `set_cache_ttl`).
 
 /// Computes the median of `prices`, sorting a local copy (input is not mutated).
 pub fn compute_median(prices: &[u128]) -> Option<u128> {
