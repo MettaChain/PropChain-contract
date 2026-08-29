@@ -198,6 +198,10 @@ pub mod dex {
         competition_scores: Mapping<(u64, AccountId), u128>,
         competition_participants: Mapping<u64, Vec<AccountId>>,
         competition_claimed: Mapping<(u64, AccountId), bool>,
+        /// Native value actually escrowed for each trading competition's reward
+        /// pool (competition_id -> amount). Claims may only draw from this
+        /// balance, never from nothing (Issue #1022).
+        competition_reward_escrow: Mapping<u64, u128>,
         admin_timelock_delay: u64,
         pending_admin_actions: Mapping<u64, PendingAdminAction>,
         pending_admin_action_counter: u64,
@@ -249,6 +253,7 @@ pub mod dex {
                 competition_scores: Mapping::default(),
                 competition_participants: Mapping::default(),
                 competition_claimed: Mapping::default(),
+                competition_reward_escrow: Mapping::default(),
                 admin_timelock_delay: 0,
                 pending_admin_actions: Mapping::default(),
                 pending_admin_action_counter: 0,
@@ -997,8 +1002,17 @@ pub mod dex {
             Ok(())
         }
 
-        /// Create a new trading competition. Admin only. Sets start/end timestamps, reward pool, and participant cap.
-        #[ink(message)]
+        /// Creates a new trading competition. Only the admin may call.
+        ///
+        /// # Reward escrow (Issue #1022)
+        ///
+        /// The competition reward must be **funded up front**: the caller must
+        /// attach native value at least equal to `reward_amount`. The attached
+        /// value is escrowed in `competition_reward_escrow` and the governance
+        /// token supply is minted once, by exactly the escrowed amount, so
+        /// `claim_competition_reward` can never credit more than the value
+        /// actually held for the competition.
+        #[ink(message, payable)]
         pub fn create_trading_competition(
             &mut self,
             pair_id: Option<u64>,
@@ -1014,6 +1028,9 @@ pub mod dex {
                 return Err(Error::Unauthorized);
             }
             if title.is_empty() || start_block >= end_block || reward_amount == 0 {
+                return Err(Error::InvalidRequest);
+            }
+            if self.env().transferred_value() < reward_amount {
                 return Err(Error::InvalidRequest);
             }
             self.trade_competition_counter = self.trade_competition_counter.saturating_add(1);
@@ -1034,6 +1051,15 @@ pub mod dex {
                 .insert(competition_id, &competition);
             self.competition_participants
                 .insert(competition_id, &Vec::<AccountId>::new());
+
+            // Escrow the full announced reward and mint the governance supply
+            // once, backed by the attached value. Claims later redistribute
+            // this escrow without touching `total_supply` again.
+            self.competition_reward_escrow
+                .insert(competition_id, &reward_amount);
+            self.governance_config.total_supply =
+                self.governance_config.total_supply.saturating_add(reward_amount);
+
             self.env().emit_event(TradingCompetitionCreated {
                 competition_id,
                 pair_id,
@@ -1057,7 +1083,10 @@ pub mod dex {
                 .unwrap_or(0)
         }
 
-        /// Claim reward tokens for a completed competition. Requires the competition to be finished.
+        /// Claim reward tokens for a completed competition. Requires the
+        /// competition to be finished and its reward pool to have been funded
+        /// (escrowed) at creation. Claims are paid pro rata from the escrow;
+        /// an unfunded competition yields `RewardUnavailable` (Issue #1022).
         #[ink(message)]
         pub fn claim_competition_reward(&mut self, competition_id: u64) -> Result<u128, Error> {
             let competition = self
@@ -1110,13 +1139,27 @@ pub mod dex {
                 return Err(Error::InvalidRequest);
             }
 
+            // The reward pool must actually hold value: claims may only draw
+            // from the escrow funded at creation (Issue #1022). The pro-rata
+            // shares of all participants never exceed the escrowed amount, so
+            // the cap is purely defensive against partially-funded legacy
+            // competitions.
+            let escrowed = self.competition_reward_escrow.get(competition_id).unwrap_or(0);
+            if escrowed == 0 {
+                return Err(Error::RewardUnavailable);
+            }
+            let reward = reward.min(escrowed);
+
+            self.competition_reward_escrow
+                .insert(competition_id, &escrowed.saturating_sub(reward));
             self.competition_claimed
                 .insert((competition_id, caller), &true);
             let balance = self.governance_balances.get(caller).unwrap_or(0);
             self.governance_balances
                 .insert(caller, &balance.saturating_add(reward));
-            self.governance_config.total_supply =
-                self.governance_config.total_supply.saturating_add(reward);
+            // `total_supply` is not increased here: it was minted once when
+            // the competition was funded, so supply grows only by the escrowed
+            // amount across the whole competition lifecycle.
             self.env().emit_event(CompetitionRewardClaimed {
                 competition_id,
                 trader: caller,
@@ -1549,6 +1592,13 @@ pub mod dex {
         #[ink(message)]
         pub fn get_competition_reward_balance(&self, trader: AccountId) -> u128 {
             self.governance_balances.get(trader).unwrap_or(0)
+        }
+
+        /// Return the amount of value still escrowed for a competition's reward
+        /// pool (0 if it was never funded or has been fully claimed).
+        #[ink(message)]
+        pub fn get_competition_reward_escrow(&self, competition_id: u64) -> u128 {
+            self.competition_reward_escrow.get(competition_id).unwrap_or(0)
         }
 
         /// Return the configurable settings for a competition.

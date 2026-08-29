@@ -776,8 +776,12 @@ mod tests {
         let accounts = test::default_accounts::<DefaultEnvironment>();
 
         test::set_block_number::<DefaultEnvironment>(100);
+        let supply_before = dex.governance_config.total_supply;
 
-        // Admin creates a competition on pair 1 running blocks 100..110.
+        // Admin creates a competition on pair 1 running blocks 100..110. The
+        // reward must be funded up front (Issue #1022): the attached value is
+        // escrowed and the governance supply is minted once, by that amount.
+        test::set_value_transferred::<DefaultEnvironment>(10_000);
         let competition_id = dex
             .create_trading_competition(
                 Some(pair_id),
@@ -790,6 +794,13 @@ mod tests {
                 String::from("PCG"),
             )
             .expect("competition creation should work");
+
+        assert_eq!(dex.get_competition_reward_escrow(competition_id), 10_000);
+        assert_eq!(
+            dex.governance_config.total_supply,
+            supply_before + 10_000,
+            "supply is minted once, by exactly the escrowed amount"
+        );
 
         let competition = dex.get_trading_competition(competition_id).unwrap();
         assert!(competition.active);
@@ -832,11 +843,25 @@ mod tests {
         assert!(expected > 0);
         test::set_caller::<DefaultEnvironment>(accounts.bob);
         let balance_before = dex.get_governance_balance(accounts.bob);
+        // Swap emissions mint governance tokens, so capture the supply after
+        // the trades; the claim itself must not mint anything further.
+        let supply_before_claim = dex.governance_config.total_supply;
         let reward = dex.claim_competition_reward(competition_id).unwrap();
         assert_eq!(reward, expected);
         assert_eq!(
             dex.get_governance_balance(accounts.bob),
             balance_before + reward
+        );
+        // Claiming pays from the escrow: supply is unchanged at claim time and
+        // the escrow shrinks by exactly the claimed amount (Issue #1022).
+        assert_eq!(
+            dex.governance_config.total_supply,
+            supply_before_claim,
+            "total supply must not increase at claim time"
+        );
+        assert_eq!(
+            dex.get_competition_reward_escrow(competition_id),
+            10_000 - reward
         );
 
         // Double claims are rejected...
@@ -918,6 +943,23 @@ mod tests {
             Err(Error::InvalidRequest)
         );
 
+        // The reward must be funded up front: creating a competition without
+        // attaching the reward value is rejected (Issue #1022).
+        assert_eq!(
+            dex.create_trading_competition(
+                None,
+                String::from("Unfunded Race"),
+                5_000,
+                100,
+                110,
+                1,
+                10,
+                String::from("PCG")
+            ),
+            Err(Error::InvalidRequest)
+        );
+
+        test::set_value_transferred::<DefaultEnvironment>(5_000);
         let competition_id = dex
             .create_trading_competition(
                 None,
