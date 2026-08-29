@@ -761,9 +761,24 @@ pub mod governance {
         }
 
         /// Adds a new signer. Only admin may call.
+        ///
+        /// # Roster freeze policy (Issue #1024)
+        ///
+        /// The signer roster is frozen while any proposal is `Active`. `vote`
+        /// and `get_proposal_participation` read the **live** signer count, so
+        /// changing the roster mid-vote would silently alter a proposal's
+        /// quorum math (a removed signer can shrink `total_signers` and force
+        /// an early rejection; an added signer can keep a doomed proposal
+        /// alive). Admin roster changes are therefore rejected until every
+        /// active proposal has closed; use `emergency_override` for urgent
+        /// cases.
         #[ink(message)]
         pub fn add_signer(&mut self, new_signer: AccountId) -> Result<(), Error> {
             self.ensure_admin()?;
+
+            if self.active_proposal_count > 0 {
+                return Err(Error::SignerChangesLocked);
+            }
 
             if self.signers.contains(&new_signer) {
                 return Err(Error::SignerExists);
@@ -784,9 +799,19 @@ pub mod governance {
         }
 
         /// Removes a signer. Only admin may call.
+        ///
+        /// # Roster freeze policy (Issue #1024)
+        ///
+        /// Same freeze as `add_signer`: the roster cannot change while any
+        /// proposal is `Active`, so a proposal's pass/reject outcome never
+        /// depends on when the admin happened to edit the signer set.
         #[ink(message)]
         pub fn remove_signer(&mut self, signer: AccountId) -> Result<(), Error> {
             self.ensure_admin()?;
+
+            if self.active_proposal_count > 0 {
+                return Err(Error::SignerChangesLocked);
+            }
 
             if self.signers.len() as u32 <= constants::GOVERNANCE_MIN_SIGNERS {
                 return Err(Error::MinSigners);

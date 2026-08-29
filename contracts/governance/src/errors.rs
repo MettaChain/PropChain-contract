@@ -16,6 +16,8 @@ pub enum Error {
     MaxProposals,
     NotASigner,
     ProposalExpired,
+    /// Signer roster changes are blocked while proposals are actively voting.
+    SignerChangesLocked,
 }
 
 impl core::fmt::Display for Error {
@@ -34,6 +36,9 @@ impl core::fmt::Display for Error {
             Error::MaxProposals => write!(f, "Maximum active proposals reached"),
             Error::NotASigner => write!(f, "Caller is not a signer"),
             Error::ProposalExpired => write!(f, "Proposal has expired"),
+            Error::SignerChangesLocked => {
+                write!(f, "Signer roster is locked while proposals are actively voting")
+            }
         }
     }
 }
@@ -54,6 +59,7 @@ impl ContractError for Error {
             Error::MaxProposals => governance_codes::GOVERNANCE_MAX_PROPOSALS,
             Error::NotASigner => governance_codes::GOVERNANCE_NOT_A_SIGNER,
             Error::ProposalExpired => governance_codes::GOVERNANCE_PROPOSAL_EXPIRED,
+            Error::SignerChangesLocked => governance_codes::GOVERNANCE_SIGNER_CHANGES_LOCKED,
         }
     }
 
@@ -72,6 +78,9 @@ impl ContractError for Error {
             Error::MaxProposals => "Cannot create proposal: active limit reached",
             Error::NotASigner => "Only signers can perform this action",
             Error::ProposalExpired => "The proposal voting period has expired",
+            Error::SignerChangesLocked => {
+                "Signer roster is locked while proposals are actively voting"
+            }
         }
     }
 
