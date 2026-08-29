@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["cross_contract_helper"],"struct":["ActivityHistory","CrossChainSummary","DashboardStatistics","IdentityDashboard","IdentityProfile","PrivacySecuritySettings","ReputationProfile","TrustSummary","VerificationStatus"]};
+window.SIDEBAR_ITEMS = {"struct":["ActivityHistory","CrossChainSummary","DashboardStatistics","IdentityDashboard","IdentityProfile","PrivacySecuritySettings","ReputationProfile","TrustSummary","VerificationStatus"]};
