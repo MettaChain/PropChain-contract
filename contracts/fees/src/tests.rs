@@ -214,6 +214,138 @@ mod fee_tests {
         assert_eq!(fee, 1000);
     }
 
+    // ========== Strategy selection tests (Issue #1027) ==========
+
+    /// Config with a wide clamp range so the strategy formula, not the
+    /// min/max bounds, drives the result.
+    fn strategy_config(method: FeeCalculationMethod, base_fee: u128) -> FeeConfig {
+        FeeConfig {
+            base_fee,
+            min_fee: 0,
+            max_fee: u128::MAX,
+            congestion_sensitivity: 100,
+            demand_factor_bp: BasisPoints::new(0),
+            calculation_method: method,
+            last_updated: 0,
+        }
+    }
+
+    fn strategy_context(congestion_index: u32, operation: FeeOperation) -> FeeContext {
+        FeeContext {
+            congestion_index,
+            demand_factor_bp: BasisPoints::new(0),
+            operation,
+        }
+    }
+
+    /// Fixed strategy ignores congestion and demand entirely.
+    #[ink::test]
+    fn test_fee_calculator_selects_fixed_strategy() {
+        let config = strategy_config(FeeCalculationMethod::Fixed, 2_000);
+        let fee = FeeCalculator::calculate(
+            &config,
+            &strategy_context(100, FeeOperation::RegisterProperty),
+        );
+        assert_eq!(fee, 2_000);
+    }
+
+    /// Dynamic strategy scales with congestion: at 0 congestion it returns
+    /// the base fee, at full congestion it adds the congestion premium.
+    #[ink::test]
+    fn test_fee_calculator_selects_dynamic_strategy() {
+        let config = strategy_config(FeeCalculationMethod::Dynamic, 1_000);
+
+        // At rest: multiplier is exactly 10_000 bp → base fee.
+        let at_rest = FeeCalculator::calculate(
+            &config,
+            &strategy_context(0, FeeOperation::RegisterProperty),
+        );
+        assert_eq!(at_rest, 1_000);
+
+        // Full congestion with sensitivity 100 adds
+        // 100 * 100 * (300 - 100) / 10_000 = 200 bp.
+        let congested = FeeCalculator::calculate(
+            &config,
+            &strategy_context(100, FeeOperation::RegisterProperty),
+        );
+        assert_eq!(congested, 1_020);
+    }
+
+    /// Tiered strategy selects the multiplier from the operation type.
+    #[ink::test]
+    fn test_fee_calculator_selects_tiered_strategy() {
+        let config = strategy_config(FeeCalculationMethod::Tiered, 1_000);
+
+        assert_eq!(
+            FeeCalculator::calculate(&config, &strategy_context(0, FeeOperation::RegisterProperty)),
+            2_000
+        );
+        assert_eq!(
+            FeeCalculator::calculate(&config, &strategy_context(0, FeeOperation::TransferProperty)),
+            1_500
+        );
+        assert_eq!(
+            FeeCalculator::calculate(&config, &strategy_context(0, FeeOperation::CreateEscrow)),
+            1_200
+        );
+        assert_eq!(
+            FeeCalculator::calculate(
+                &config,
+                &strategy_context(0, FeeOperation::PremiumListingBid)
+            ),
+            2_500
+        );
+        // Operations without a dedicated tier fall back to the 1x tier.
+        assert_eq!(
+            FeeCalculator::calculate(&config, &strategy_context(0, FeeOperation::OracleUpdate)),
+            1_000
+        );
+    }
+
+    /// Exponential strategy squares the congestion factor.
+    #[ink::test]
+    fn test_fee_calculator_selects_exponential_strategy() {
+        let config = strategy_config(FeeCalculationMethod::Exponential, 1_000);
+
+        // No congestion → base fee.
+        let at_rest = FeeCalculator::calculate(
+            &config,
+            &strategy_context(0, FeeOperation::RegisterProperty),
+        );
+        assert_eq!(at_rest, 1_000);
+
+        // At congestion 10: factor = 10 * 10 * 100 / 100 = 100 bp.
+        let low = FeeCalculator::calculate(
+            &config,
+            &strategy_context(10, FeeOperation::RegisterProperty),
+        );
+        assert_eq!(low, 1_010);
+
+        // Squaring makes congestion 100 ten times the 10-unit factor:
+        // 100 * 100 * 100 / 100 = 10_000 bp → 2x base.
+        let high = FeeCalculator::calculate(
+            &config,
+            &strategy_context(100, FeeOperation::RegisterProperty),
+        );
+        assert_eq!(high, 2_000);
+    }
+
+    /// Operations without a dedicated config fall back to the default config,
+    /// so strategy selection uses the default calculation method.
+    #[ink::test]
+    fn test_get_config_falls_back_to_default_strategy() {
+        let contract = FeeManager::new(1000, 100, 100_000);
+
+        let default = contract.default_config();
+        assert_eq!(default.calculation_method, FeeCalculationMethod::Dynamic);
+
+        // No operation-specific config has been set: the fallback must be the
+        // default config, and the fee must come from the default strategy.
+        assert_eq!(contract.get_config(FeeOperation::TransferProperty), default);
+        let fee = contract.calculate_fee(FeeOperation::TransferProperty);
+        assert_eq!(fee, FeeCalculator::calculate(&default, &strategy_context(0, FeeOperation::TransferProperty)));
+    }
+
 
     // ========== Dynamic fee model tests (Issue #508) ==========
 
