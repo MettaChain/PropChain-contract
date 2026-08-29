@@ -523,10 +523,12 @@ fn test_privacy_preserving_verification() {
     let public_inputs = vec![2u8; 16];
     let verification_type = "identity_proof".to_string();
 
-    // Privacy-preserving verification should succeed
+    // A 32-byte "proof" must NOT be accepted: on-chain zero-knowledge proof
+    // verification is not implemented, so this message always fails rather
+    // than reporting success for a forged proof (Issue #1023).
     assert_eq!(
         identity_registry.verify_privacy_preserving(proof, public_inputs, verification_type),
-        Ok(true)
+        Err(IdentityError::ZeroKnowledgeVerificationUnsupported)
     );
 }
 

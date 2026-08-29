@@ -47,6 +47,8 @@ pub mod propchain_identity {
         RecoveryThresholdNotMet,
         /// Privacy verification failed
         PrivacyVerificationFailed,
+        /// On-chain zero-knowledge proof verification is not implemented
+        ZeroKnowledgeVerificationUnsupported,
         /// Chain not supported for cross-chain operations
         UnsupportedChain,
         /// Cross-chain verification failed
@@ -1389,16 +1391,25 @@ pub mod propchain_identity {
             Ok(())
         }
 
-        /// Privacy-preserving identity verification using zero-knowledge proofs
+        /// Privacy-preserving identity verification using zero-knowledge proofs.
+        ///
+        /// On-chain zero-knowledge proof verification is **not implemented** in
+        /// this contract, so this message never reports success: it always
+        /// fails with `ZeroKnowledgeVerificationUnsupported`. The previous
+        /// implementation accepted any proof whose length matched the
+        /// verification type (e.g. any 32-byte `proof` with
+        /// `verification_type == "identity_proof"`), so forged proofs reported
+        /// success, bumped the privacy nonce, and updated observable state.
+        /// Real proofs must be verified off-chain (or through a verifier-gated
+        /// flow) before any verification state is recorded.
         #[ink(message)]
         pub fn verify_privacy_preserving(
             &mut self,
-            proof: Vec<u8>,
-            public_inputs: Vec<u8>,
-            verification_type: String,
+            _proof: Vec<u8>,
+            _public_inputs: Vec<u8>,
+            _verification_type: String,
         ) -> Result<bool, IdentityError> {
             let caller = self.env().caller();
-            let _timestamp = self.env().block_timestamp();
 
             // Get identity
             let identity = self
@@ -1411,22 +1422,7 @@ pub mod propchain_identity {
                 return Err(IdentityError::PrivacyVerificationFailed);
             }
 
-            // Verify zero-knowledge proof (simplified verification)
-            let is_valid =
-                self.verify_zero_knowledge_proof(&proof, &public_inputs, &verification_type);
-
-            if is_valid {
-                // Update privacy nonce for replay protection
-                let current_nonce = self.privacy_nonces.get(&caller).unwrap_or(0);
-                self.privacy_nonces.insert(&caller, &(current_nonce + 1));
-
-                // Update last activity
-                let mut updated_identity = identity;
-                updated_identity.last_activity = _timestamp;
-                self.identities.insert(&caller, &updated_identity);
-            }
-
-            Ok(is_valid)
+            Err(IdentityError::ZeroKnowledgeVerificationUnsupported)
         }
 
         /// Get identity information
@@ -1521,21 +1517,6 @@ pub mod propchain_identity {
             // Simplified signature verification
             // In production, this would use proper cryptographic verification
             signature.len() == 64 // Basic length check for Ed25519 signature
-        }
-
-        fn verify_zero_knowledge_proof(
-            &self,
-            proof: &[u8],
-            public_inputs: &[u8],
-            verification_type: &str,
-        ) -> bool {
-            // Simplified ZK verification
-            // In production, this would integrate with proper ZK proof systems
-            match verification_type {
-                "identity_proof" => proof.len() >= 32,
-                "reputation_proof" => public_inputs.len() >= 8,
-                _ => false,
-            }
         }
 
         /// Revoke a compromised identity (admin or authorized verifier only)
