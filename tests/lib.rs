@@ -42,3 +42,6 @@ pub mod integration_mock_oracle;
 pub mod integration_monitoring_sanctions;
 /// Issue #1013: Third-party registry integration coverage
 pub mod integration_third_party;
+/// Version registry integration coverage (sequential + explicit-version
+/// registration, latest/history queries, and the factory pairing)
+pub mod integration_version_registry;

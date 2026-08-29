@@ -7,7 +7,7 @@ use propchain_traits::{ContractError, ErrorCategory, ReentrancyError};
 use scale_info::prelude::{string::String, vec::Vec};
 
 #[ink::contract]
-mod version_registry {
+pub mod version_registry {
     use super::*;
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
