@@ -48,6 +48,10 @@ propchain-gdpr = { path = "../contracts/gdpr", default-features = false }
 propchain-factory = { path = "../contracts/factory", default-features = false }
 ipfs-metadata = { path = "../contracts/ipfs-metadata", default-features = false }
 
+# Issue: version-registry integration coverage (paired with the factory, the
+# deployment/upgrade flow the registry exists to track)
+version-registry = { path = "../contracts/version-registry", default-features = false }
+
 # Issue #1004: on-chain sanctions screening contract
 propchain-sanctions = { path = "../contracts/sanctions", default-features = false }
 
@@ -106,6 +110,7 @@ std = [
     "propchain-gdpr/std",
     "propchain-factory/std",
     "ipfs-metadata/std",
+    "version-registry/std",
     "propchain-sanctions/std",
     "propchain-dex/std",
     "propchain-lending/std",

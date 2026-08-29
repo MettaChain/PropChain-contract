@@ -1661,4 +1661,518 @@ fn staking_tiers_applied_correctly() {
         // 9_999 * 1_000 / 10_000 = 999.9 -> 999 retained in the pool.
         assert_eq!(staking.get_reward_pool() - pool_before, 999);
     }
+    // =========================================================================
+    // Reward Math: accrual over blocks, validator commission, reinvestment
+    //
+    // The assertions below pin exact numbers rather than `> 0`. Reward
+    // distribution is money math: a wrong commission ordering or a rounding
+    // slip silently moves value between the validator and its delegators, and
+    // an inequality assertion cannot see that.
+    // =========================================================================
+
+    /// Reference implementation of the gross (pre-commission) reward the
+    /// contract accrues for `amount` over `blocks`, mirroring
+    /// `update_validator_rewards` / `calculate_rewards` term by term.
+    fn gross_reward(amount: u128, reward_rate_bps: u128, blocks: u128) -> u128 {
+        amount.saturating_mul(reward_rate_bps).saturating_mul(blocks)
+            / constants::REWARD_RATE_PRECISION
+            / 5_256_000
+    }
+
+    /// Fixed inputs shared by the reward-math tests: 1e15 delegated at the
+    /// default 5% (500 bps) annual rate for 100_000 blocks.
+    const REWARD_TEST_STAKE: u128 = 1_000_000_000_000_000;
+    const REWARD_TEST_BLOCKS: u32 = 100_000;
+    /// Pool large enough that no test below can hit `InsufficientPool`.
+    const REWARD_TEST_POOL: u128 = 10_000_000_000_000_000;
+
+    fn fund_pool(staking: &mut Staking, amount: u128) {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        staking.fund_reward_pool(amount).unwrap();
+    }
+
+    // ---- Reward accrual over blocks ----
+
+    #[ink::test]
+    fn delegation_reward_accrues_exactly_over_blocks() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        // 0% commission isolates the accrual term from the commission split.
+        set_caller(accounts.bob);
+        staking.register_validator(MIN_VALIDATOR_STAKE, 0).unwrap();
+
+        set_caller(accounts.charlie);
+        staking.delegate(accounts.bob, REWARD_TEST_STAKE).unwrap();
+
+        // gross = 1e15 * 500 * 100_000 / 10_000 / 5_256_000
+        let expected_gross = gross_reward(REWARD_TEST_STAKE, 500, REWARD_TEST_BLOCKS as u128);
+        assert_eq!(expected_gross, 951_293_759_512);
+
+        advance_block(REWARD_TEST_BLOCKS);
+
+        // acc_reward_per_share = net * 1e12 / 1e15, then reward = 1e15 * acc / 1e12,
+        // so the delegator sees the gross truncated to per-share precision.
+        assert_eq!(
+            staking.get_pending_delegation_rewards(accounts.charlie, accounts.bob),
+            951_293_759_000
+        );
+
+        let pool_before = staking.get_reward_pool();
+        let claimed = staking.claim_delegation_rewards(accounts.bob).unwrap();
+        assert_eq!(claimed, 951_293_759_000);
+        assert_eq!(staking.get_reward_pool(), pool_before - claimed);
+        assert_eq!(
+            staking.get_pending_delegation_rewards(accounts.charlie, accounts.bob),
+            0
+        );
+    }
+
+    #[ink::test]
+    fn delegation_reward_accrual_is_linear_in_blocks() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking.register_validator(MIN_VALIDATOR_STAKE, 0).unwrap();
+
+        set_caller(accounts.charlie);
+        staking.delegate(accounts.bob, REWARD_TEST_STAKE).unwrap();
+
+        advance_block(50_000);
+        let half = staking.get_pending_delegation_rewards(accounts.charlie, accounts.bob);
+        assert_eq!(half, 475_646_879_000);
+
+        advance_block(50_000);
+        let full = staking.get_pending_delegation_rewards(accounts.charlie, accounts.bob);
+        assert_eq!(full, 951_293_759_000);
+        // Accrual is block-linear: doubling the window doubles the reward, up
+        // to one unit of per-share truncation (the 100_000-block projection
+        // truncates once, the 50_000-block one twice).
+        assert_eq!(full - half, 475_646_880_000);
+        assert_eq!(full - half * 2, 1_000);
+    }
+
+    #[ink::test]
+    fn delegation_reward_is_zero_without_block_progress() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking.register_validator(MIN_VALIDATOR_STAKE, 0).unwrap();
+
+        set_caller(accounts.charlie);
+        staking.delegate(accounts.bob, REWARD_TEST_STAKE).unwrap();
+
+        assert_eq!(
+            staking.get_pending_delegation_rewards(accounts.charlie, accounts.bob),
+            0
+        );
+        assert_eq!(
+            staking.claim_delegation_rewards(accounts.bob),
+            Err(Error::NoRewards)
+        );
+    }
+
+    // ---- Validator commission: the split is pinned with fixed numbers ----
+
+    #[ink::test]
+    fn commission_splits_gross_reward_between_validator_and_delegator() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        // 10% commission.
+        set_caller(accounts.bob);
+        staking.register_validator(MIN_VALIDATOR_STAKE, 1_000).unwrap();
+
+        set_caller(accounts.charlie);
+        staking.delegate(accounts.bob, REWARD_TEST_STAKE).unwrap();
+
+        advance_block(REWARD_TEST_BLOCKS);
+
+        // gross            = 951_293_759_512
+        // commission (10%) =  95_129_375_951   (gross * 1_000 / 10_000, truncated)
+        // net              = 856_164_383_561   (gross - commission)
+        let gross = gross_reward(REWARD_TEST_STAKE, 500, REWARD_TEST_BLOCKS as u128);
+        assert_eq!(gross, 951_293_759_512);
+
+        let delegator_reward = staking.claim_delegation_rewards(accounts.bob).unwrap();
+        assert_eq!(delegator_reward, 856_164_383_000);
+
+        set_caller(accounts.bob);
+        let commission = staking.claim_validator_commission().unwrap();
+        assert_eq!(commission, 95_129_375_951);
+
+        // Commission is taken OUT of the gross reward, not added on top of the
+        // delegator's share: the two payouts must sum to at most the gross.
+        // (The 561-unit shortfall is per-share truncation, left in the pool.)
+        assert_eq!(delegator_reward + commission, gross - 561);
+        assert!(delegator_reward + commission <= gross);
+    }
+
+    /// Runs the same fixed inputs at one commission rate and pins the exact
+    /// (delegator, validator) split. Each rate needs its own `#[ink::test]`:
+    /// the off-chain env shares one storage backend per test, so a second
+    /// `Staking` instance in the same test would see the first one's state.
+    fn assert_commission_split(rate: u32, expected_delegator: u128, expected_commission: u128) {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking.register_validator(MIN_VALIDATOR_STAKE, rate).unwrap();
+
+        set_caller(accounts.charlie);
+        staking.delegate(accounts.bob, REWARD_TEST_STAKE).unwrap();
+        advance_block(REWARD_TEST_BLOCKS);
+
+        let delegator_reward = staking.claim_delegation_rewards(accounts.bob).unwrap();
+        assert_eq!(
+            delegator_reward, expected_delegator,
+            "delegator share wrong at {} bps commission",
+            rate
+        );
+
+        let commission = staking
+            .get_validator_info(accounts.bob)
+            .unwrap()
+            .accumulated_commission;
+        assert_eq!(
+            commission, expected_commission,
+            "validator commission wrong at {} bps",
+            rate
+        );
+    }
+
+    #[ink::test]
+    fn commission_zero_bps_gives_delegator_the_whole_reward() {
+        assert_commission_split(0, 951_293_759_000, 0);
+    }
+
+    #[ink::test]
+    fn commission_1000_bps_takes_a_tenth() {
+        assert_commission_split(1_000, 856_164_383_000, 95_129_375_951);
+    }
+
+    #[ink::test]
+    fn commission_2000_bps_takes_a_fifth() {
+        assert_commission_split(2_000, 761_035_007_000, 190_258_751_902);
+    }
+
+    #[ink::test]
+    fn full_commission_leaves_delegator_with_nothing() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking
+            .register_validator(MIN_VALIDATOR_STAKE, MAX_COMMISSION_RATE)
+            .unwrap();
+
+        set_caller(accounts.charlie);
+        staking.delegate(accounts.bob, REWARD_TEST_STAKE).unwrap();
+        advance_block(REWARD_TEST_BLOCKS);
+
+        assert_eq!(
+            staking.get_pending_delegation_rewards(accounts.charlie, accounts.bob),
+            0
+        );
+        assert_eq!(
+            staking.claim_delegation_rewards(accounts.bob),
+            Err(Error::NoRewards)
+        );
+
+        set_caller(accounts.bob);
+        // The validator takes the whole gross reward.
+        assert_eq!(
+            staking.claim_validator_commission().unwrap(),
+            gross_reward(REWARD_TEST_STAKE, 500, REWARD_TEST_BLOCKS as u128)
+        );
+    }
+
+    #[ink::test]
+    fn commission_is_split_pro_rata_across_delegators() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking.register_validator(MIN_VALIDATOR_STAKE, 1_000).unwrap();
+
+        // Both delegate at block 0, so both accrue over the same window.
+        set_caller(accounts.charlie);
+        staking.delegate(accounts.bob, REWARD_TEST_STAKE).unwrap();
+        set_caller(accounts.django);
+        staking.delegate(accounts.bob, REWARD_TEST_STAKE * 3).unwrap();
+
+        advance_block(REWARD_TEST_BLOCKS);
+
+        // gross now accrues on 4e15 delegated:
+        //   gross      = 3_805_175_038_051
+        //   commission =   380_517_503_805
+        //   net        = 3_424_657_534_246
+        //   acc/share  = net * 1e12 / 4e15 = 856_164_383
+        let charlie = staking.get_pending_delegation_rewards(accounts.charlie, accounts.bob);
+        let django = staking.get_pending_delegation_rewards(accounts.django, accounts.bob);
+        assert_eq!(charlie, 856_164_383_000);
+        assert_eq!(django, 2_568_493_149_000);
+        assert_eq!(django, charlie * 3);
+    }
+
+    // ---- update_commission_rate settles the old rate before switching ----
+
+    #[ink::test]
+    fn commission_rate_change_is_not_retroactive() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking.register_validator(MIN_VALIDATOR_STAKE, 1_000).unwrap();
+
+        set_caller(accounts.charlie);
+        staking.delegate(accounts.bob, REWARD_TEST_STAKE).unwrap();
+
+        // Window 1: 100_000 blocks at 10%.
+        advance_block(REWARD_TEST_BLOCKS);
+        set_caller(accounts.bob);
+        staking.update_commission_rate(2_000).unwrap();
+
+        // The rate change settles the first window at the OLD rate.
+        let info = staking.get_validator_info(accounts.bob).unwrap();
+        assert_eq!(info.commission_rate, 2_000);
+        assert_eq!(info.accumulated_commission, 95_129_375_951);
+
+        // Window 2: another 100_000 blocks, now at 20%.
+        advance_block(REWARD_TEST_BLOCKS);
+
+        set_caller(accounts.charlie);
+        let delegator_reward = staking.claim_delegation_rewards(accounts.bob).unwrap();
+        // 856_164_383_000 (window 1 @10%) + 761_035_007_000 (window 2 @20%)
+        assert_eq!(delegator_reward, 1_617_199_390_000);
+
+        set_caller(accounts.bob);
+        let commission = staking.claim_validator_commission().unwrap();
+        // 95_129_375_951 (window 1) + 190_258_751_902 (window 2)
+        assert_eq!(commission, 285_388_127_853);
+    }
+
+    #[ink::test]
+    fn commission_rate_change_emits_old_and_new_rate() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        set_caller(accounts.bob);
+        staking.register_validator(MIN_VALIDATOR_STAKE, 500).unwrap();
+
+        staking.update_commission_rate(2_500).unwrap();
+
+        let events = ink::env::test::recorded_events().collect::<Vec<_>>();
+        let updated = <CommissionRateUpdated as scale::Decode>::decode(
+            &mut &events[events.len() - 1].data[..],
+        )
+        .expect("decode CommissionRateUpdated");
+        assert_eq!(updated.validator, accounts.bob);
+        assert_eq!(updated.old_rate, 500);
+        assert_eq!(updated.new_rate, 2_500);
+    }
+
+    // ---- Reinvestment (auto-compound) flag path ----
+
+    #[ink::test]
+    fn reinvestment_flag_compounds_rewards_into_the_stake() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+        staking.set_auto_compound(true).unwrap();
+
+        advance_block(REWARD_TEST_BLOCKS);
+
+        // base   = 951_293_759_512 (as above)
+        // × 100/100 flexible multiplier, × 150/100 Diamond tier
+        //        = 1_426_940_639_268
+        const EXPECTED: u128 = 1_426_940_639_268;
+        assert_eq!(staking.get_pending_rewards(accounts.bob), EXPECTED);
+
+        let pool_before = staking.get_reward_pool();
+        let total_staked_before = staking.get_total_staked();
+        let power_before = staking.get_governance_power(accounts.bob);
+
+        assert_eq!(staking.claim_rewards().unwrap(), EXPECTED);
+
+        // The reward is added to the stake instead of being paid out.
+        let stake = staking.get_stake(accounts.bob).unwrap();
+        assert_eq!(stake.amount, REWARD_TEST_STAKE + EXPECTED);
+        assert_eq!(staking.get_total_staked(), total_staked_before + EXPECTED);
+        assert_eq!(
+            staking.get_governance_power(accounts.bob),
+            power_before + EXPECTED
+        );
+        assert_eq!(staking.get_reward_pool(), pool_before - EXPECTED);
+
+        // The accrual clock is reset, so nothing is claimable twice.
+        assert_eq!(staking.get_pending_rewards(accounts.bob), 0);
+        assert_eq!(staking.claim_rewards(), Err(Error::NoRewards));
+
+        let events = ink::env::test::recorded_events().collect::<Vec<_>>();
+        let reinvested =
+            <RewardsReinvested as scale::Decode>::decode(&mut &events[events.len() - 1].data[..])
+                .expect("decode RewardsReinvested");
+        assert_eq!(reinvested.staker, accounts.bob);
+        assert_eq!(reinvested.amount, EXPECTED);
+    }
+
+    #[ink::test]
+    fn reinvestment_flag_off_pays_out_instead_of_compounding() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+        assert!(!staking.get_stake(accounts.bob).unwrap().auto_compound);
+
+        advance_block(REWARD_TEST_BLOCKS);
+
+        const EXPECTED: u128 = 1_426_940_639_268;
+        let total_staked_before = staking.get_total_staked();
+        let power_before = staking.get_governance_power(accounts.bob);
+
+        assert_eq!(staking.claim_rewards().unwrap(), EXPECTED);
+
+        // Same amount leaves the pool, but the stake is untouched.
+        let stake = staking.get_stake(accounts.bob).unwrap();
+        assert_eq!(stake.amount, REWARD_TEST_STAKE);
+        assert_eq!(staking.get_total_staked(), total_staked_before);
+        assert_eq!(staking.get_governance_power(accounts.bob), power_before);
+
+        let events = ink::env::test::recorded_events().collect::<Vec<_>>();
+        let claimed =
+            <RewardsClaimed as scale::Decode>::decode(&mut &events[events.len() - 1].data[..])
+                .expect("decode RewardsClaimed");
+        assert_eq!(claimed.staker, accounts.bob);
+        assert_eq!(claimed.amount, EXPECTED);
+    }
+
+    #[ink::test]
+    fn reinvestment_compounds_on_the_grown_principal() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+        staking.set_auto_compound(true).unwrap();
+
+        advance_block(REWARD_TEST_BLOCKS);
+        let first = staking.claim_rewards().unwrap();
+        assert_eq!(first, 1_426_940_639_268);
+
+        // Second identical window now accrues on principal + first reward.
+        advance_block(REWARD_TEST_BLOCKS);
+        let second = staking.claim_rewards().unwrap();
+        let grown = REWARD_TEST_STAKE + first;
+        let expected_second =
+            gross_reward(grown, 500, REWARD_TEST_BLOCKS as u128) * 100 / 100 * 150 / 100;
+        assert_eq!(second, expected_second);
+        assert!(second > first, "compounding must grow the payout");
+
+        assert_eq!(
+            staking.get_stake(accounts.bob).unwrap().amount,
+            grown + second
+        );
+    }
+
+    #[ink::test]
+    fn reinvestment_credits_the_governance_delegate() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+        staking.set_auto_compound(true).unwrap();
+        staking.delegate_governance(accounts.charlie).unwrap();
+
+        assert_eq!(staking.get_governance_power(accounts.bob), 0);
+        assert_eq!(
+            staking.get_governance_power(accounts.charlie),
+            REWARD_TEST_STAKE
+        );
+
+        advance_block(REWARD_TEST_BLOCKS);
+        let reward = staking.claim_rewards().unwrap();
+
+        // Compounded rewards follow the delegation, not the staker.
+        assert_eq!(staking.get_governance_power(accounts.bob), 0);
+        assert_eq!(
+            staking.get_governance_power(accounts.charlie),
+            REWARD_TEST_STAKE + reward
+        );
+    }
+
+    #[ink::test]
+    fn reinvestment_flag_can_be_toggled_back_off() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+        staking.set_auto_compound(true).unwrap();
+
+        advance_block(REWARD_TEST_BLOCKS);
+        let compounded = staking.claim_rewards().unwrap();
+        let grown = REWARD_TEST_STAKE + compounded;
+        assert_eq!(staking.get_stake(accounts.bob).unwrap().amount, grown);
+
+        staking.set_auto_compound(false).unwrap();
+        advance_block(REWARD_TEST_BLOCKS);
+        staking.claim_rewards().unwrap();
+
+        // With the flag off the principal stops growing.
+        assert_eq!(staking.get_stake(accounts.bob).unwrap().amount, grown);
+    }
+
+    #[ink::test]
+    fn reinvestment_respects_the_reward_pool_ceiling() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        // Fund one unit less than the reward the window will produce.
+        fund_pool(&mut staking, 1_426_940_639_267);
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+        staking.set_auto_compound(true).unwrap();
+
+        advance_block(REWARD_TEST_BLOCKS);
+
+        assert_eq!(staking.claim_rewards(), Err(Error::InsufficientPool));
+        // Nothing was compounded.
+        assert_eq!(
+            staking.get_stake(accounts.bob).unwrap().amount,
+            REWARD_TEST_STAKE
+        );
+        assert_eq!(staking.get_reward_pool(), 1_426_940_639_267);
+    }
 }
