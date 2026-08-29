@@ -765,5 +765,19 @@ pub mod mock_oracle_contract {
             test::set_caller::<DefaultEnvironment>(accounts.bob);
             assert_eq!(oracle.reset(1), Err(OracleError::Unauthorized));
         }
+
+        #[ink::test]
+        fn non_admin_cannot_transfer_admin() {
+            let accounts = test::default_accounts::<DefaultEnvironment>();
+            let mut oracle = setup();
+            // A non-admin caller cannot hand the admin role to someone else.
+            test::set_caller::<DefaultEnvironment>(accounts.bob);
+            assert_eq!(
+                oracle.transfer_admin(accounts.charlie),
+                Err(OracleError::Unauthorized)
+            );
+            // Admin role is unchanged after the rejected call.
+            assert_eq!(oracle.admin(), accounts.alice);
+        }
     }
 }
