@@ -1974,6 +1974,73 @@ mod insurance_tests {
     }
 
     // =========================================================================
+    // REGRESSION (Issue #1030) — oracle-data ingestion + parametric getters
+    // =========================================================================
+
+    #[ink::test]
+    fn test_issue_1030_oracle_report_and_parametric_getters() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let (pool_id, property_id) = setup_parametric(&mut contract);
+
+        // ---- Oracle-data ingestion: unauthorized reporter is rejected ----
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        assert_eq!(
+            contract.submit_oracle_data(property_id, "flood_depth_cm".into(), 300),
+            Err(InsuranceError::Unauthorized)
+        );
+
+        // ---- Oracle-data ingestion: authorized oracle stores the report ----
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        contract.authorize_oracle(accounts.charlie).unwrap();
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        contract
+            .submit_oracle_data(property_id, "flood_depth_cm".into(), 300)
+            .unwrap();
+        let data = contract.get_oracle_data(property_id).unwrap();
+        assert_eq!(data.value, 300);
+        assert_eq!(data.submitted_by, accounts.charlie);
+
+        // ---- Parametric getters: multiple policies per property / holder ----
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        test::set_value_transferred::<DefaultEnvironment>(500_000_000u128);
+        let p1 = contract
+            .create_parametric_policy(
+                property_id,
+                "flood_depth_cm".into(),
+                200,
+                TriggerComparison::GreaterThanOrEqual,
+                500_000_000_000u128,
+                pool_id,
+                86_400 * 365,
+            )
+            .unwrap();
+        test::set_value_transferred::<DefaultEnvironment>(500_000_000u128);
+        let p2 = contract
+            .create_parametric_policy(
+                property_id,
+                "wind_speed_kmh".into(),
+                150,
+                TriggerComparison::GreaterThanOrEqual,
+                250_000_000_000u128,
+                pool_id,
+                86_400 * 365,
+            )
+            .unwrap();
+
+        assert_eq!(
+            contract.get_parametric_policy(p1).unwrap().coverage_amount,
+            500_000_000_000u128
+        );
+        let by_property = contract.get_property_parametric_policies(property_id);
+        let by_holder = contract.get_holder_parametric_policies(accounts.bob);
+        assert_eq!(by_property.len(), 2);
+        assert_eq!(by_holder.len(), 2);
+        assert!(by_property.contains(&p1) && by_property.contains(&p2));
+        assert!(by_holder.contains(&p1) && by_holder.contains(&p2));
+    }
+
+    // =========================================================================
     // CLAIM TRIGGERS / ORACLE EVENTS (Issue #999)
     // =========================================================================
 
