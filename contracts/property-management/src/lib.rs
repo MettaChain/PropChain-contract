@@ -6,6 +6,8 @@ use ink::prelude::string::String;
 use ink::storage::Mapping;
 use propchain_traits::{non_reentrant, ComplianceChecker, ReentrancyError, ReentrancyGuard};
 
+pub mod collateral_events;
+
 #[ink::contract]
 pub mod property_management {
     use super::*;

@@ -1311,6 +1311,121 @@ mod oracle_source_multisig_tests {
 
         assert_eq!(seq, batch, "sequential and batched aggregation must match");
     }
+
+    // ── Issue #1036: Oracle access-control and TTL tests ─────────────────────
+
+    /// The oracle constructor grants `OracleAdmin` to the deployer (admin).
+    /// Verify that `set_cache_ttl` succeeds when called by the admin.
+    #[ink::test]
+    fn test_set_cache_ttl_by_admin_succeeds() {
+        let mut oracle = setup_oracle();
+
+        // Alice is the admin (and therefore also holds OracleAdmin).
+        assert!(
+            oracle
+                .set_cache_ttl(1, "default".to_string(), 7200)
+                .is_ok(),
+            "admin should be able to set TTL"
+        );
+    }
+
+    /// Non-admin accounts must not be allowed to call `set_cache_ttl`;
+    /// the call must be rejected with `Unauthorized`.
+    #[ink::test]
+    fn test_set_cache_ttl_unauthorized_fails() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Switch to Bob, who has no roles.
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+
+        assert_eq!(
+            oracle.set_cache_ttl(1, "default".to_string(), 7200),
+            Err(OracleError::Unauthorized),
+            "non-admin should not be able to set TTL"
+        );
+    }
+
+    /// Verify that `access_control.grant_role` lets the admin grant the
+    /// `OracleAdmin` role to another account, and that the grantee can then
+    /// call `set_cache_ttl` successfully.
+    #[ink::test]
+    fn test_grant_oracle_admin_role_and_use_ttl() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Alice (admin) grants OracleAdmin to Bob.
+        let now = ink::env::block_timestamp::<DefaultEnvironment>();
+        let block = ink::env::block_number::<DefaultEnvironment>();
+        assert!(
+            oracle
+                .access_control
+                .grant_role(accounts.alice, accounts.bob, Role::OracleAdmin, block, now)
+                .is_ok(),
+            "admin should be able to grant OracleAdmin"
+        );
+
+        // Bob now holds OracleAdmin and must be allowed to set the TTL.
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert!(
+            oracle
+                .set_cache_ttl(42, "default".to_string(), 3600)
+                .is_ok(),
+            "freshly-granted OracleAdmin should be able to set TTL"
+        );
+    }
+
+    /// An account that lacks the `Admin` role must not be able to grant
+    /// roles to others.  This pins the role-gate in `AccessControl::grant_role`.
+    #[ink::test]
+    fn test_grant_role_requires_admin() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Bob tries to grant himself OracleAdmin — must fail.
+        let now = ink::env::block_timestamp::<DefaultEnvironment>();
+        let block = ink::env::block_number::<DefaultEnvironment>();
+        assert!(
+            oracle
+                .access_control
+                .grant_role(accounts.bob, accounts.bob, Role::OracleAdmin, block, now)
+                .is_err(),
+            "non-admin should not be able to grant any role"
+        );
+
+        // Confirm Bob still has no OracleAdmin after the failed grant.
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            oracle.set_cache_ttl(1, "default".to_string(), 1800),
+            Err(OracleError::Unauthorized)
+        );
+    }
+
+    /// `add_oracle_source` is gated by `OracleAdmin`/`Admin`.  A non-admin
+    /// call must be rejected — this pins the role enforcement for another
+    /// admin-gated message.
+    #[ink::test]
+    fn test_add_oracle_source_unauthorized_rejection() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+
+        let source = OracleSource {
+            id: "bad_source".to_string(),
+            source_type: OracleSourceType::Custom,
+            address: accounts.bob,
+            is_active: true,
+            weight: 10,
+            last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+        };
+
+        assert_eq!(
+            oracle.add_oracle_source(source),
+            Err(OracleError::Unauthorized),
+            "non-admin should not be able to add an oracle source"
+        );
+    }
 }
 
 // ── Oracle Gas Benchmarks ────────────────────────────────────────────────────

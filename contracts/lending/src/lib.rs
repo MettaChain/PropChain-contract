@@ -3074,6 +3074,94 @@ mod tests {
         // 25% utilisation = 2500 bps; 2500 / 50 = 50 -> rate 550.
         assert_eq!(contract.borrow_rate(pool_id).unwrap(), 550);
     }
+
+    // ── Issue #1034: Pool-management edge case tests ──────────────────────
+
+    /// Creating a pool requires admin privileges; any other caller must be
+    /// rejected with `Unauthorized`.
+    #[ink::test]
+    fn test_create_pool_unauthorized() {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let mut contract = setup();
+
+        // Bob is not the admin — his call must be rejected.
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            contract.create_pool(300),
+            Err(LendingError::Unauthorized)
+        );
+
+        // The pool count must be untouched.
+        assert!(contract.get_pool(1).is_none());
+    }
+
+    /// Depositing into a pool increases `total_deposits`; subsequent borrows
+    /// against that deposit are correctly tracked in `total_borrows`.
+    #[ink::test]
+    fn test_deposit_increases_total_deposits() {
+        let mut contract = setup();
+        let pool_id = contract.create_pool(400).unwrap();
+
+        assert!(contract.deposit(pool_id, 2_000_000).is_ok());
+
+        let pool = contract.get_pool(pool_id).unwrap();
+        assert_eq!(pool.total_deposits, 2_000_000);
+        assert_eq!(pool.total_borrows, 0);
+    }
+
+    /// A borrow that would exceed available liquidity (`deposits < borrows +
+    /// amount`) must be rejected with `InsufficientLiquidity` and the pool
+    /// state must remain unchanged.
+    #[ink::test]
+    fn test_borrow_rejected_when_exceeds_deposits() {
+        let mut contract = setup();
+        let pool_id = contract.create_pool(500).unwrap();
+
+        // Fund the pool with exactly 1_000_000.
+        assert!(contract.deposit(pool_id, 1_000_000).is_ok());
+
+        // Attempting to borrow more than the available deposit must fail.
+        assert_eq!(
+            contract.borrow(pool_id, 1_000_001),
+            Err(LendingError::InsufficientLiquidity)
+        );
+
+        // Pool accounting must be untouched.
+        let pool = contract.get_pool(pool_id).unwrap();
+        assert_eq!(pool.total_borrows, 0);
+        assert_eq!(pool.total_deposits, 1_000_000);
+    }
+
+    /// After a valid borrow, the pool's `total_borrows` is updated correctly
+    /// and a subsequent borrow for the remaining liquidity also succeeds.
+    #[ink::test]
+    fn test_deposit_and_borrow_accounting() {
+        let mut contract = setup();
+        let pool_id = contract.create_pool(600).unwrap();
+
+        assert!(contract.deposit(pool_id, 1_000_000).is_ok());
+        assert!(contract.borrow(pool_id, 400_000).is_ok());
+
+        let pool = contract.get_pool(pool_id).unwrap();
+        assert_eq!(pool.total_deposits, 1_000_000);
+        assert_eq!(pool.total_borrows, 400_000);
+
+        // The remaining 600_000 of liquidity can still be borrowed.
+        assert!(contract.borrow(pool_id, 600_000).is_ok());
+        let pool_after = contract.get_pool(pool_id).unwrap();
+        assert_eq!(pool_after.total_borrows, 1_000_000);
+    }
+
+    /// Depositing into a non-existent pool must return `PoolNotFound`.
+    #[ink::test]
+    fn test_deposit_pool_not_found() {
+        let mut contract = setup();
+        assert_eq!(
+            contract.deposit(999, 100),
+            Err(LendingError::PoolNotFound)
+        );
+    }
 }
 
 // =========================================================================
