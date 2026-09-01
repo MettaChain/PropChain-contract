@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["build_assignment_event"],"struct":["CollateralAssignmentEvent"]};
