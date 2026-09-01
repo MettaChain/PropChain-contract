@@ -2365,7 +2365,9 @@ mod insurance_tests {
 mod circuit_breaker_tests {
     use ink::env::{test, DefaultEnvironment};
 
-    use crate::propchain_insurance::{CoverageType, InsuranceError, PropertyInsurance};
+    use crate::propchain_insurance::{
+        ClaimStatus, CoverageType, InsuranceError, PropertyInsurance,
+    };
 
     fn setup_with_pool() -> (PropertyInsurance, u64) {
         let accounts = test::default_accounts::<DefaultEnvironment>();
@@ -2373,12 +2375,74 @@ mod circuit_breaker_tests {
         test::set_block_timestamp::<DefaultEnvironment>(3_000_000);
         let mut c = PropertyInsurance::new(accounts.alice);
         let pool_id = c
-            .create_risk_pool("Test Pool".into(), CoverageType::Fire, 9000, 0)
+            .create_risk_pool(
+                "Test Pool".into(),
+                CoverageType::Fire,
+                9000,
+                1_000_000_000_000_000,
+            )
             .unwrap();
         // Capitalise the pool
         test::set_value_transferred::<DefaultEnvironment>(100_000_000_000_000);
         c.provide_pool_liquidity(pool_id).unwrap();
         (c, pool_id)
+    }
+
+    fn add_risk_assessment(contract: &mut PropertyInsurance, property_id: u64) {
+        contract
+            .update_risk_assessment(property_id, 75, 80, 85, 90, 86_400 * 365)
+            .expect("risk assessment failed");
+    }
+
+    fn create_policy(
+        contract: &mut PropertyInsurance,
+        pool_id: u64,
+        property_id: u64,
+        coverage: u128,
+    ) -> (u64, u128) {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        add_risk_assessment(contract, property_id);
+        let calc = contract
+            .calculate_premium(property_id, coverage, CoverageType::Fire)
+            .unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        test::set_value_transferred::<DefaultEnvironment>(calc.annual_premium * 2);
+        let policy_id = contract
+            .create_policy(
+                property_id,
+                CoverageType::Fire,
+                coverage,
+                pool_id,
+                86_400 * 365,
+                "ipfs://test-policy".into(),
+            )
+            .unwrap();
+
+        (policy_id, calc.deductible)
+    }
+
+    fn submit_and_process_claim(
+        contract: &mut PropertyInsurance,
+        policy_id: u64,
+        claim_amount: u128,
+    ) -> (u64, Result<(), InsuranceError>) {
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        let claim_id = contract
+            .submit_claim(
+                policy_id,
+                claim_amount,
+                "Fire damage".into(),
+                "ipfs://evidence".into(),
+            )
+            .expect("claim submission failed");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let result =
+            contract.process_claim(claim_id, true, "ipfs://oracle-report".into(), String::new());
+
+        (claim_id, result)
     }
 
     #[ink::test]
@@ -2444,6 +2508,76 @@ mod circuit_breaker_tests {
     fn test_pool_window_payout_initially_zero() {
         let (contract, pool_id) = setup_with_pool();
         assert_eq!(contract.get_pool_window_payout(pool_id), 0);
+    }
+
+    #[ink::test]
+    fn test_pool_window_payout_under_daily_limit_is_accepted() {
+        let (mut contract, pool_id) = setup_with_pool();
+        let coverage = 1_000_000_000_000u128;
+        let claim_amount = 300_000_000_000u128;
+        let (policy_id, deductible) = create_policy(&mut contract, pool_id, 1, coverage);
+        let payout = claim_amount - deductible;
+
+        contract
+            .set_circuit_breaker_params(0, payout, 3_600)
+            .unwrap();
+        let (claim_id, result) = submit_and_process_claim(&mut contract, policy_id, claim_amount);
+
+        assert!(result.is_ok());
+        let claim = contract.get_claim(claim_id).unwrap();
+        assert_eq!(claim.status, ClaimStatus::Paid);
+        assert_eq!(claim.payout_amount, payout);
+        assert_eq!(contract.get_pool_window_payout(pool_id), payout);
+        assert!(!contract.is_circuit_breaker_active());
+    }
+
+    #[ink::test]
+    fn test_pool_window_payout_over_daily_limit_is_rejected() {
+        let (mut contract, pool_id) = setup_with_pool();
+        let coverage = 1_000_000_000_000u128;
+        let claim_amount = 300_000_000_000u128;
+        let (policy_a, deductible_a) = create_policy(&mut contract, pool_id, 1, coverage);
+        let (policy_b, deductible_b) = create_policy(&mut contract, pool_id, 2, coverage);
+        let payout_a = claim_amount - deductible_a;
+        let payout_b = claim_amount - deductible_b;
+
+        contract
+            .set_circuit_breaker_params(0, payout_a + payout_b - 1, 3_600)
+            .unwrap();
+        let (_, first_result) = submit_and_process_claim(&mut contract, policy_a, claim_amount);
+        assert!(first_result.is_ok());
+
+        let (_, second_result) = submit_and_process_claim(&mut contract, policy_b, claim_amount);
+
+        assert_eq!(second_result, Err(InsuranceError::DailyPayoutLimitExceeded));
+        assert_eq!(contract.get_pool_window_payout(pool_id), payout_a);
+        assert!(contract.is_circuit_breaker_active());
+    }
+
+    #[ink::test]
+    fn test_pool_window_payout_rollover_resets_accumulator() {
+        let (mut contract, pool_id) = setup_with_pool();
+        let coverage = 1_000_000_000_000u128;
+        let claim_amount = 300_000_000_000u128;
+        let (policy_a, deductible_a) = create_policy(&mut contract, pool_id, 1, coverage);
+        let (policy_b, deductible_b) = create_policy(&mut contract, pool_id, 2, coverage);
+        let payout_a = claim_amount - deductible_a;
+        let payout_b = claim_amount - deductible_b;
+
+        contract
+            .set_circuit_breaker_params(0, payout_a + payout_b - 1, 3_600)
+            .unwrap();
+        let (_, first_result) = submit_and_process_claim(&mut contract, policy_a, claim_amount);
+        assert!(first_result.is_ok());
+        assert_eq!(contract.get_pool_window_payout(pool_id), payout_a);
+
+        test::set_block_timestamp::<DefaultEnvironment>(3_000_000 + 3_600);
+        assert_eq!(contract.get_pool_window_payout(pool_id), 0);
+        let (_, second_result) = submit_and_process_claim(&mut contract, policy_b, claim_amount);
+
+        assert!(second_result.is_ok());
+        assert_eq!(contract.get_pool_window_payout(pool_id), payout_b);
+        assert!(!contract.is_circuit_breaker_active());
     }
 
     #[ink::test]
