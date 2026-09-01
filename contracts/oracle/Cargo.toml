@@ -19,6 +19,8 @@ scale-info = { version = "2.10.0", default-features = false, features = ["derive
 propchain-traits = { path = "../traits", default-features = false }
 
 [dev-dependencies]
+
+[target.'cfg(feature = "e2e-tests")'.dev-dependencies]
 ink_e2e = "5.0.0"
 
 [lib]

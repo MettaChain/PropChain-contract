@@ -1925,6 +1925,119 @@ pub mod fractional {
                 "guard must be unlocked after call"
             );
         }
+
+        // ── Issue #1035: Dutch-auction end state / settlement tests ──────────
+
+        /// After a successful bid the seller loses the auctioned shares and
+        /// the buyer gains them — the share balances must settle correctly.
+        #[ink::test]
+        fn test_dutch_auction_settlement_transfers_shares() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            let auction_id = f.create_dutch_auction(1, 60, 1000, 400, 1000).unwrap();
+
+            // Bob bids at the start price (block 0 ≡ start time).
+            // Total price = 60 * 1000 = 60_000.
+            test::set_caller::<ink::env::DefaultEnvironment>(bob());
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(60_000);
+            f.bid_dutch_auction(auction_id).unwrap();
+
+            // Settlement: buyer received all auctioned shares.
+            assert_eq!(f.balance_of(bob(), 1), 60);
+            // Settlement: seller lost exactly those shares.
+            assert_eq!(f.balance_of(alice(), 1), 40);
+            // Auction end-state: flagged as bid (one-shot).
+            let auction = f.get_dutch_auction(auction_id).unwrap();
+            assert!(auction.has_bids, "auction must be marked as bid after settlement");
+        }
+
+        /// Price decays linearly. At 75% of the auction duration the price must
+        /// be 25% above the end price (i.e. start + 0.25 * (start - end)).
+        #[ink::test]
+        fn test_dutch_auction_price_decay_at_three_quarters() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            // start = 1000, end = 200, duration = 1000 blocks.
+            // At 75% of duration: price = 1000 - (750/1000) * (1000 - 200) = 1000 - 600 = 400.
+            f.create_dutch_auction(1, 50, 1000, 200, 1000).unwrap();
+
+            // Advance to 75% of duration.
+            for _ in 0..750 {
+                test::advance_block::<ink::env::DefaultEnvironment>();
+            }
+
+            let price = f.get_dutch_auction_price(0).unwrap();
+            assert_eq!(price, 400);
+        }
+
+        /// A bid that is exactly equal to the required total payment must
+        /// succeed (boundary condition on the ≥ comparison).
+        #[ink::test]
+        fn test_dutch_auction_exact_payment_succeeds() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            // 10 shares at start price 500 → total = 5_000.
+            f.create_dutch_auction(1, 10, 500, 100, 1000).unwrap();
+
+            test::set_caller::<ink::env::DefaultEnvironment>(bob());
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(5_000);
+            assert!(
+                f.bid_dutch_auction(0).is_ok(),
+                "exact payment must be accepted"
+            );
+        }
+
+        /// Once a Dutch auction has been won, a second bidder on the same
+        /// auction must receive `AuctionAlreadyBid`, not `InsufficientShares`
+        /// or a panic.
+        #[ink::test]
+        fn test_dutch_auction_second_bidder_receives_already_bid_error() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            f.create_dutch_auction(1, 50, 200, 50, 1000).unwrap();
+
+            // First bid (bob).
+            test::set_caller::<ink::env::DefaultEnvironment>(bob());
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(10_000); // 50 * 200
+            f.bid_dutch_auction(0).unwrap();
+
+            // Second bid (charlie) on the already-won auction.
+            let accounts = test::default_accounts::<ink::env::DefaultEnvironment>();
+            test::set_caller::<ink::env::DefaultEnvironment>(accounts.charlie);
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(10_000);
+            assert_eq!(
+                f.bid_dutch_auction(0),
+                Err(FractionalError::AuctionAlreadyBid),
+                "second bid must always return AuctionAlreadyBid"
+            );
+        }
+
+        /// A payment of one unit below the required total must be rejected.
+        #[ink::test]
+        fn test_dutch_auction_payment_one_below_minimum_rejected() {
+            let mut f = Fractional::new();
+            test::set_caller::<ink::env::DefaultEnvironment>(alice());
+            f.mint_shares(alice(), 1, 100);
+
+            // 5 shares at start price 1_000 → total = 5_000.
+            f.create_dutch_auction(1, 5, 1_000, 100, 1000).unwrap();
+
+            test::set_caller::<ink::env::DefaultEnvironment>(bob());
+            test::set_value_transferred::<ink::env::DefaultEnvironment>(4_999); // 1 short
+            assert_eq!(
+                f.bid_dutch_auction(0),
+                Err(FractionalError::InsufficientPayment),
+                "payment 1 below total must be rejected"
+            );
+        }
     }
 
     // =========================================================================
