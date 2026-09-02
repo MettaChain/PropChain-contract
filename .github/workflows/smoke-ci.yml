@@ -8,3 +8,14 @@
 # workspace test step hits the same failure.
 #
 # Re-enable once the dependency/toolchain baseline is refreshed.
+
+name: Smoke CI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Smoke CI is disabled. Re-enable by switching trigger to push/pull_request."
