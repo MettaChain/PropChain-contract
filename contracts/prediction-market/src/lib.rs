@@ -11,6 +11,15 @@ pub mod propchain_prediction_market {
     use ink::storage::Mapping;
     use propchain_contracts::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
+    /// How long a proposed manual resolution stays challengeable, in
+    /// block-timestamp seconds (Issue #1148).
+    pub const DISPUTE_WINDOW: u64 = 24 * 60 * 60;
+
+    /// A challenge must bond at least `1 / CHALLENGE_BOND_DIVISOR` of the
+    /// market's total pool, so a challenge is cheap on an empty market and
+    /// expensive on a contested one.
+    pub const CHALLENGE_BOND_DIVISOR: u128 = 100;
+
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(
         feature = "std",
@@ -20,6 +29,10 @@ pub mod propchain_prediction_market {
         Active,
         Resolved,
         Cancelled,
+        /// A resolution has been proposed and the dispute window is still open.
+        /// Payouts are locked until the window elapses and the resolution is
+        /// finalized (Issue #1148).
+        PendingResolution,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -123,6 +136,10 @@ pub mod propchain_prediction_market {
 
         // oracle_market_id -> (user -> Stake)
         oracle_stakes: Mapping<(u64, AccountId), Stake>,
+
+        // market_id -> last block timestamp at which a pending resolution can
+        // still be challenged. Zero/absent when no resolution is pending.
+        dispute_deadline: Mapping<u64, u64>,
     }
 
     #[ink(event)]
@@ -151,6 +168,30 @@ pub mod propchain_prediction_market {
         market_id: u64,
         resolved_value: u128,
         winning_direction: PredictionDirection,
+    }
+
+    /// Emitted when the admin proposes a resolution and the dispute window
+    /// opens. Payouts stay locked until this market is finalized.
+    #[ink(event)]
+    pub struct MarketResolutionProposed {
+        #[ink(topic)]
+        market_id: u64,
+        resolved_value: u128,
+        winning_direction: PredictionDirection,
+        /// Last block timestamp at which the resolution can still be challenged
+        dispute_deadline: u64,
+    }
+
+    /// Emitted when a staker bonds a challenge that reverts a pending
+    /// resolution back to `Active`, returning the market to the resolver.
+    #[ink(event)]
+    pub struct ResolutionChallenged {
+        #[ink(topic)]
+        market_id: u64,
+        #[ink(topic)]
+        challenger: AccountId,
+        /// Bond attached to the challenge; it stays in the contract balance
+        bond: u128,
     }
 
     #[ink(event)]
@@ -217,6 +258,11 @@ pub mod propchain_prediction_market {
         OracleMarketAlreadyResolved,
         OracleMarketNotResolved,
         OracleMarketNotReady,
+        // Resolution dispute window (Issue #1148)
+        MarketNotPendingResolution,
+        DisputeWindowStillOpen,
+        DisputeWindowClosed,
+        InsufficientChallengeBond,
     }
 
     impl From<ReentrancyError> for Error {
@@ -240,6 +286,7 @@ pub mod propchain_prediction_market {
                 oracle_markets: Mapping::default(),
                 oracle_market_count: 0,
                 oracle_stakes: Mapping::default(),
+                dispute_deadline: Mapping::default(),
             }
         }
 
@@ -384,12 +431,21 @@ pub mod propchain_prediction_market {
             Ok(())
         }
 
-        /// Resolves a manual-resolution market by admin-submitted
+        /// Proposes a manual-resolution outcome for a market by admin-submitted
         /// `resolved_value`, deciding the winning direction. Admin-only.
         ///
         /// Not payable. `Long` wins if `resolved_value >= target_value`,
-        /// otherwise `Short` wins. Can only be called once per market, and
-        /// only after `resolution_time` has passed. Emits `MarketResolved`.
+        /// otherwise `Short` wins. Can only be called while the market is
+        /// `Active`, and only after `resolution_time` has passed.
+        ///
+        /// The proposal does **not** pay out. The market moves to
+        /// `PendingResolution` and a dispute window of `DISPUTE_WINDOW`
+        /// seconds opens; only once that window has elapsed and the
+        /// resolution has been finalized do stakers get to claim. A staker can
+        /// bond a challenge inside the window to revert the market to `Active`
+        /// (see `challenge_resolution`), which forces the admin to resolve
+        /// again. Emits `MarketResolutionProposed`; `MarketResolved` is emitted
+        /// later, by `finalize_resolution`.
         ///
         /// # Screening / trust note
         /// This value is currently supplied directly by the admin account,
@@ -404,7 +460,7 @@ pub mod propchain_prediction_market {
         /// - `Error::Unauthorized` if the caller is not the contract admin.
         /// - `Error::MarketNotFound` if `market_id` does not exist.
         /// - `Error::MarketAlreadyResolved` if the market is not `Active`
-        ///   (already resolved or cancelled).
+        ///   (already resolved, pending a finalization, or cancelled).
         /// - `Error::MarketNotReadyForResolution` if `resolution_time` has
         ///   not yet passed.
         #[ink(message)]
@@ -429,11 +485,65 @@ pub mod propchain_prediction_market {
                 PredictionDirection::Short
             };
 
-            market.status = MarketStatus::Resolved;
+            // Issue #1148: record the outcome, but lock payouts until the
+            // dispute window has elapsed without a successful challenge.
+            let dispute_deadline = self.env().block_timestamp() + DISPUTE_WINDOW;
+            market.status = MarketStatus::PendingResolution;
             market.resolved_value = Some(resolved_value);
             market.winning_direction = Some(winning_direction.clone());
 
             self.markets.insert(&market_id, &market);
+            self.dispute_deadline.insert(&market_id, &dispute_deadline);
+
+            self.env().emit_event(MarketResolutionProposed {
+                market_id,
+                resolved_value,
+                winning_direction,
+                dispute_deadline,
+            });
+
+            Ok(())
+        }
+
+        /// Closes the dispute window on an uncontested resolution and opens
+        /// payouts. Permissionless: anyone may push it once it is safe, and
+        /// there is no reason to want to delay it.
+        ///
+        /// Not payable. Moves the market from `PendingResolution` to
+        /// `Resolved` and emits `MarketResolved`. This is the only path to
+        /// `Resolved`, which is what `claim_reward` requires — so the
+        /// acceptance criterion is that payouts are gated on the window
+        /// elapsing. Idempotence is not offered: a second call returns
+        /// `MarketNotPendingResolution`.
+        ///
+        /// # Errors
+        /// - `Error::MarketNotFound` if `market_id` does not exist.
+        /// - `Error::MarketNotPendingResolution` if the market is not awaiting
+        ///   finalization (never resolved, challenged back to `Active`, or
+        ///   already finalized).
+        /// - `Error::DisputeWindowStillOpen` if the dispute window has not yet
+        ///   elapsed.
+        #[ink(message)]
+        pub fn finalize_resolution(&mut self, market_id: u64) -> Result<(), Error> {
+            let mut market = self.markets.get(&market_id).ok_or(Error::MarketNotFound)?;
+            if market.status != MarketStatus::PendingResolution {
+                return Err(Error::MarketNotPendingResolution);
+            }
+
+            let now = self.env().block_timestamp();
+            if now < self.dispute_deadline.get(&market_id).unwrap_or(0) {
+                return Err(Error::DisputeWindowStillOpen);
+            }
+
+            let resolved_value = market.resolved_value.unwrap_or(0);
+            let winning_direction = market
+                .winning_direction
+                .clone()
+                .unwrap_or(PredictionDirection::Long);
+
+            market.status = MarketStatus::Resolved;
+            self.markets.insert(&market_id, &market);
+            self.dispute_deadline.remove(&market_id);
 
             self.env().emit_event(MarketResolved {
                 market_id,
@@ -444,8 +554,86 @@ pub mod propchain_prediction_market {
             Ok(())
         }
 
+        /// Bonds a challenge to a pending resolution, reverting the market to
+        /// `Active` so the admin has to resolve again.
+        ///
+        /// Payable: the attached value must be at least
+        /// `required_challenge_bond(market_id)`. The bond stays in the
+        /// contract balance — it is the price of contesting, and it is not
+        /// refunded, because a successful challenge is indistinguishable on
+        /// chain from a challenge that merely delays a correct resolution.
+        ///
+        /// Open to any caller, but only while the market is
+        /// `PendingResolution` and before the deadline. Emits
+        /// `ResolutionChallenged`.
+        ///
+        /// # Errors
+        /// - `Error::MarketNotFound` if `market_id` does not exist.
+        /// - `Error::MarketNotPendingResolution` if there is no pending
+        ///   resolution to challenge.
+        /// - `Error::DisputeWindowClosed` if the window has already elapsed
+        ///   (in that case call `finalize_resolution` instead).
+        /// - `Error::InsufficientChallengeBond` if the attached value is below
+        ///   the required bond.
+        #[ink(message, payable)]
+        pub fn challenge_resolution(&mut self, market_id: u64) -> Result<(), Error> {
+            let mut market = self.markets.get(&market_id).ok_or(Error::MarketNotFound)?;
+            if market.status != MarketStatus::PendingResolution {
+                return Err(Error::MarketNotPendingResolution);
+            }
+
+            let now = self.env().block_timestamp();
+            if now >= self.dispute_deadline.get(&market_id).unwrap_or(0) {
+                return Err(Error::DisputeWindowClosed);
+            }
+
+            let bond = self.env().transferred_value();
+            if bond < self.required_challenge_bond(market_id) {
+                return Err(Error::InsufficientChallengeBond);
+            }
+
+            market.status = MarketStatus::Active;
+            market.resolved_value = None;
+            market.winning_direction = None;
+            self.markets.insert(&market_id, &market);
+            self.dispute_deadline.remove(&market_id);
+
+            self.env().emit_event(ResolutionChallenged {
+                market_id,
+                challenger: self.env().caller(),
+                bond,
+            });
+
+            Ok(())
+        }
+
+        /// The bond a challenge to `market_id` must attach: one percent of the
+        /// market's total pool, i.e. zero for a market nobody has staked on.
+        #[ink(message)]
+        pub fn required_challenge_bond(&self, market_id: u64) -> u128 {
+            match self.markets.get(&market_id) {
+                Some(market) => {
+                    (market.total_long + market.total_short) / CHALLENGE_BOND_DIVISOR
+                }
+                None => 0,
+            }
+        }
+
+        /// The last block timestamp at which a pending resolution on
+        /// `market_id` can still be challenged. Zero when none is pending.
+        #[ink(message)]
+        pub fn get_dispute_deadline(&self, market_id: u64) -> u64 {
+            self.dispute_deadline.get(&market_id).unwrap_or(0)
+        }
+
         /// Claims the caller's payout from a resolved manual-resolution
         /// market, transferring it to the caller. Not payable.
+        ///
+        /// The market must have reached `Resolved`, which since #1148 only
+        /// happens through `finalize_resolution` once the dispute window has
+        /// elapsed without a successful challenge. A market awaiting
+        /// finalization reports `MarketNotActive` here, so a staker cannot be
+        /// paid against a resolution that is still contestable.
         ///
         /// Open to any caller who holds a stake on `market_id`. A winning
         /// stake's payout is
@@ -996,6 +1184,17 @@ pub mod propchain_prediction_market {
             ink::env::test::set_value_transferred::<ink::env::DefaultEnvironment>(amount);
         }
 
+        /// Advances the chain past the dispute window and finalizes the
+        /// pending resolution, which is what opens payouts (#1148).
+        fn settle_market(contract: &mut PredictionMarket, market_id: u64, resolved_at: u64) {
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(
+                resolved_at + DISPUTE_WINDOW,
+            );
+            contract
+                .finalize_resolution(market_id)
+                .expect("finalization must succeed once the window has elapsed");
+        }
+
         #[ink::test]
         fn resolve_market_requires_admin() {
             let (mut contract, accounts, market_id) = setup_manual_market();
@@ -1051,11 +1250,23 @@ pub mod propchain_prediction_market {
             // Boundary: resolved_value == target_value resolves Long (>= semantics)
             contract.resolve_market(market_id, 500_000).unwrap();
 
+            // #1148: the proposal only opens the dispute window; it does not
+            // resolve. The window elapses and anyone can finalize.
+            let market = contract.get_market(market_id).unwrap();
+            assert_eq!(market.status, MarketStatus::PendingResolution);
+            assert_eq!(market.winning_direction, Some(PredictionDirection::Long));
+            assert_eq!(market.resolved_value, Some(500_000));
+            assert_eq!(market.total_long, 1_000);
+
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(
+                1_000 + DISPUTE_WINDOW,
+            );
+            contract.finalize_resolution(market_id).unwrap();
+
             let market = contract.get_market(market_id).unwrap();
             assert_eq!(market.status, MarketStatus::Resolved);
             assert_eq!(market.winning_direction, Some(PredictionDirection::Long));
             assert_eq!(market.resolved_value, Some(500_000));
-            assert_eq!(market.total_long, 1_000);
         }
 
         #[ink::test]
@@ -1104,6 +1315,7 @@ pub mod propchain_prediction_market {
             ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_001);
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
             contract.resolve_market(market_id, 600_000).unwrap(); // Long wins
+            settle_market(&mut contract, market_id, 1_001);
 
             // Payout math (see claim_reward):
             //   total_reward = 1_000 + (1_000 * 3_000) / 1_000 = 4_000
@@ -1127,10 +1339,11 @@ pub mod propchain_prediction_market {
             assert_eq!(rep.successful_predictions, 1);
             assert_eq!(rep.accuracy_score, 10_000);
 
-            // Events so far: MarketCreated + 2xPredictionStaked + MarketResolved + RewardClaimed
+            // Events so far: MarketCreated + 2xPredictionStaked +
+            // MarketResolutionProposed + MarketResolved + RewardClaimed
             let events = ink::env::test::recorded_events().collect::<Vec<_>>();
-            assert_eq!(events.len(), 5);
-            let claimed = RewardClaimed::decode(&mut &events[4].data[..]).expect("decode event");
+            assert_eq!(events.len(), 6);
+            let claimed = RewardClaimed::decode(&mut &events[5].data[..]).expect("decode event");
             assert_eq!(claimed.market_id, market_id);
             assert_eq!(claimed.user, accounts.bob);
             assert_eq!(claimed.amount, 3_960);
@@ -1152,6 +1365,7 @@ pub mod propchain_prediction_market {
             ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_001);
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
             contract.resolve_market(market_id, 600_000).unwrap(); // Long wins
+            settle_market(&mut contract, market_id, 1_001);
 
             let charlie_before =
                 ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(
@@ -1200,6 +1414,7 @@ pub mod propchain_prediction_market {
             ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_001);
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
             contract.resolve_market(market_id, 600_000).unwrap();
+            settle_market(&mut contract, market_id, 1_001);
 
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
             contract.claim_reward(market_id).unwrap();
@@ -1221,6 +1436,7 @@ pub mod propchain_prediction_market {
             ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_001);
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
             contract.resolve_market(market_id, 600_000).unwrap();
+            settle_market(&mut contract, market_id, 1_001);
 
             // Frank never staked on this market
             ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.frank);
@@ -1250,6 +1466,320 @@ pub mod propchain_prediction_market {
                 ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.bob)
                     .expect("bob account must exist");
             assert_eq!(bob_after, bob_before);
+        }
+
+        // ---- Resolution dispute window (Issue #1148) ----
+
+        /// A resolution is a proposal, not a settlement: the market parks in
+        /// `PendingResolution`, records a dispute deadline, and no staker can
+        /// be paid while the window is open.
+        #[ink::test]
+        fn resolution_opens_dispute_window_and_locks_payouts() {
+            let (mut contract, accounts, market_id) = setup_manual_market();
+
+            set_staker(accounts.bob, 1_000);
+            contract
+                .stake_prediction(market_id, PredictionDirection::Long)
+                .unwrap();
+
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_001);
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract.resolve_market(market_id, 600_000).unwrap();
+
+            let market = contract.get_market(market_id).unwrap();
+            assert_eq!(market.status, MarketStatus::PendingResolution);
+            assert_eq!(market.resolved_value, Some(600_000));
+            assert_eq!(
+                contract.get_dispute_deadline(market_id),
+                1_001 + DISPUTE_WINDOW,
+                "the window opens one DISPUTE_WINDOW after the resolution"
+            );
+
+            // Finalizing early is refused, so payouts stay locked.
+            let result = contract.finalize_resolution(market_id);
+            assert_eq!(result, Err(Error::DisputeWindowStillOpen));
+
+            // ... and a claim in the meantime cannot pay out.
+            let bob_before =
+                ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.bob)
+                    .expect("bob account must exist");
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            assert_eq!(
+                contract.claim_reward(market_id),
+                Err(Error::MarketNotActive),
+                "a pending resolution must not be claimable"
+            );
+            assert_eq!(
+                ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.bob)
+                    .expect("bob account must exist"),
+                bob_before,
+                "no balance may move before the window elapses"
+            );
+        }
+
+        /// Anyone may finalize once the window has elapsed, and the staker is
+        /// then paid exactly as before.
+        #[ink::test]
+        fn uncontested_resolution_settles_after_the_window() {
+            let (mut contract, accounts, market_id) = setup_manual_market();
+
+            set_staker(accounts.bob, 1_000);
+            contract
+                .stake_prediction(market_id, PredictionDirection::Long)
+                .unwrap();
+            set_staker(accounts.charlie, 3_000);
+            contract
+                .stake_prediction(market_id, PredictionDirection::Short)
+                .unwrap();
+
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_001);
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract.resolve_market(market_id, 600_000).unwrap();
+
+            // Finalize is permissionless: charlie pushes the button.
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(
+                1_001 + DISPUTE_WINDOW,
+            );
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.charlie);
+            contract.finalize_resolution(market_id).unwrap();
+
+            assert_eq!(
+                contract.get_market(market_id).unwrap().status,
+                MarketStatus::Resolved
+            );
+            assert_eq!(contract.get_dispute_deadline(market_id), 0);
+
+            // Bob: 1_000 + 1_000 * 3_000 / 1_000 = 4_000 gross, less 1% fee.
+            let bob_before =
+                ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.bob)
+                    .expect("bob account must exist");
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            contract.claim_reward(market_id).unwrap();
+            assert_eq!(
+                ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.bob)
+                    .expect("bob account must exist")
+                    - bob_before,
+                3_960
+            );
+        }
+
+        /// A bonded challenge inside the window reverts the market to `Active`,
+        /// which is the flip-back the issue asks for: the admin has to resolve
+        /// again, and a corrected resolution can then be proposed and settled.
+        #[ink::test]
+        fn challenge_flips_pending_resolution_back_to_active() {
+            let (mut contract, accounts, market_id) = setup_manual_market();
+
+            set_staker(accounts.bob, 1_000);
+            contract
+                .stake_prediction(market_id, PredictionDirection::Long)
+                .unwrap();
+            set_staker(accounts.charlie, 1_000);
+            contract
+                .stake_prediction(market_id, PredictionDirection::Short)
+                .unwrap();
+
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_001);
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract.resolve_market(market_id, 600_000).unwrap();
+
+            // Pool is 2_000, so the bond is 2_000 / 100 = 20.
+            assert_eq!(contract.required_challenge_bond(market_id), 20);
+
+            set_staker(accounts.bob, 20);
+            contract.challenge_resolution(market_id).unwrap();
+
+            let market = contract.get_market(market_id).unwrap();
+            assert_eq!(
+                market.status,
+                MarketStatus::Active,
+                "a successful challenge must return the market to Active"
+            );
+            assert_eq!(
+                market.resolved_value, None,
+                "the contested value must be cleared"
+            );
+            assert_eq!(market.winning_direction, None);
+            assert_eq!(contract.get_dispute_deadline(market_id), 0);
+
+            // The stale proposal cannot be finalized.
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(
+                1_001 + DISPUTE_WINDOW,
+            );
+            assert_eq!(
+                contract.finalize_resolution(market_id),
+                Err(Error::MarketNotPendingResolution)
+            );
+
+            // And nobody was paid on the contested outcome.
+            let bob_before =
+                ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.bob)
+                    .expect("bob account must exist");
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            assert_eq!(contract.claim_reward(market_id), Err(Error::MarketNotActive));
+            assert_eq!(
+                ink::env::test::get_account_balance::<ink::env::DefaultEnvironment>(accounts.bob)
+                    .expect("bob account must exist")
+                    - bob_before,
+                0,
+                "the challenge bond is spent, but no payout follows from it"
+            );
+
+            // The admin resolves again with the corrected value; Short wins.
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract.resolve_market(market_id, 400_000).unwrap();
+            assert_eq!(
+                contract.get_market(market_id).unwrap().status,
+                MarketStatus::PendingResolution
+            );
+            settle_market(&mut contract, market_id, 1_001 + DISPUTE_WINDOW);
+
+            let market = contract.get_market(market_id).unwrap();
+            assert_eq!(market.status, MarketStatus::Resolved);
+            assert_eq!(market.resolved_value, Some(400_000));
+            assert_eq!(market.winning_direction, Some(PredictionDirection::Short));
+        }
+
+        /// The bond scales with the pool, and an under-bonded challenge is
+        /// refused without disturbing the pending resolution.
+        #[ink::test]
+        fn challenge_bond_must_cover_one_percent_of_the_pool() {
+            let (mut contract, accounts, market_id) = setup_manual_market();
+
+            set_staker(accounts.bob, 5_000);
+            contract
+                .stake_prediction(market_id, PredictionDirection::Long)
+                .unwrap();
+
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_001);
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract.resolve_market(market_id, 600_000).unwrap();
+            assert_eq!(contract.required_challenge_bond(market_id), 50);
+
+            // One wei short of the bond.
+            set_staker(accounts.bob, 49);
+            assert_eq!(
+                contract.challenge_resolution(market_id),
+                Err(Error::InsufficientChallengeBond)
+            );
+            assert_eq!(
+                contract.get_market(market_id).unwrap().status,
+                MarketStatus::PendingResolution,
+                "a refused challenge must leave the resolution alone"
+            );
+
+            // Exactly the required bond is accepted.
+            set_staker(accounts.bob, 50);
+            contract.challenge_resolution(market_id).unwrap();
+            assert_eq!(
+                contract.get_market(market_id).unwrap().status,
+                MarketStatus::Active
+            );
+        }
+
+        /// An empty market has a zero bond: there is nothing to protect, so
+        /// anyone may contest a resolution nobody staked on.
+        #[ink::test]
+        fn challenge_on_unstaked_market_needs_no_bond() {
+            let (mut contract, accounts, market_id) = setup_manual_market();
+
+            assert_eq!(contract.required_challenge_bond(market_id), 0);
+
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_001);
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract.resolve_market(market_id, 600_000).unwrap();
+
+            set_staker(accounts.frank, 0);
+            contract.challenge_resolution(market_id).unwrap();
+            assert_eq!(
+                contract.get_market(market_id).unwrap().status,
+                MarketStatus::Active
+            );
+        }
+
+        /// Once the window has closed a challenge is too late; the resolution
+        /// must be finalized instead.
+        #[ink::test]
+        fn challenge_after_the_window_is_refused() {
+            let (mut contract, accounts, market_id) = setup_manual_market();
+
+            set_staker(accounts.bob, 1_000);
+            contract
+                .stake_prediction(market_id, PredictionDirection::Long)
+                .unwrap();
+
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_001);
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract.resolve_market(market_id, 600_000).unwrap();
+
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(
+                1_001 + DISPUTE_WINDOW,
+            );
+            set_staker(accounts.bob, 1_000);
+            assert_eq!(
+                contract.challenge_resolution(market_id),
+                Err(Error::DisputeWindowClosed)
+            );
+
+            // The boundary timestamp is still finalizable: the window is
+            // inclusive of the deadline for finalization.
+            contract.finalize_resolution(market_id).unwrap();
+            assert_eq!(
+                contract.get_market(market_id).unwrap().status,
+                MarketStatus::Resolved
+            );
+        }
+
+        /// Finalizing a market that was never resolved, or finalizing twice,
+        /// both report the pending-resolution guard.
+        #[ink::test]
+        fn finalize_guards_reject_non_pending_markets() {
+            let (mut contract, accounts, market_id) = setup_manual_market();
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            assert_eq!(
+                contract.finalize_resolution(market_id),
+                Err(Error::MarketNotPendingResolution),
+                "an Active market has nothing to finalize"
+            );
+            assert_eq!(
+                contract.finalize_resolution(9_999),
+                Err(Error::MarketNotFound),
+                "an unknown market cannot be finalized"
+            );
+
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_001);
+            contract.resolve_market(market_id, 600_000).unwrap();
+            settle_market(&mut contract, market_id, 1_001);
+            assert_eq!(
+                contract.finalize_resolution(market_id),
+                Err(Error::MarketNotPendingResolution),
+                "finalization is not idempotent"
+            );
+        }
+
+        /// A market awaiting finalization takes no new stakes, so nobody can
+        /// join a book that is about to settle. (`stake_prediction` refuses any
+        /// non-`Active` market; the `resolution_time` guard would also fire
+        /// here, and both report `MarketNotActive`.)
+        #[ink::test]
+        fn pending_market_rejects_new_stakes() {
+            let (mut contract, accounts, market_id) = setup_manual_market();
+
+            set_staker(accounts.bob, 1_000);
+            contract
+                .stake_prediction(market_id, PredictionDirection::Long)
+                .unwrap();
+
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(1_001);
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.alice);
+            contract.resolve_market(market_id, 600_000).unwrap();
+
+            set_staker(accounts.charlie, 500);
+            assert_eq!(
+                contract.stake_prediction(market_id, PredictionDirection::Short),
+                Err(Error::MarketNotActive)
+            );
         }
     }
 }
