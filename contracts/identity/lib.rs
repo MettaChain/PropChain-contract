@@ -305,7 +305,13 @@ pub mod propchain_identity {
 
     /// Reputation metrics based on transaction history
     #[derive(
-        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        Default,
+        PartialEq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct ReputationMetrics {
@@ -1605,7 +1611,7 @@ pub mod propchain_identity {
             offset: u64,
             limit: u64,
         ) -> Vec<AuditEntry> {
-            let count = self.account_audit_count.get(&account).unwrap_or(0);
+            let count = self.get_account_audit_count(account);
             let mut entries = Vec::new();
             let end = (offset + limit).min(count);
             for i in offset..end {
@@ -1616,6 +1622,15 @@ pub mod propchain_identity {
                 }
             }
             entries
+        }
+
+        /// Get the number of audit entries recorded for a specific account.
+        ///
+        /// Exposed so the dashboard can report a real per-account audit count
+        /// instead of guessing one (#1129).
+        #[ink(message)]
+        pub fn get_account_audit_count(&self, account: AccountId) -> u64 {
+            self.account_audit_count.get(&account).unwrap_or(0)
         }
 
         /// Internal helper: record an audit entry
@@ -2203,5 +2218,36 @@ pub mod propchain_identity {
     /// Dashboard interface exposing aggregated views over this registry.
     pub mod dashboard {
         include!("src/dashboard.rs");
+    }
+}
+
+#[cfg(test)]
+mod account_audit_count_tests {
+    use super::*;
+
+    /// `get_account_audit_count` backs the per-account audit figure the
+    /// dashboard reports, so it must agree with the paginated read and start
+    /// empty (#1129).
+    #[ink::test]
+    fn account_audit_count_matches_paginated_entries() {
+        let caller = AccountId::from([0x0a; 32]);
+        let mut registry = <IdentityRegistry>::new();
+        let did = "did:propchain:auditcount".to_string();
+        let privacy_settings = PrivacySettings {
+            public_reputation: true,
+            public_verification: true,
+            data_sharing_consent: false,
+            zero_knowledge_proof: false,
+            selective_disclosure: Vec::new(),
+        };
+        ink::env::set_accounts(vec![caller]);
+        assert_eq!(registry.get_account_audit_count(caller), 0);
+        registry
+            .create_identity(did, vec![1, 2, 3], "Ed25519".to_string(), None, privacy_settings)
+            .expect("create_identity should succeed");
+        let counted = registry.get_account_audit_count(caller);
+        let entries = registry.get_account_audit_entries(caller, 0, 100);
+        assert!(counted > 0, "creating an identity records an audit entry");
+        assert_eq!(entries.len() as u64, counted);
     }
 }
