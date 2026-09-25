@@ -2200,4 +2200,258 @@ fn staking_tiers_applied_correctly() {
         );
         assert_eq!(staking.get_reward_pool(), 1_426_940_639_267);
     }
+
+    // ---- Reward snapshots / settled history (Issue #1154) ----
+
+    /// Sum of the reward amounts in a staker's settled history.
+    fn settled_rewards(history: &[RewardCheckpoint]) -> u128 {
+        history.iter().fold(0u128, |acc, cp| acc + cp.rewards)
+    }
+
+    #[ink::test]
+    fn snapshot_opens_at_the_stake_block() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+
+        let snapshot = staking.get_reward_snapshot(accounts.bob).unwrap();
+        assert_eq!(snapshot.accrued_per_token, 0);
+        assert_eq!(
+            snapshot.last_updated_block, 0,
+            "the stake is opened at block 0 in this test env"
+        );
+        assert!(staking.get_reward_history(accounts.bob).is_empty());
+        assert_eq!(staking.get_reward_points(accounts.bob), 0);
+    }
+
+    #[ink::test]
+    fn non_staker_has_no_snapshot() {
+        let staking = create_staking();
+        let accounts = default_accounts();
+        assert_eq!(staking.get_reward_snapshot(accounts.charlie), None);
+        assert!(staking.get_reward_history(accounts.charlie).is_empty());
+    }
+
+    #[ink::test]
+    fn claim_records_one_checkpoint() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+
+        advance_block(REWARD_TEST_BLOCKS);
+        let claimed = staking.claim_rewards().unwrap();
+
+        let history = staking.get_reward_history(accounts.bob);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].rewards, claimed);
+        assert_eq!(history[0].reason, CheckpointReason::Claimed);
+        assert_eq!(settled_rewards(&history), claimed);
+
+        // Points are the rewards normalised per unit of stake, at the named scale.
+        assert_eq!(
+            history[0].points,
+            claimed.saturating_mul(REWARD_POINTS_DENOM) / REWARD_TEST_STAKE
+        );
+        assert!(history[0].points > 0);
+
+        let snapshot = staking.get_reward_snapshot(accounts.bob).unwrap();
+        assert_eq!(snapshot.accrued_per_token, history[0].points);
+        assert_eq!(staking.get_reward_points(accounts.bob), history[0].points);
+    }
+
+    #[ink::test]
+    fn repeated_claims_accumulate_history_and_points() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+
+        let mut claimed_total = 0u128;
+        for _ in 0..3 {
+            advance_block(REWARD_TEST_BLOCKS);
+            claimed_total += staking.claim_rewards().unwrap();
+        }
+
+        let history = staking.get_reward_history(accounts.bob);
+        assert_eq!(history.len(), 3);
+        assert_eq!(settled_rewards(&history), claimed_total);
+        // Blocks are strictly increasing across the three boundaries.
+        assert!(history[0].block < history[1].block);
+        assert!(history[1].block < history[2].block);
+
+        // The snapshot carries the running points total, not just the last segment.
+        let expected_points = history
+            .iter()
+            .fold(0u128, |acc, cp| acc.saturating_add(cp.points));
+        assert_eq!(staking.get_reward_points(accounts.bob), expected_points);
+        assert!(expected_points > history[2].points);
+        assert_eq!(
+            staking.get_reward_snapshot(accounts.bob).unwrap().last_updated_block,
+            history[2].block
+        );
+    }
+
+    #[ink::test]
+    fn config_change_does_not_reprice_settled_history() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+
+        // Phase 1 settles at the default 500 bps.
+        advance_block(REWARD_TEST_BLOCKS);
+        let phase_one = staking.claim_rewards().unwrap();
+        let phase_one_history = staking.get_reward_history(accounts.bob);
+        let phase_one_points = staking.get_reward_points(accounts.bob);
+        assert_eq!(phase_one_history.len(), 1);
+
+        // The admin raises the rate 10x mid-term.
+        set_caller(accounts.alice);
+        staking.update_config(1_000, 5_000).unwrap();
+
+        // Phase 2 is priced at the new rate.
+        advance_block(REWARD_TEST_BLOCKS);
+        let phase_two = staking.claim_rewards().unwrap();
+        assert!(
+            phase_two > phase_one,
+            "the new rate should price the open segment higher: {} vs {}",
+            phase_two,
+            phase_one
+        );
+
+        let history = staking.get_reward_history(accounts.bob);
+        assert_eq!(history.len(), 2);
+
+        // Phase 1 is exactly as it was recorded: neither the reward nor the
+        // points moved when the config changed.
+        assert_eq!(history[0].rewards, phase_one);
+        assert_eq!(history[0].points, phase_one_history[0].points);
+        assert_eq!(history[0].block, phase_one_history[0].block);
+        assert_eq!(phase_one_history[0].rewards, phase_one);
+
+        // The two phases together are the staker's settled total.
+        assert_eq!(settled_rewards(&history), phase_one + phase_two);
+        assert_eq!(
+            staking.get_reward_points(accounts.bob),
+            history[0].points + history[1].points
+        );
+    }
+
+    #[ink::test]
+    fn failed_claim_records_no_checkpoint() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+
+        // No pool funded yet, so the claim cannot settle.
+        advance_block(REWARD_TEST_BLOCKS);
+        assert_eq!(staking.claim_rewards(), Err(Error::InsufficientPool));
+        assert!(staking.get_reward_history(accounts.bob).is_empty());
+        assert_eq!(staking.get_reward_points(accounts.bob), 0);
+    }
+
+    #[ink::test]
+    fn auto_compound_claim_records_its_own_reason() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+        staking.set_auto_compound(true).unwrap();
+
+        advance_block(REWARD_TEST_BLOCKS);
+        let compounded = staking.claim_rewards().unwrap();
+
+        let history = staking.get_reward_history(accounts.bob);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].reason, CheckpointReason::AutoCompounded);
+        assert_eq!(history[0].rewards, compounded);
+    }
+
+    #[ink::test]
+    fn vesting_claim_records_its_own_reason() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking
+            .stake_with_vesting(
+                1_000_000_000_000,
+                LockPeriod::Flexible,
+                1_000_000_000_000,
+                0,
+                2_000,
+            )
+            .unwrap();
+
+        advance_block(2_000);
+        let claimed = staking.claim_rewards().unwrap();
+
+        let history = staking.get_reward_history(accounts.bob);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].reason, CheckpointReason::VestingClaimed);
+        assert_eq!(history[0].rewards, claimed);
+    }
+
+    #[ink::test]
+    fn points_denominator_is_published() {
+        let staking = create_staking();
+        assert_eq!(staking.get_reward_points_denominator(), 1_000_000_000);
+        assert_eq!(
+            staking.get_reward_points_denominator(),
+            REWARD_POINTS_DENOM
+        );
+    }
+
+    #[ink::test]
+    fn histories_are_per_staker() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+        fund_pool(&mut staking, REWARD_TEST_POOL);
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+        set_caller(accounts.charlie);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+
+        advance_block(REWARD_TEST_BLOCKS);
+        set_caller(accounts.bob);
+        staking.claim_rewards().unwrap();
+
+        assert_eq!(staking.get_reward_history(accounts.bob).len(), 1);
+        assert!(
+            staking.get_reward_history(accounts.charlie).is_empty(),
+            "one staker's claim must not land in another's history"
+        );
+        assert_eq!(staking.get_reward_points(accounts.charlie), 0);
+    }
 }
