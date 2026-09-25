@@ -92,6 +92,11 @@ pub mod fractional {
         pub token_id: u64,
         pub shares: u128,
         pub price_per_share: u128,
+        /// Block timestamp at which the seller placed (or last renewed) the listing.
+        pub listed_at: u64,
+        /// Optional deadline in block-timestamp seconds. `None` means the listing
+        /// never expires; `Some(t)` is honoured while `block_timestamp() < t`.
+        pub expires_at: Option<u64>,
     }
 
     /// AMM liquidity pool for a property token using constant-product (x * y = k).
@@ -156,6 +161,8 @@ pub mod fractional {
         NoPendingRotation,
         RotationUnauthorized,
         RequestExpired,
+        // Share-listing expiry (Issue #1146)
+        ListingExpired,
     }
 
     /// Emitted when an owner lists shares for sale
@@ -196,6 +203,26 @@ pub mod fractional {
         #[ink(topic)]
         seller: AccountId,
         token_id: u64,
+    }
+
+    /// Emitted when a buyer tries to fill a listing past its deadline, and the
+    /// contract sweeps the stale listing
+    #[ink(event)]
+    pub struct ListingExpired {
+        #[ink(topic)]
+        seller: AccountId,
+        token_id: u64,
+        /// Block timestamp at which the stale listing was swept
+        expired_at: u64,
+    }
+
+    /// Emitted when the seller renews their own listing, resetting the deadline
+    #[ink(event)]
+    pub struct ListingRenewed {
+        #[ink(topic)]
+        seller: AccountId,
+        token_id: u64,
+        expires_at: Option<u64>,
     }
 
     /// Emitted when liquidity is added to an AMM pool
@@ -470,12 +497,17 @@ pub mod fractional {
 
         /// List shares for sale at a given price per share.
         /// The caller must hold at least `shares` of `token_id`.
+        ///
+        /// `expires_at` is an optional block-timestamp deadline (issue #1146).
+        /// Pass `None` for a listing that never expires; pass `Some(deadline)`
+        /// so a stale listing can no longer be filled at a stale price.
         #[ink(message)]
         pub fn list_shares_for_sale(
             &mut self,
             token_id: u64,
             shares: u128,
             price_per_share: u128,
+            expires_at: Option<u64>,
         ) -> Result<(), FractionalError> {
             if shares == 0 {
                 return Err(FractionalError::ZeroAmount);
@@ -491,6 +523,8 @@ pub mod fractional {
                 token_id,
                 shares,
                 price_per_share,
+                listed_at: self.env().block_timestamp(),
+                expires_at,
             };
             self.listings.insert((caller, token_id), &listing);
             self.last_prices.insert(token_id, &price_per_share);
@@ -502,6 +536,46 @@ pub mod fractional {
                 price_per_share,
             });
             Ok(())
+        }
+
+        /// Reset the clock on the caller's own listing: sets `listed_at` to the
+        /// current block timestamp and replaces the deadline with `expires_at`
+        /// (issue #1146). Pass `None` to make the listing non-expiring again.
+        #[ink(message)]
+        pub fn renew_listing(
+            &mut self,
+            token_id: u64,
+            expires_at: Option<u64>,
+        ) -> Result<(), FractionalError> {
+            let caller = self.env().caller();
+            let mut listing = self
+                .listings
+                .get((caller, token_id))
+                .ok_or(FractionalError::ListingNotFound)?;
+
+            listing.listed_at = self.env().block_timestamp();
+            listing.expires_at = expires_at;
+            self.listings.insert((caller, token_id), &listing);
+
+            self.env().emit_event(ListingRenewed {
+                seller: caller,
+                token_id,
+                expires_at,
+            });
+            Ok(())
+        }
+
+        /// Whether a stored listing is still purchasable: present, and either
+        /// without a deadline or not yet past it.
+        #[ink(message)]
+        pub fn is_listing_active(&self, seller: AccountId, token_id: u64) -> bool {
+            match self.listings.get((seller, token_id)) {
+                Some(listing) => match listing.expires_at {
+                    Some(expires_at) => self.env().block_timestamp() < expires_at,
+                    None => true,
+                },
+                None => false,
+            }
         }
 
         /// Cancel an active listing
@@ -539,6 +613,22 @@ pub mod fractional {
                     .listings
                     .get((seller, token_id))
                     .ok_or(FractionalError::ListingNotFound)?;
+
+                // Issue #1146: a listing past its deadline can never be filled.
+                // Sweep it so the seller's shares are no longer pinned by a
+                // stale ask, and tell indexers which listing died.
+                let now = self.env().block_timestamp();
+                if let Some(expires_at) = listing.expires_at {
+                    if now >= expires_at {
+                        self.listings.remove((seller, token_id));
+                        self.env().emit_event(ListingExpired {
+                            seller,
+                            token_id,
+                            expired_at: now,
+                        });
+                        return Err(FractionalError::ListingExpired);
+                    }
+                }
 
                 if shares > listing.shares {
                     return Err(FractionalError::InsufficientShares);
@@ -1257,7 +1347,7 @@ pub mod fractional {
             let mut f = Fractional::new();
             test::set_caller::<ink::env::DefaultEnvironment>(alice());
             f.mint_shares(alice(), 1, 100);
-            assert!(f.list_shares_for_sale(1, 50, 10).is_ok());
+            assert!(f.list_shares_for_sale(1, 50, 10, None).is_ok());
             let listing = f.get_listing(alice(), 1).unwrap();
             assert_eq!(listing.shares, 50);
             assert!(f.cancel_listing(1).is_ok());
@@ -1270,7 +1360,7 @@ pub mod fractional {
             test::set_caller::<ink::env::DefaultEnvironment>(alice());
             f.mint_shares(alice(), 1, 10);
             assert_eq!(
-                f.list_shares_for_sale(1, 50, 10),
+                f.list_shares_for_sale(1, 50, 10, None),
                 Err(FractionalError::InsufficientShares)
             );
         }
@@ -1321,7 +1411,7 @@ pub mod fractional {
             let mut f = Fractional::new();
             test::set_caller::<ink::env::DefaultEnvironment>(alice());
             f.mint_shares(alice(), 1, 100);
-            f.list_shares_for_sale(1, 50, 10).unwrap();
+            f.list_shares_for_sale(1, 50, 10, None).unwrap();
 
             test::set_caller::<ink::env::DefaultEnvironment>(bob());
             // No payment attached → InsufficientPayment
@@ -1790,7 +1880,7 @@ pub mod fractional {
             let mut f = Fractional::new();
             test::set_caller::<ink::env::DefaultEnvironment>(alice());
             f.mint_shares(alice(), 1, 100);
-            f.list_shares_for_sale(1, 50, 10).unwrap();
+            f.list_shares_for_sale(1, 50, 10, None).unwrap();
 
             // Manually lock the guard to simulate a reentrant call
             f.reentrancy_guard
