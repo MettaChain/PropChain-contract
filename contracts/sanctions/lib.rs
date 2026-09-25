@@ -162,6 +162,10 @@ pub mod sanctions_screening {
         /// Number of currently active (non-soft-deleted) sanctioned entities.
         active_entity_count: u32,
         screening_threshold_days: u32,
+        /// Cap on how many screenings a single property's history may hold.
+        /// Screening is open to any caller, so this bounds the storage one
+        /// property can accumulate (#1139).
+        max_screenings_per_property: u32,
     }
 
     impl SanctionsScreening {
@@ -178,6 +182,7 @@ pub mod sanctions_screening {
                 max_sanctioned_entities: 10_000,
                 active_entity_count: 0,
                 screening_threshold_days: 90,
+                max_screenings_per_property: 1_000,
             }
         }
 
@@ -350,7 +355,7 @@ pub mod sanctions_screening {
         // ── Screening ───────────────────────────────────────────────────────
 
         /// Screens a property (and, optionally, an associated entity) against
-        /// the sanctions lists, and records the outcome. Admin-only.
+        /// the sanctions lists, and records the outcome. Open to any caller.
         ///
         /// Checks are evaluated in order and the first match wins:
         /// 1. If `property_id` is itself an active sanctioned property, the
@@ -374,10 +379,24 @@ pub mod sanctions_screening {
         /// `entity_id` are present in storage (a `Mapping::get` per check), not
         /// in constant time.
         ///
+        /// # Access
+        /// Any account or contract may screen, so a flow such as a property
+        /// transfer, escrow creation or trade can screen on-path and abort on
+        /// `passed = false` instead of bolting enforcement onto external
+        /// tooling (#1139). Only list administration - adding, removing and
+        /// clearing sanctioned entities and properties, and changing the
+        /// configuration - remains admin-gated.
+        ///
+        /// Because the call is open, the screening history is bounded per
+        /// property by `max_screenings_per_property` (see
+        /// [`Self::max_screenings_per_property`]); the caller pays for the
+        /// storage the call writes.
+        ///
         /// # Errors
-        /// - `Error::NotAuthorized` if the caller is not the contract admin.
-        /// - `Error::ThresholdExceeded` if the internal screening-id counter
-        ///   has been exhausted (`u64::MAX` screenings recorded).
+        /// - `Error::ThresholdExceeded` if the property already holds
+        ///   `max_screenings_per_property` recorded screenings, or if the
+        ///   internal screening-id counter has been exhausted (`u64::MAX`
+        ///   screenings recorded).
         #[ink(message)]
         pub fn screen_property(
             &mut self,
@@ -385,7 +404,9 @@ pub mod sanctions_screening {
             jurisdiction_code: u32,
             entity_id: Option<u64>,
         ) -> Result<ScreeningResult> {
-            self.ensure_admin()?;
+            // Checked before any state is written so a rejected call leaves no
+            // partial result behind.
+            self.ensure_screening_capacity(property_id)?;
 
             // Check if property itself is sanctioned
             if let Some(prop) = self.sanctioned_properties.get(property_id) {
@@ -471,6 +492,19 @@ pub mod sanctions_screening {
                 timestamp: now,
             });
             Ok(result)
+        }
+
+        /// Fails closed when `property_id` already holds the configured maximum
+        /// number of recorded screenings.
+        fn ensure_screening_capacity(&self, property_id: u64) -> Result<()> {
+            let recorded = self
+                .property_screenings
+                .get(property_id)
+                .map_or(0, |screenings| screenings.len());
+            if recorded >= self.max_screenings_per_property as usize {
+                return Err(Error::ThresholdExceeded);
+            }
+            Ok(())
         }
 
         fn record_screening(&mut self, property_id: u64, screening_id: u64) {
@@ -595,6 +629,26 @@ pub mod sanctions_screening {
         pub fn active_entity_count(&self) -> u32 {
             self.active_entity_count
         }
+
+        /// Sets the maximum number of screenings recorded per property.
+        ///
+        /// Admin only. Bounds the storage a caller can add to one property's
+        /// screening history now that screening is open to any caller
+        /// (#1139). The cap starts at `1_000` from the constructor; it is
+        /// checked before a screening writes any state, so raising it is the
+        /// way to let a property screen again once it is reached.
+        #[ink(message)]
+        pub fn set_max_screenings_per_property(&mut self, max: u32) -> Result<()> {
+            self.ensure_admin()?;
+            self.max_screenings_per_property = max;
+            Ok(())
+        }
+
+        /// Returns the maximum number of screenings recorded per property.
+        #[ink(message)]
+        pub fn max_screenings_per_property(&self) -> u32 {
+            self.max_screenings_per_property
+        }
     }
 
     impl Default for SanctionsScreening {
@@ -712,6 +766,122 @@ pub mod sanctions_screening {
             let result = contract.screen_property(50, 9999, None).expect("screen");
             assert!(result.passed);
             assert_eq!(result.sanction_level, SanctionLevel::None);
+        }
+
+        // Screening is open to any caller so a trade or escrow flow can screen
+        // on-path; list administration stays admin-gated (Issue #1139).
+
+        #[ink::test]
+        fn test_non_admin_can_screen_property() {
+            let mut contract = default_contract();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            let result = contract
+                .screen_property(42, 1001, None)
+                .expect("non-admin screen should succeed");
+            assert!(result.passed);
+            assert_eq!(result.sanction_level, SanctionLevel::None);
+        }
+
+        #[ink::test]
+        fn test_non_admin_screening_rejects_sanctioned_property() {
+            let mut contract = default_contract();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            contract
+                .add_sanctioned_property(42, 1001, SanctionLevel::Prohibited, b"OFAC list".to_vec())
+                .expect("sanction");
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            let result = contract
+                .screen_property(42, 1001, None)
+                .expect("non-admin screen should succeed");
+            assert!(!result.passed, "a sanctioned property must not pass screening");
+            assert_eq!(result.sanction_level, SanctionLevel::Prohibited);
+        }
+
+        #[ink::test]
+        fn test_non_admin_screening_rejects_sanctioned_entity() {
+            let mut contract = default_contract();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            let eid = contract
+                .add_sanctioned_entity(
+                    b"Restricted Entity".to_vec(),
+                    EntityType::Corporation,
+                    1001,
+                    SanctionLevel::Restricted,
+                )
+                .expect("add entity");
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            let result = contract
+                .screen_property(42, 1001, Some(eid))
+                .expect("non-admin screen should succeed");
+            assert!(!result.passed);
+            assert_eq!(result.sanction_level, SanctionLevel::Restricted);
+            assert_eq!(result.entity_id, Some(eid));
+        }
+
+        #[ink::test]
+        fn test_non_admin_cannot_administer_sanctions_lists() {
+            let mut contract = default_contract();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            assert_eq!(
+                contract
+                    .add_sanctioned_property(42, 1001, SanctionLevel::Prohibited, b"x".to_vec()),
+                Err(Error::NotAuthorized)
+            );
+            assert_eq!(
+                contract.add_sanctioned_entity(
+                    b"Entity".to_vec(),
+                    EntityType::Individual,
+                    1001,
+                    SanctionLevel::Restricted,
+                ),
+                Err(Error::NotAuthorized)
+            );
+            assert_eq!(
+                contract.update_sanctions_list([7u8; 32]),
+                Err(Error::NotAuthorized)
+            );
+        }
+
+        #[ink::test]
+        fn test_screening_history_is_capped_per_property() {
+            let mut contract = default_contract();
+            assert_eq!(contract.max_screenings_per_property(), 1_000);
+
+            contract
+                .set_max_screenings_per_property(2)
+                .expect("admin should set the cap");
+            contract.screen_property(42, 1001, None).expect("first screen");
+            contract.screen_property(42, 1001, None).expect("second screen");
+            assert_eq!(
+                contract.screen_property(42, 1001, None),
+                Err(Error::ThresholdExceeded),
+                "the third screening exceeds the per-property cap"
+            );
+            assert_eq!(contract.get_property_screenings(42).len(), 2);
+            contract
+                .screen_property(43, 1001, None)
+                .expect("the cap is per property, not global");
+        }
+
+        #[ink::test]
+        fn test_non_admin_cannot_raise_screening_cap() {
+            let mut contract = default_contract();
+            let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+
+            ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+            assert_eq!(
+                contract.set_max_screenings_per_property(5),
+                Err(Error::NotAuthorized)
+            );
+            assert_eq!(contract.max_screenings_per_property(), 1_000);
         }
 
         // ── Screening-threshold tests (Issue #1020) ────────────────────────────
