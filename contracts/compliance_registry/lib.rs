@@ -710,6 +710,12 @@ pub mod compliance_registry {
         Cleared,
         Flagged,
         Blocked,
+        /// The account has compliance data but has never been screened against
+        /// the sanctions lists. `ComplianceData::sanctions_checked` defaults to
+        /// `false` for a freshly verified account, so before this variant
+        /// existed an unscreened account was indistinguishable from a confirmed
+        /// match and both were reported as `Blocked` (#1136).
+        NotScreened,
     }
 
     impl Default for ComplianceRegistry {
@@ -1936,10 +1942,23 @@ pub mod compliance_registry {
         }
 
         /// Perform the actual screening logic
+        ///
+        /// Status and `matched_lists` are derived from stored state only:
+        ///
+        /// - never screened (no sanctions audit entry) -> `NotScreened`, no lists
+        /// - screened and prohibited                -> `Blocked`, the list that matched
+        /// - screened and high risk                  -> `Flagged`, the list that raised the flag
+        /// - screened and clear                     -> `Cleared`, no lists
+        ///
+        /// `matched_lists` therefore names lists that actually matched instead of
+        /// repeating the list a verifier happened to check (#1136).
         fn perform_screening(&self, account: AccountId, now: u64) -> Result<ScreeningResult> {
             if let Some(data) = self.compliance_data.get(account) {
-                let status = if !data.sanctions_checked || data.risk_level == RiskLevel::Prohibited
-                {
+                let screened = self.has_sanctions_screening(account);
+
+                let status = if !screened {
+                    ScreeningStatus::NotScreened
+                } else if !data.sanctions_checked || data.risk_level == RiskLevel::Prohibited {
                     ScreeningStatus::Blocked
                 } else if data.risk_level == RiskLevel::High {
                     ScreeningStatus::Flagged
@@ -1947,12 +1966,20 @@ pub mod compliance_registry {
                     ScreeningStatus::Cleared
                 };
 
-                let matched_lists = vec![data.sanctions_list_checked];
+                // A list is only reported as matched when the screening found a
+                // match or a flag on it.
+                let matched_lists = match &status {
+                    ScreeningStatus::Flagged | ScreeningStatus::Blocked => {
+                        vec![data.sanctions_list_checked]
+                    }
+                    ScreeningStatus::Cleared | ScreeningStatus::NotScreened => Vec::new(),
+                };
 
                 let match_details = match &status {
                     ScreeningStatus::Cleared => "No sanctions match found".into(),
                     ScreeningStatus::Flagged => "Potential sanctions match detected".into(),
                     ScreeningStatus::Blocked => "Confirmed sanctions match".into(),
+                    ScreeningStatus::NotScreened => "Account has not been screened".into(),
                 };
 
                 let ttl_ms = self.screening_cache_ttl * 1000;
@@ -1967,6 +1994,24 @@ pub mod compliance_registry {
             } else {
                 Err(Error::NotVerified)
             }
+        }
+
+        /// Whether a sanctions screening has ever been recorded for this account.
+        ///
+        /// `ComplianceData::sanctions_checked` stores the *outcome* of the last
+        /// screening, not whether one happened: a never-screened account and a
+        /// confirmed match both hold `false`. `update_sanctions_status` is the only
+        /// writer of that field and it appends a sanctions audit entry (`action ==
+        /// 2`) every time, so the audit log is the record of whether screening
+        /// happened at all. Reading it costs one pass over the account's own audit
+        /// entries.
+        fn has_sanctions_screening(&self, account: AccountId) -> bool {
+            let count = self.audit_log_count.get(account).unwrap_or(0);
+            (0..count).any(|index| {
+                self.audit_logs
+                    .get((account, index))
+                    .is_some_and(|log| log.action == 2)
+            })
         }
 
         /// Update the sanctions list merkle root (admin only)
@@ -2665,6 +2710,39 @@ pub mod compliance_registry {
             assert_eq!(result.status, ScreeningStatus::Cleared);
             assert_eq!(result.account, user);
             assert!(result.expires_at > 0);
+            assert!(
+                result.matched_lists.is_empty(),
+                "a cleared account must not report a matched list"
+            );
+        }
+
+        /// A verified account that has never been sanctions-screened is not a
+        /// confirmed match; before #1136 it screened as `Blocked`.
+        #[ink::test]
+        fn screen_unscreened_account_returns_not_screened() {
+            let mut contract = ComplianceRegistry::new();
+            let user = AccountId::from([0x14; 32]);
+            let kyc_hash = [0u8; 32];
+
+            contract
+                .submit_verification(
+                    user,
+                    Jurisdiction::US,
+                    kyc_hash,
+                    RiskLevel::Low,
+                    DocumentType::Passport,
+                    BiometricMethod::FaceRecognition,
+                    10,
+                )
+                .expect("submit verification");
+
+            let result = contract.screen_address(user).expect("screen address");
+            assert_eq!(result.status, ScreeningStatus::NotScreened);
+            assert!(
+                result.matched_lists.is_empty(),
+                "an unscreened account cannot have matched a list"
+            );
+            assert_eq!(result.match_details, "Account has not been screened");
         }
 
         #[ink::test]
@@ -2692,6 +2770,40 @@ pub mod compliance_registry {
             let result = contract.screen_address(user).expect("screen address");
             assert_eq!(result.status, ScreeningStatus::Blocked);
             assert!(!result.matched_lists.is_empty());
+            assert_eq!(
+                result.matched_lists,
+                vec![SanctionsList::OFAC],
+                "a blocked account must name the list that matched"
+            );
+        }
+
+        /// A high-risk account that cleared screening is flagged against the
+        /// list that raised the flag, not reported as a confirmed match.
+        #[ink::test]
+        fn screen_high_risk_account_is_flagged_with_the_list_checked() {
+            let mut contract = ComplianceRegistry::new();
+            let user = AccountId::from([0x15; 32]);
+            let kyc_hash = [0u8; 32];
+
+            contract
+                .submit_verification(
+                    user,
+                    Jurisdiction::EU,
+                    kyc_hash,
+                    RiskLevel::High,
+                    DocumentType::Passport,
+                    BiometricMethod::FaceRecognition,
+                    10,
+                )
+                .expect("submit verification");
+
+            contract
+                .update_sanctions_status(user, true, SanctionsList::EU)
+                .expect("update sanctions status");
+
+            let result = contract.screen_address(user).expect("screen address");
+            assert_eq!(result.status, ScreeningStatus::Flagged);
+            assert_eq!(result.matched_lists, vec![SanctionsList::EU]);
         }
 
         #[ink::test]
