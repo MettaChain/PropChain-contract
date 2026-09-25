@@ -9,12 +9,16 @@
 //! Payout formula under test:
 //!   total_reward = stake + stake * losing_pool / winning_pool
 //!   payout       = total_reward - total_reward * fee_bips / 10_000
+//!
+//! Since #1148 a manual resolution is a proposal: the market parks in
+//! `PendingResolution` for a `DISPUTE_WINDOW`, claims are refused while it is
+//! open, and `finalize_resolution` is what unlocks settlement.
 
 #[cfg(test)]
 mod integration_prediction_market {
     use ink::env::{test, DefaultEnvironment};
     use propchain_prediction_market::propchain_prediction_market::{
-        Error, MarketStatus, PredictionDirection, PredictionMarket,
+        Error, MarketStatus, PredictionDirection, PredictionMarket, DISPUTE_WINDOW,
     };
 
     fn setup() -> (
@@ -78,7 +82,9 @@ mod integration_prediction_market {
         );
 
         // Resolution before the deadline is rejected; after it, the price
-        // source value 600_000 >= target 500_000 makes Long win.
+        // source value 600_000 >= target 500_000 makes Long win. The outcome
+        // is only proposed, so the market parks in PendingResolution until the
+        // dispute window elapses (#1148).
         test::set_caller::<DefaultEnvironment>(accounts.alice);
         test::set_block_timestamp::<DefaultEnvironment>(5_000);
         assert_eq!(
@@ -96,9 +102,32 @@ mod integration_prediction_market {
         );
 
         let market = contract.get_market(market_id).expect("market exists");
-        assert_eq!(market.status, MarketStatus::Resolved);
+        assert_eq!(market.status, MarketStatus::PendingResolution);
         assert_eq!(market.winning_direction, Some(PredictionDirection::Long));
         assert_eq!(market.resolved_value, Some(600_000));
+        assert_eq!(
+            contract.get_dispute_deadline(market_id),
+            10_001 + DISPUTE_WINDOW
+        );
+        assert_eq!(
+            contract.finalize_resolution(market_id),
+            Err(Error::DisputeWindowStillOpen),
+            "payouts stay locked until the window elapses"
+        );
+        assert_eq!(
+            contract.claim_reward(market_id),
+            Err(Error::MarketNotActive),
+            "a contested resolution is not claimable"
+        );
+
+        // Window elapsed: anyone can finalize, and the payout path is unchanged.
+        test::set_block_timestamp::<DefaultEnvironment>(10_001 + DISPUTE_WINDOW);
+        test::set_caller::<DefaultEnvironment>(accounts.django);
+        contract
+            .finalize_resolution(market_id)
+            .expect("finalize is permissionless");
+        let market = contract.get_market(market_id).expect("market exists");
+        assert_eq!(market.status, MarketStatus::Resolved);
 
         // Bob's winning payout: 1_000 + 1_000 * 3_000 / 1_000 = 4_000 gross;
         // fee 4_000 * 100 / 10_000 = 40 → exactly 3_960 net.
