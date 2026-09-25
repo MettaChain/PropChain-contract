@@ -2260,6 +2260,7 @@ pub mod propchain_identity {
 #[cfg(test)]
 mod revocation_reason_tests {
     use super::*;
+    use super::propchain_identity::*;
 
     /// The string helpers must not classify anything the documented spellings do
     /// not name. These are the three inputs #1131 calls out, plus the keyword
