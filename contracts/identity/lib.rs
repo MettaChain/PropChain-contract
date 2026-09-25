@@ -102,30 +102,62 @@ pub mod propchain_identity {
         Other,
     }
 
-    // Helper impls so tests (and external callers) can pass a free-form string
-    // reason and have it mapped to a sensible enum variant, plus compare a
-    // `RevocationReason` back to a `&str` literal in `assert_eq!`. Keyword-based
-    // mapping keeps the mapping deterministic without introducing storage cost.
-    impl From<&str> for RevocationReason {
-        fn from(s: &str) -> Self {
-            let lower = s.to_ascii_lowercase();
-            if lower.contains("kyc") || lower.contains("aml") {
-                Self::KycAmlRevoked
-            } else if lower.contains("fraud") {
-                Self::FraudDetected
-            } else if lower.contains("compromis") {
-                Self::AccountCompromised
-            } else if lower.contains("user") {
-                Self::UserRequest
-            } else {
-                Self::Other
-            }
+    // Revocation reasons are an enum, so a caller that wants an analytics or
+    // compliance-grade category passes the variant itself. The string helpers
+    // below exist for tooling and tests that still hold a reason as text; they
+    // resolve only the exact documented spellings listed in `DOCUMENTED` and
+    // never fall back to substring matching. A reason such as "fraudulent
+    // intent" or "a-user-account-error" used to be silently classified as
+    // `FraudDetected` or `UserRequest` by a `lower.contains(..)` check, which
+    // corrupted revocation analytics and compliance reporting (#1131).
+    impl RevocationReason {
+        /// The documented spelling of every variant, accepted by
+        /// [`Self::try_from_str`] and returned by [`Self::as_str`].
+        pub const DOCUMENTED: [(&'static str, Self); 5] = [
+            ("kyc_aml_revoked", Self::KycAmlRevoked),
+            ("fraud_detected", Self::FraudDetected),
+            ("account_compromised", Self::AccountCompromised),
+            ("user_request", Self::UserRequest),
+            ("other", Self::Other),
+        ];
+
+        /// Resolve a documented reason string to its variant.
+        ///
+        /// Matching is exact after trimming and lowercasing. Returns `None` for
+        /// anything else, so a caller can tell an unrecognised reason apart
+        /// from a deliberate [`Self::Other`] instead of guessing.
+        pub fn try_from_str(reason: &str) -> Option<Self> {
+            let normalized = reason.trim().to_ascii_lowercase();
+            Self::DOCUMENTED
+                .iter()
+                .find(|(documented, _)| *documented == normalized)
+                .map(|(_, variant)| *variant)
+        }
+
+        /// The documented string for this variant.
+        pub fn as_str(&self) -> &'static str {
+            Self::DOCUMENTED
+                .iter()
+                .find(|(_, variant)| variant == self)
+                .map_or("other", |(documented, _)| *documented)
         }
     }
 
+    /// Convenience conversion for callers holding a reason as text.
+    ///
+    /// Unrecognised input becomes [`RevocationReason::Other`] on purpose. Use
+    /// [`RevocationReason::try_from_str`] when the caller needs to distinguish
+    /// that fallback from a reason that was actually classified.
+    impl From<&str> for RevocationReason {
+        fn from(s: &str) -> Self {
+            Self::try_from_str(s).unwrap_or(Self::Other)
+        }
+    }
+
+    /// A reason equals the string that documents it, and nothing else.
     impl PartialEq<&str> for RevocationReason {
         fn eq(&self, other: &&str) -> bool {
-            *self == Self::from(*other)
+            Self::try_from_str(other).is_some_and(|mapped| mapped == *self)
         }
     }
 
@@ -819,7 +851,7 @@ pub mod propchain_identity {
             self.env().emit_event(IdentityRevoked {
                 account,
                 revoked_by: caller,
-                reason: format!("{:?}", reason),
+                reason: reason.as_str().into(),
                 timestamp: self.env().block_timestamp(),
             });
 
@@ -1520,11 +1552,15 @@ pub mod propchain_identity {
         }
 
         /// Revoke a compromised identity (admin or authorized verifier only)
+        ///
+        /// The reason is an enum variant rather than free text, so the recorded
+        /// revocation carries the category the verifier actually selected
+        /// instead of a string the contract discarded (#1131).
         #[ink(message)]
         pub fn revoke_compromised_identity(
             &mut self,
             target_account: AccountId,
-            reason: String,
+            reason: RevocationReason,
         ) -> Result<(), IdentityError> {
             let caller = self.env().caller();
             let timestamp = self.env().block_timestamp();
@@ -1550,7 +1586,7 @@ pub mod propchain_identity {
             let record = RevocationRecord {
                 account: target_account,
                 revoked_by: caller,
-                reason: RevocationReason::AccountCompromised,
+                reason,
                 revoked_at: timestamp,
             };
             self.revocations.insert(&target_account, &record);
@@ -1560,13 +1596,13 @@ pub mod propchain_identity {
                 target_account,
                 caller,
                 "identity_revoked".into(),
-                reason.clone(),
+                reason.as_str().into(),
             );
 
             self.env().emit_event(IdentityRevoked {
                 account: target_account,
                 revoked_by: caller,
-                reason,
+                reason: reason.as_str().into(),
                 timestamp,
             });
 
@@ -2203,5 +2239,175 @@ pub mod propchain_identity {
     /// Dashboard interface exposing aggregated views over this registry.
     pub mod dashboard {
         include!("src/dashboard.rs");
+    }
+}
+
+#[cfg(test)]
+mod revocation_reason_tests {
+    use super::*;
+
+    /// The string helpers must not classify anything the documented spellings do
+    /// not name. These are the three inputs #1131 calls out, plus the keyword
+    /// fragments the old `lower.contains(..)` implementation matched on.
+    const UNDOCUMENTED: [&str; 7] = [
+        "user requested removal",
+        "a-user-account-error",
+        "fraudulent intent",
+        "compromis",
+        "user",
+        "kyc",
+        "aml",
+    ];
+
+    #[test]
+    fn each_documented_string_maps_to_its_declared_variant() {
+        assert_eq!(RevocationReason::DOCUMENTED.len(), 5);
+
+        for (documented, variant) in RevocationReason::DOCUMENTED {
+            assert_eq!(
+                RevocationReason::try_from_str(documented),
+                Some(variant),
+                "{documented} must resolve to its declared variant"
+            );
+            assert_eq!(RevocationReason::from(documented), variant);
+            assert_eq!(variant.as_str(), documented);
+        }
+    }
+
+    /// Documented spellings are case-insensitive and tolerate surrounding
+    /// whitespace, which is a normalisation rather than a fuzzy match.
+    #[test]
+    fn documented_strings_tolerate_case_and_padding() {
+        assert_eq!(
+            RevocationReason::try_from_str("  FRAUD_DETECTED  "),
+            Some(RevocationReason::FraudDetected)
+        );
+        assert_eq!(
+            RevocationReason::try_from_str("Kyc_Aml_Revoked"),
+            Some(RevocationReason::KycAmlRevoked)
+        );
+    }
+
+    /// Ambiguous or unknown text yields `Other` deliberately, and `try_from_str`
+    /// reports it as unmapped so a caller can tell the fallback apart from a
+    /// reason that really was `Other`.
+    #[test]
+    fn ambiguous_strings_are_not_silently_classified() {
+        for text in UNDOCUMENTED {
+            assert_eq!(
+                RevocationReason::try_from_str(text),
+                None,
+                "{text} is not a documented reason"
+            );
+            assert_eq!(
+                RevocationReason::from(text),
+                RevocationReason::Other,
+                "{text} must fall back to Other"
+            );
+        }
+    }
+
+    #[test]
+    fn a_deliberate_other_is_distinguishable_from_an_unmapped_string() {
+        assert_eq!(
+            RevocationReason::try_from_str("other"),
+            Some(RevocationReason::Other)
+        );
+        assert_ne!(RevocationReason::try_from_str("something else"), Some(RevocationReason::Other));
+    }
+
+    #[test]
+    fn string_equality_holds_only_for_the_documented_spelling() {
+        assert_eq!(RevocationReason::FraudDetected, "fraud_detected");
+        assert_ne!(RevocationReason::FraudDetected, "fraud");
+        assert_ne!(RevocationReason::Other, "anything");
+    }
+
+    /// Deploy the registry as `admin`, then have `owner` register an identity.
+    fn registry_with_identity(admin: AccountId, owner: AccountId) -> IdentityRegistry {
+        ink::env::set_accounts(vec![admin, owner]);
+        let mut registry = IdentityRegistry::new();
+        ink::env::set_accounts(vec![owner]);
+        registry
+            .create_identity(
+                "did:propchain:revocation".into(),
+                vec![1, 2, 3],
+                "Ed25519".into(),
+                None,
+                PrivacySettings {
+                    public_reputation: true,
+                    public_verification: true,
+                    data_sharing_consent: false,
+                    zero_knowledge_proof: false,
+                    selective_disclosure: Vec::new(),
+                },
+            )
+            .expect("create_identity should succeed");
+        registry
+    }
+
+    /// The reason passed to `revoke_identity` is the reason recorded.
+    #[ink::test]
+    fn revoke_identity_records_the_selected_reason() {
+        let admin = AccountId::from([0xad; 32]);
+        let owner = AccountId::from([0x0a; 32]);
+        let mut registry = registry_with_identity(admin, owner);
+
+        ink::env::set_accounts(vec![admin]);
+        registry
+            .revoke_identity(owner, RevocationReason::FraudDetected)
+            .expect("admin may revoke");
+
+        let record = registry.get_revocation(owner).expect("record stored");
+        assert_eq!(record.reason, RevocationReason::FraudDetected);
+        assert_eq!(record.revoked_by, admin);
+        assert!(registry.is_revoked(owner));
+    }
+
+    /// Regression: `revoke_compromised_identity` used to accept a free-form
+    /// string, ignore it, and always record `AccountCompromised`.
+    #[ink::test]
+    fn revoke_compromised_identity_records_the_reason_it_is_given() {
+        let admin = AccountId::from([0xad; 32]);
+        let owner = AccountId::from([0x0a; 32]);
+        let mut registry = registry_with_identity(admin, owner);
+
+        ink::env::set_accounts(vec![admin]);
+        registry
+            .revoke_compromised_identity(owner, RevocationReason::KycAmlRevoked)
+            .expect("admin may revoke a compromised identity");
+
+        let record = registry.get_revocation(owner).expect("record stored");
+        assert_eq!(record.reason, RevocationReason::KycAmlRevoked);
+        assert_ne!(record.reason, RevocationReason::AccountCompromised);
+
+        let entry = registry
+            .get_account_audit_entries(owner, 0, 100)
+            .into_iter()
+            .last()
+            .expect("revocation is audited");
+        assert_eq!(entry.action, "identity_revoked");
+        assert_eq!(entry.details, "kyc_aml_revoked");
+    }
+
+    /// Only the admin or an authorized verifier can revoke; the reason type
+    /// change must not widen access.
+    #[ink::test]
+    fn unauthorized_revocation_is_still_rejected() {
+        let admin = AccountId::from([0xad; 32]);
+        let owner = AccountId::from([0x0a; 32]);
+        let stranger = AccountId::from([0xff; 32]);
+        let mut registry = registry_with_identity(admin, owner);
+
+        ink::env::set_accounts(vec![stranger]);
+        assert_eq!(
+            registry.revoke_identity(owner, RevocationReason::UserRequest),
+            Err(IdentityError::Unauthorized)
+        );
+        assert_eq!(
+            registry.revoke_compromised_identity(owner, RevocationReason::AccountCompromised),
+            Err(IdentityError::Unauthorized)
+        );
+        assert!(!registry.is_revoked(owner));
     }
 }
