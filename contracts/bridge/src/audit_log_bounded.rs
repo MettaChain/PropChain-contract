@@ -13,7 +13,7 @@ impl BoundedAuditLog {
         Self { max_records }
     }
 
-    pub fn push_record<T: Clone>(&self, log: &mut Vec<T>, record: T) {
+    pub fn push_record<T>(&self, log: &mut Vec<T>, record: T) {
         if log.len() >= self.max_records {
             log.remove(0);
         }

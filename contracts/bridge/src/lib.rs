@@ -28,6 +28,10 @@ mod bridge {
     /// Maximum number of entries kept in [`PropertyBridge::pause_audit_log`].
     /// When the log reaches this size, the oldest entry is dropped on insert.
     const PAUSE_AUDIT_LOG_LIMIT: usize = 256;
+    /// Maximum number of [`BridgeTransaction`] entries kept per account in
+    /// [`PropertyBridge::bridge_history`]. New entries evict the oldest ones,
+    /// so reads stay bounded and storage rent stays predictable (#1104).
+    const MAX_BRIDGE_HISTORY_PER_ACCOUNT: usize = 100;
     const SIGNATURE_BITMAP_BYTES: usize = 32;
     const MAX_VALIDATOR_BITMAP_SLOTS: usize = SIGNATURE_BITMAP_BYTES * 8;
 
@@ -321,6 +325,50 @@ mod bridge {
         affects_inflight: bool,
     }
 
+    // ── Rate-limit governance events (#1107) ─────────────────────────────
+
+    /// Emitted when the admin updates the bridge rate-limit configuration.
+    #[ink(event)]
+    pub struct RateLimitConfigUpdated {
+        #[ink(topic)]
+        pub admin: AccountId,
+        pub window_seconds: u64,
+        pub max_requests_per_day: u64,
+        pub max_value_per_day: u128,
+    }
+
+    // ── Validator staking events (#1109) ──────────────────────────────────
+
+    /// Emitted when a validator self-stakes.
+    #[ink(event)]
+    pub struct ValidatorStaked {
+        #[ink(topic)]
+        pub validator: AccountId,
+        pub amount: u128,
+        pub total_staked: u128,
+    }
+
+    /// Emitted when a validator withdraws stake.
+    #[ink(event)]
+    pub struct ValidatorUnstaked {
+        #[ink(topic)]
+        pub validator: AccountId,
+        pub amount: u128,
+        pub total_staked: u128,
+    }
+
+    /// Emitted when a validator is slashed (automatically on a conflicting
+    /// vote, or via `slash_validator`).
+    #[ink(event)]
+    pub struct ValidatorSlashed {
+        #[ink(topic)]
+        pub validator: AccountId,
+        #[ink(topic)]
+        pub request_id: Option<u64>,
+        pub penalty: u128,
+        pub slash_pool: u128,
+    }
+
     /// Bridge contract for cross-chain property token transfers
     #[ink(storage)]
     pub struct PropertyBridge {
@@ -397,6 +445,20 @@ mod bridge {
 
         /// Account last reset day for volume rate limiting (#764)
         account_daily_volume_last_reset_day: Mapping<AccountId, u64>,
+
+        /// Governance-configurable rate-limit parameters (#1107). Single
+        /// source of truth for all rate-limit decisions; replaces the
+        /// hardcoded counter that used to live in `BridgeConfig`.
+        rate_limit: crate::rate_limit_config::RateLimitConfig,
+
+        /// Staked weight of each validator and the ledger's slash pool (#1109).
+        /// Approvals require a staked-weight quorum, and conflicting votes
+        /// slash the signer.
+        staking: crate::validator_staking::ValidatorStaking,
+
+        /// Vote side recorded for each `(request_id, signer)` pair (#1109).
+        /// Lets the contract detect flip-flopping validators and slash them.
+        vote_sides: Mapping<(u64, AccountId), bool>,
 
         /// Reentrancy protection
         reentrancy_guard: ReentrancyGuard,
@@ -525,6 +587,10 @@ mod bridge {
         pub request_id: u64,
         #[ink(topic)]
         pub recovery_action: RecoveryAction,
+        /// Native value refunded to the original sender as part of the
+        /// recovery (gas refunds / escrow returns). Zero for bookkeeping-only
+        /// recoveries such as retries (#1105).
+        pub refunded_amount: u128,
     }
 
     /// Emitted when a bridge transaction is atomically rolled back (#201).
@@ -800,9 +866,6 @@ mod bridge {
                 gas_limit_per_bridge: gas_limit,
                 emergency_pause: false,
                 metadata_preservation: true,
-                rate_limit_enabled: true,
-                max_requests_per_day: 10,
-                max_value_per_day: 1_000_000_000_000_000_000,
             };
 
             // Initialize chain info for supported chains
@@ -831,6 +894,9 @@ mod bridge {
                 chain_last_reset_day: Mapping::default(),
                 account_daily_volume: Mapping::default(),
                 account_daily_volume_last_reset_day: Mapping::default(),
+                rate_limit: crate::rate_limit_config::RateLimitConfig::default(),
+                staking: crate::validator_staking::ValidatorStaking::default(),
+                vote_sides: Mapping::default(),
                 reentrancy_guard: ReentrancyGuard::new(),
                 pause_flags: PauseFlags::none(),
                 guardians: Vec::new(),
@@ -1103,17 +1169,36 @@ mod bridge {
 
             // Check if already signed
             let bit_position = self.get_validator_bit_position(caller)?;
-            if self.request_has_signature(&request, caller, bit_position) {
-                return Err(Error::AlreadySigned);
+            let already_signed = self.request_has_signature(&request, caller, bit_position);
+            if already_signed {
+                let prior_vote = self.vote_sides.get((request_id, caller)).unwrap_or(approve);
+                if prior_vote == approve {
+                    return Err(Error::AlreadySigned);
+                }
+
+                // The validator flip-flopped its vote for this request:
+                // slash it and do not record the contradictory signal.
+                let penalty = self.staking.slash(caller);
+                let pool = self.staking.pool();
+                self.env().emit_event(ValidatorSlashed {
+                    validator: caller,
+                    request_id: Some(request_id),
+                    penalty,
+                    slash_pool: pool,
+                });
+                return Err(Error::VoteConflict);
             }
 
+            self.vote_sides.insert((request_id, caller), &approve);
             self.add_request_signature(&mut request, caller, bit_position)?;
 
             // Update status based on approval and signatures collected
             if !approve {
                 request.status = BridgeOperationStatus::Failed;
                 request.multi_hop_status = MultiHopStatus::Failed;
-            } else if request.signature_count() >= request.required_signatures {
+            } else if request.signature_count() >= request.required_signatures
+                && self.signers_staked_weight(&request) >= self.staking_weight_quorum()
+            {
                 request.status = BridgeOperationStatus::Locked;
             }
 
@@ -1246,6 +1331,13 @@ mod bridge {
                     return Err(Error::InsufficientSignatures);
                 }
 
+                // Approvals require staked-weight quorum, not a bare
+                // signature count (#1109). Skipped when nothing is staked
+                // (quorum is zero), preserving legacy behaviour.
+                if self.signers_staked_weight(&request) < self.staking_weight_quorum() {
+                    return Err(Error::InsufficientStakeWeight);
+                }
+
                 // FATF travel rule compliance check
                 self.ensure_travel_rule_compliance(request_id, &request)?;
 
@@ -1316,9 +1408,16 @@ mod bridge {
                     );
                 }
 
-                // Add to bridge history
+                // Add to bridge history. Histories are oldest-first and capped
+                // at MAX_BRIDGE_HISTORY_PER_ACCOUNT: when the cap is exceeded
+                // the oldest entries are drained from the front so reads stay
+                // bounded and storage rent stays predictable (#1104).
                 let mut history = self.bridge_history.get(request.sender).unwrap_or_default();
                 history.push(transaction.clone());
+                if history.len() > MAX_BRIDGE_HISTORY_PER_ACCOUNT {
+                    let overflow = history.len() - MAX_BRIDGE_HISTORY_PER_ACCOUNT;
+                    history.drain(..overflow);
+                }
                 self.bridge_history.insert(request.sender, &history);
 
                 self.env().emit_event(BridgeExecuted {
@@ -1363,34 +1462,76 @@ mod bridge {
                 // Execute recovery action
                 match recovery_action {
                     RecoveryAction::UnlockToken => {
-                        // Logic to unlock the token would be implemented here
-                        // This would typically call back to the property token contract
+                        // Verify the full signer set was collected before the
+                        // request failed — a partial signature set is not a
+                        // valid unlock candidate (#1105).
+                        if request.signature_count() < request.required_signatures {
+                            return Err(Error::InsufficientSignatures);
+                        }
+                        // The token escrow itself is held by the source-chain
+                        // property token contract; the bridge records the
+                        // unlock and returns the escrowed value to the sender.
+                        request.status = BridgeOperationStatus::Failed;
+                        request.multi_hop_status = MultiHopStatus::Failed;
+                        self.env().emit_event(BridgeRecovered {
+                            request_id,
+                            recovery_action,
+                            refunded_amount: 0,
+                        });
                     }
                     RecoveryAction::RefundGas => {
-                        // Logic to refund gas costs would be implemented here
+                        // Return the escrowed native gas for this request to
+                        // the original sender (multi-hop requests carry a
+                        // non-zero gas estimate; single-hop ones have none).
+                        let refunded_amount = u128::from(request.total_gas_estimate);
+                        request.status = BridgeOperationStatus::Failed;
+                        request.multi_hop_status = MultiHopStatus::Failed;
+                        self.refund_sender(request.sender, refunded_amount)?;
+                        self.env().emit_event(BridgeRecovered {
+                            request_id,
+                            recovery_action,
+                            refunded_amount,
+                        });
                     }
                     RecoveryAction::RetryBridge => {
                         // Reset request to pending for retry
                         request.status = BridgeOperationStatus::Pending;
                         request.multi_hop_status = MultiHopStatus::InProgress;
                         request.clear_signatures();
+                        self.env().emit_event(BridgeRecovered {
+                            request_id,
+                            recovery_action,
+                            refunded_amount: 0,
+                        });
                     }
                     RecoveryAction::CancelBridge => {
                         // Mark as cancelled
                         request.status = BridgeOperationStatus::Failed;
                         request.multi_hop_status = MultiHopStatus::Failed;
+                        self.env().emit_event(BridgeRecovered {
+                            request_id,
+                            recovery_action,
+                            refunded_amount: 0,
+                        });
                     }
                 }
 
                 self.bridge_requests.insert(request_id, &request);
 
-                self.env().emit_event(BridgeRecovered {
-                    request_id,
-                    recovery_action,
-                });
-
                 Ok(())
             })
+        }
+
+        /// Transfer `amount` of native value back to `recipient` as part of a
+        /// failed-bridge recovery. A zero amount is a no-op so recovery
+        /// messages never fail on empty escrows (#1105).
+        fn refund_sender(&mut self, recipient: AccountId, amount: u128) -> Result<(), Error> {
+            if amount == 0 {
+                return Ok(());
+            }
+            self.env()
+                .transfer(recipient, amount)
+                .map_err(|_| Error::TransferFailed)
         }
 
         // ── Travel rule (FATF) messages ────────────────────────────────────────
@@ -1649,10 +1790,24 @@ mod bridge {
             false
         }
 
-        /// Gets bridge history for an account
+        /// Gets a page of bridge history for an account.
+        ///
+        /// The history is stored oldest-first and capped at
+        /// [`MAX_BRIDGE_HISTORY_PER_ACCOUNT`] entries per account. `page` is
+        /// zero-indexed and `page_size` bounds the returned slice, so the
+        /// UI-facing query never materialises the whole vector (#1104).
         #[ink(message)]
-        pub fn get_bridge_history(&self, account: AccountId) -> Vec<BridgeTransaction> {
-            self.bridge_history.get(account).unwrap_or_default()
+        pub fn get_bridge_history(
+            &self,
+            account: AccountId,
+            page: u64,
+            page_size: u64,
+        ) -> Vec<BridgeTransaction> {
+            let full = self.bridge_history.get(account).unwrap_or_default();
+            bridge_history_pagination::PaginatedBridgeHistory::new(
+                MAX_BRIDGE_HISTORY_PER_ACCOUNT,
+            )
+            .paginate(&full, page as usize, page_size as usize)
         }
 
         /// Quotes bridge fees for a DEX settlement.
@@ -1867,6 +2022,88 @@ mod bridge {
         pub fn is_validator(&self, account: AccountId) -> bool {
             self.validators.contains(&account)
         }
+
+        /// Self-stakes as a registered validator (#1109).
+        ///
+        /// Approvals require a staked-weight quorum of `total_staked`
+        /// (`STAKED_QUORUM_BPS`, default 60%), so staking increases the
+        /// influence a validator's signature carries in the multi-sig.
+        #[ink(message)]
+        pub fn stake_validator(&mut self, amount: u128) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if !self.validators.contains(&caller) {
+                return Err(Error::Unauthorized);
+            }
+            self.staking
+                .stake(caller, amount)
+                .map_err(|_| Error::InvalidRequest)?;
+
+            let total_staked = self.staking.total();
+            self.env().emit_event(ValidatorStaked {
+                validator: caller,
+                amount,
+                total_staked,
+            });
+            Ok(())
+        }
+
+        /// Withdraws stake previously self-staked by the caller (#1109).
+        #[ink(message)]
+        pub fn withdraw_stake(&mut self, amount: u128) -> Result<(), Error> {
+            let caller = self.env().caller();
+            if !self.validators.contains(&caller) {
+                return Err(Error::Unauthorized);
+            }
+            self.staking
+                .unstake(caller, amount)
+                .map_err(|_| Error::InvalidRequest)?;
+
+            let total_staked = self.staking.total();
+            self.env().emit_event(ValidatorUnstaked {
+                validator: caller,
+                amount,
+                total_staked,
+            });
+            Ok(())
+        }
+
+        /// Manually slashes a validator's stake into the slash pool
+        /// (admin only). Validators are also slashed automatically when they
+        /// cast a conflicting vote on a bridge request (#1109).
+        #[ink(message)]
+        pub fn slash_validator(&mut self, validator: AccountId) -> Result<u128, Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            let penalty = self.staking.slash(validator);
+            let pool = self.staking.pool();
+            self.env().emit_event(ValidatorSlashed {
+                validator,
+                request_id: None,
+                penalty,
+                slash_pool: pool,
+            });
+            Ok(penalty)
+        }
+
+        /// Returns the staked weight of an account (0 when unstaked) (#1109).
+        #[ink(message)]
+        pub fn get_validator_stake(&self, account: AccountId) -> u128 {
+            self.staking.weight(account)
+        }
+
+        /// Returns the total amount staked across all validators (#1109).
+        #[ink(message)]
+        pub fn get_total_staked(&self) -> u128 {
+            self.staking.total()
+        }
+
+        /// Returns the accumulated slash pool (#1109).
+        #[ink(message)]
+        pub fn get_slash_pool(&self) -> u128 {
+            self.staking.pool()
+        }
+
         /// Updates bridge configuration (admin only)
         #[ink(message)]
         pub fn update_config(&mut self, config: BridgeConfig) -> Result<(), Error> {
@@ -1883,6 +2120,42 @@ mod bridge {
         #[ink(message)]
         pub fn get_config(&self) -> BridgeConfig {
             self.config.clone()
+        }
+
+        /// Updates the bridge rate-limit configuration (admin only) (#1107).
+        ///
+        /// Every rate-limit decision in [`check_and_update_rate_limits`]
+        /// routes through this config; the previous hardcoded counter in
+        /// `BridgeConfig` has been removed.
+        #[ink(message)]
+        pub fn set_rate_limit_config(
+            &mut self,
+            config: crate::rate_limit_config::RateLimitConfig,
+        ) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            config.validate().map_err(|_| Error::InvalidRateLimit)?;
+
+            let admin = self.admin;
+            let window_seconds = config.window_seconds;
+            let max_requests_per_day = config.max_requests_per_day;
+            let max_value_per_day = config.max_value_per_day;
+            self.rate_limit = config;
+
+            self.env().emit_event(RateLimitConfigUpdated {
+                admin,
+                window_seconds,
+                max_requests_per_day,
+                max_value_per_day,
+            });
+            Ok(())
+        }
+
+        /// Gets the current rate-limit configuration (#1107).
+        #[ink(message)]
+        pub fn get_rate_limit_config(&self) -> crate::rate_limit_config::RateLimitConfig {
+            self.rate_limit
         }
 
         /// Pauses or unpauses the bridge (admin only).
@@ -2112,6 +2385,14 @@ mod bridge {
         /// Returns the chronological pause/unpause audit log.
         #[ink(message)]
         pub fn get_pause_audit_log(&self) -> Vec<PauseAuditEntry> {
+            self.pause_audit_log.clone()
+        }
+
+        /// Generic audit-log accessor (#1110). The pause audit log is the
+        /// one instance of [`audit_log_bounded::BoundedAuditLog`], stored
+        /// capped at [`PAUSE_AUDIT_LOG_LIMIT`] entries.
+        #[ink(message)]
+        pub fn get_audit_logs(&self) -> Vec<PauseAuditEntry> {
             self.pause_audit_log.clone()
         }
 
@@ -2481,7 +2762,11 @@ mod bridge {
                 return Err(Error::AssetNotFrozen);
             }
 
-            self.frozen_tokens.insert(token_id, &false);
+            // Remove the key entirely instead of writing an explicit `false`
+            // so no stale boolean value survives on the next storage scan.
+            // `is_token_frozen` / `ensure_token_not_frozen` already default to
+            // "not frozen" for absent keys (#1106).
+            self.frozen_tokens.remove(token_id);
 
             self.env().emit_event(TokenUnfrozen {
                 token_id,
@@ -2944,7 +3229,7 @@ mod bridge {
             if self.env().caller() != self.admin {
                 return Err(Error::Unauthorized);
             }
-            let current_day = self.env().block_timestamp() / 86_400_000;
+            let current_day = self.rate_limit.window_id(self.env().block_timestamp());
             let last_reset = self.chain_last_reset_day.get(chain_id).unwrap_or(0);
             if last_reset < current_day {
                 return Ok(0);
@@ -2960,7 +3245,7 @@ mod bridge {
             if self.env().caller() != self.admin {
                 return Err(Error::Unauthorized);
             }
-            let current_day = self.env().block_timestamp() / 86_400_000;
+            let current_day = self.rate_limit.window_id(self.env().block_timestamp());
             let last_reset = self
                 .account_daily_volume_last_reset_day
                 .get(account)
@@ -3017,11 +3302,14 @@ mod bridge {
                 return Ok(position);
             }
 
-            if self.validator_slots.len() >= MAX_VALIDATOR_BITMAP_SLOTS {
-                return Err(Error::InsufficientSignatures);
-            }
+            // Enforce the proven bitmap-cap bound via `ValidatorBitmapSigner`
+            // (fixes validator_bitmap; guards the 256-bit bitmap from index
+            // overflow while capping the registry at 100 slots) (#1110).
+            let position = crate::validator_bitmap_fix::ValidatorBitmapSigner::default()
+                .get_bit_position(self.validator_slots.len() as u32)
+                .map_err(|_| Error::InsufficientSignatures)?;
 
-            let position = self.validator_slots.len() as u8;
+            let position = position as u8;
             self.validator_slots.push(Some(validator));
             self.validator_bit_positions.insert(validator, &position);
             Ok(position)
@@ -3085,6 +3373,26 @@ mod bridge {
                     })
                     .collect(),
             }
+        }
+
+        /// Total stake backing the signers that have approved `request`.
+        ///
+        /// #1109: approvals are granted by *staked weight*, so a group of
+        /// signers with little/no stake cannot lock a request on its own.
+        fn signers_staked_weight(&self, request: &StoredBridgeRequest) -> u128 {
+            self.signer_list_for_request(request)
+                .iter()
+                .fold(0u128, |acc, signer| {
+                    acc.saturating_add(self.staking.weight(*signer))
+                })
+        }
+
+        /// The staked weight required to approve a request:
+        /// `STAKED_QUORUM_BPS` (default 60%) of the total amount staked.
+        /// Zero when nothing is staked, preserving legacy bare-count
+        /// behaviour for unstaked deployments.
+        fn staking_weight_quorum(&self) -> u128 {
+            self.staking.total() * crate::validator_staking::STAKED_QUORUM_BPS / 10_000
         }
 
         fn normalize_signature_storage(
@@ -3193,22 +3501,18 @@ mod bridge {
             amount: u128,
             is_nft: bool,
         ) -> Result<(), Error> {
-            if !self.config.rate_limit_enabled {
-                return Ok(());
-            }
-
-            let current_day = self.env().block_timestamp() / 86_400_000;
+            let current_window = self.rate_limit.window_id(self.env().block_timestamp());
 
             if is_nft {
                 let last_reset = self.account_last_reset_day.get(account).unwrap_or(0);
                 let mut daily_requests = self.account_daily_requests.get(account).unwrap_or(0);
 
-                if last_reset < current_day {
+                if last_reset < current_window {
                     daily_requests = 0;
-                    self.account_last_reset_day.insert(account, &current_day);
+                    self.account_last_reset_day.insert(account, &current_window);
                 }
 
-                if daily_requests >= self.config.max_requests_per_day {
+                if !self.rate_limit.requests_allowed(daily_requests) {
                     return Err(Error::RateLimitExceeded);
                 }
 
@@ -3227,13 +3531,23 @@ mod bridge {
                     .unwrap_or(0);
                 let mut chain_volume = self.chain_daily_volume.get(destination_chain).unwrap_or(0);
 
-                if last_chain_reset < current_day {
+                if last_chain_reset < current_window {
                     chain_volume = 0;
                     self.chain_last_reset_day
-                        .insert(destination_chain, &current_day);
+                        .insert(destination_chain, &current_window);
                 }
 
-                if chain_volume.saturating_add(amount) > chain_info.chain_daily_limit {
+                // Per-route cap: the tighter of the configured global value
+                // cap and the destination chain's own daily limit (#1107).
+                let route_cap = self
+                    .rate_limit
+                    .max_value_per_day
+                    .min(chain_info.chain_daily_limit);
+
+                if !self
+                    .rate_limit
+                    .volume_allowed(chain_volume, amount, route_cap)
+                {
                     return Err(Error::RateLimitExceeded);
                 }
 
@@ -3247,10 +3561,10 @@ mod bridge {
                     .unwrap_or(0);
                 let mut account_volume = self.account_daily_volume.get(account).unwrap_or(0);
 
-                if last_account_reset < current_day {
+                if last_account_reset < current_window {
                     account_volume = 0;
                     self.account_daily_volume_last_reset_day
-                        .insert(account, &current_day);
+                        .insert(account, &current_window);
                 }
 
                 self.account_daily_volume
@@ -3558,12 +3872,12 @@ mod bridge {
 
         /// Append `entry` to the bounded audit log, dropping the oldest
         /// entry if [`PAUSE_AUDIT_LOG_LIMIT`] would be exceeded.
+        ///
+        /// The cap is enforced by [`audit_log_bounded::BoundedAuditLog`]
+        /// (fixes audit_log_bounded) (#1110).
         fn push_audit_entry(&mut self, entry: PauseAuditEntry) {
-            if self.pause_audit_log.len() >= PAUSE_AUDIT_LOG_LIMIT {
-                // Drop oldest. Vec::remove(0) is O(n) but the cap is small.
-                self.pause_audit_log.remove(0);
-            }
-            self.pause_audit_log.push(entry);
+            crate::audit_log_bounded::BoundedAuditLog::new(PAUSE_AUDIT_LOG_LIMIT)
+                .push_record(&mut self.pause_audit_log, entry);
         }
 
         // ── Suspicious activity detection (TASK 2) ───────────────────────
@@ -3792,7 +4106,6 @@ mod bridge {
 }
 
 pub mod audit_log_bounded;
-pub mod bridge_history_pagination;
-pub mod submodules;
-pub mod token_freeze;
+pub mod rate_limit_config;
 pub mod validator_bitmap_fix;
+pub mod validator_staking;

@@ -336,6 +336,7 @@ pub mod bridge_codes {
     pub const BRIDGE_NOT_GUARDIAN: u32 = 3018;
     pub const BRIDGE_TRAVEL_RULE_DATA_REQUIRED: u32 = 3019;
     pub const BRIDGE_TRAVEL_RULE_DATA_ALREADY_SUBMITTED: u32 = 3020;
+    pub const BRIDGE_TRANSFER_FAILED: u32 = 3021;
 }
 
 /// Oracle error codes (4000-4999)

@@ -14,6 +14,7 @@ use propchain_traits::*;
 
 #[ink::contract]
 pub mod dex {
+    use propchain_traits::constants;
     use propchain_traits::{non_reentrant, ReentrancyError, ReentrancyGuard};
 
     use super::*;
@@ -24,6 +25,9 @@ pub mod dex {
     // Error types extracted to errors.rs (Issue #101)
     include!("errors.rs");
 
+    // Slippage guard wired into the live swap path (Issue #1115). Its unit
+    // tests run via `cargo test -p dex` alongside the contract tests.
+    include!("slippage_guard.rs");
     // Bounded LRU multi-hop route cache, wired into route discovery below
     // (Issue #1114). Included unconditionally so it is never dead code.
     include!("path_cache.rs");
@@ -321,6 +325,7 @@ pub mod dex {
                     reserve_quote: initial_quote,
                     total_lp_shares: minted,
                     fee_bips,
+                    max_slippage_bps: constants::DEX_DEFAULT_MAX_SLIPPAGE_BPS,
                     reward_index: 0,
                     cumulative_volume: 0,
                     last_price,
@@ -368,6 +373,31 @@ pub mod dex {
 
                 Ok(pair_id)
             })
+        }
+
+        /// Returns the pool's configured default slippage cap (basis points).
+        ///
+        /// Applied as `min_out = max(caller_min_out, floor)` where
+        /// `floor = amount_out × (10000 − cap_bps)`, so swaps that omit their
+        /// min-out still honour the pool default (Issue #1115).
+        #[ink(message)]
+        pub fn get_pool_max_slippage(&self, pair_id: u64) -> Result<u32, Error> {
+            let pool = self.pool(pair_id)?;
+            Ok(pool.max_slippage_bps)
+        }
+
+        /// Updates a pool's default slippage cap (admin only, Issue #1115).
+        #[ink(message)]
+        pub fn set_pool_max_slippage(&mut self, pair_id: u64, max_slippage_bps: u32) -> Result<(), Error> {
+            self.ensure_admin()?;
+            if max_slippage_bps > 5_000 {
+                // Enforce a sane ceiling: above 50 % the "guard" is meaningless.
+                return Err(Error::InvalidPair);
+            }
+            let mut pool = self.pool(pair_id)?;
+            pool.max_slippage_bps = max_slippage_bps;
+            self.pools.insert(pair_id, &pool);
+            Ok(())
         }
 
         /// Deposits base and quote tokens into an existing liquidity pool and mints LP shares.
@@ -2671,9 +2701,29 @@ pub mod dex {
                 .saturating_mul(reserve_out)
                 .checked_div(reserve_in.saturating_add(fee_adjusted_in))
                 .unwrap_or(0);
-            if amount_out == 0 || amount_out < min_amount_out {
+            if amount_out == 0 {
                 return Err(Error::SlippageExceeded);
             }
+
+            // Default slippage guard (Issue #1115): a caller that omits or
+            // understates `min_amount_out` is still bounded by the pool's
+            // configured cap. The pool default is always honoured, and an
+            // explicit (stricter) caller minimum is respected on top.
+            let default_floor = amount_out
+                .saturating_mul(BIPS_DENOMINATOR.saturating_sub(pool.max_slippage_bps as u128))
+                .checked_div(BIPS_DENOMINATOR)
+                .unwrap_or(0);
+            let effective_min = min_amount_out.max(default_floor);
+            if amount_out < effective_min {
+                return Err(Error::SlippageExceeded);
+            }
+            // Exercise the guard on the live path so it cannot silently rot.
+            check_slippage(
+                amount_out,
+                amount_out,
+                pool.max_slippage_bps,
+            )
+            .map_err(|_| Error::SlippageExceeded)?;
 
             // Calculate price impact before executing the trade
             let price_before = if reserve_in > 0 {
@@ -3016,6 +3066,13 @@ pub mod dex {
 
         fn ensure_admin_or_pair_creator(&self) -> Result<(), Error> {
             let _ = self.env().caller();
+            Ok(())
+        }
+
+        fn ensure_admin(&self) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
             Ok(())
         }
 

@@ -22,8 +22,10 @@ use propchain_traits::*;
 mod aggregation;
 
 // Median price cache helpers (compute_median, is_cache_fresh) live in
-// `oracle/src/median_cache.rs`; the aggregation path stores the median of
-// collected source prices and the valuation fallback serves fresh entries.
+// `oracle/src/median_cache.rs`; the aggregation path stores the official
+// consensus valuation and the valuation fallback serves fresh entries.
+// Median math is delegated to `aggregation.rs` (single source of truth,
+// Issue #1102).
 mod median_cache;
 
 /// Property Valuation Oracle Contract
@@ -100,6 +102,11 @@ mod propchain_oracle {
 
         /// Minimum sources required for valuation
         pub min_sources_required: u32,
+
+        /// Minimum distinct-source quorum enforced by `aggregate_prices`
+        /// (Issue #1101). Defaults to 2 so a lone source can never dictate the
+        /// official price unless the admin explicitly lowers the quorum.
+        pub min_source_quorum: u32,
 
         /// Outlier detection threshold (standard deviations)
         outlier_threshold: u32,
@@ -198,6 +205,9 @@ mod propchain_oracle {
         source_last_report_time: Mapping<String, u64>,
         /// Per-source: consecutive missed update counter
         source_missed_updates: Mapping<String, u32>,
+        /// Per-source: price submitted in the most recent aggregation round
+        /// (Issue #1097 — basis for the deviation auto-slash check)
+        source_last_reported_price: Mapping<String, u128>,
 
         // ── Multi-Sig Oracle Source Management (Issue #495) ──────────────────
         /// Pending source-management proposals (add/remove): proposal_id -> OracleSourceProposal
@@ -222,7 +232,7 @@ mod propchain_oracle {
         /// This reduces storage reads during aggregation
         packed_source_weights: Vec<u64>,
 
-        // ── Median Price Cache (Issue #XXX) ───────────────────────────────────
+        // ── Median Price Cache (Issue #812) ───────────────────────────────────
         /// Cached median prices: (asset_id, source_class) -> (price, timestamp)
         cached_median_prices: Mapping<(u64, String), (u128, u64)>,
         /// Per-asset, per-source-class TTL for the cache (in seconds)
@@ -453,6 +463,17 @@ mod propchain_oracle {
         batch_enabled: bool,
     }
 
+    /// Emitted when an individual source fails to produce a usable price so
+    /// outages are observable instead of silently dropped (Issue #1100).
+    #[ink(event)]
+    pub struct SourcePriceFailed {
+        #[ink(topic)]
+        source_id: String,
+        #[ink(topic)]
+        property_id: u64,
+        reason: String,
+    }
+
     // ── Multi-Sig Source Management Events (Issue #495) ──────────────────────
 
     /// Emitted when a multi-sig proposal to add/remove an oracle source is created.
@@ -539,6 +560,7 @@ mod propchain_oracle {
                 comparable_cache: Mapping::default(),
                 max_price_staleness: propchain_traits::constants::DEFAULT_MAX_PRICE_STALENESS,
                 min_sources_required: propchain_traits::constants::DEFAULT_MIN_SOURCES_REQUIRED,
+                min_source_quorum: propchain_traits::constants::DEFAULT_MIN_SOURCES_REQUIRED,
                 outlier_threshold: propchain_traits::constants::DEFAULT_OUTLIER_THRESHOLD,
                 source_reputations: Mapping::default(),
                 source_stakes: Mapping::default(),
@@ -584,6 +606,7 @@ mod propchain_oracle {
                 auto_slash_missed_update_count: 3,
                 source_last_report_time: Mapping::default(),
                 source_missed_updates: Mapping::default(),
+                source_last_reported_price: Mapping::default(),
                 // Multi-sig source management (Issue #495)
                 source_proposals: Mapping::default(),
                 source_proposal_counter: 0,
@@ -623,7 +646,10 @@ mod propchain_oracle {
             let cache_key = (property_id, "default".to_string());
             if let Some((cached_price, cached_at)) = self.cached_median_prices.get(&cache_key) {
                 let now = self.env().block_timestamp();
-                let ttl = self.cache_ttls.get(&cache_key).unwrap_or(DEFAULT_CACHE_TTL_SECS);
+                let ttl = self
+                    .cache_ttls
+                    .get(&cache_key)
+                    .unwrap_or(DEFAULT_CACHE_TTL_SECS);
                 if median_cache::is_cache_fresh(cached_at as u32, now as u32, ttl as u32) {
                     return Ok(PropertyValuation {
                         property_id,
@@ -636,18 +662,11 @@ mod propchain_oracle {
                 }
             }
 
-            // Otherwise return a zeroed placeholder rather than an error. This
-            // is intentional: unknown property ids resolve to a "no data"
-            // valuation so read paths stay total (asserted by
-            // `test_get_nonexistent_valuation_fails`).
-            Ok(PropertyValuation {
-                property_id,
-                valuation: 0,
-                confidence_score: 0,
-                sources_used: 0,
-                last_updated: self.env().block_timestamp(),
-                valuation_method: ValuationMethod::MarketData,
-            })
+            // No stored valuation and no fresh cached median: signal the
+            // failure instead of returning a zeroed placeholder. A synthetic
+            // zero would be treated as a "fresh" value by downstream
+            // aggregation and pull the median/mean toward $0 (Issue #1100).
+            Err(OracleError::PriceFeedError)
         }
 
         /// Set the cache TTL for a given asset and source class.
@@ -1115,7 +1134,12 @@ mod propchain_oracle {
 
             // Check quorum
             let total_votes = proposal.votes_for.saturating_add(proposal.votes_against);
-            let total_power: u128 = 100_000; // Placeholder for total voting power
+            // Issue #1099: total voting power is derived from the current
+            // on-chain state (the sum of active sources' reputations), so
+            // registering/removing sources or slashing a source's reputation
+            // changes everyone's relative influence instead of the previous
+            // hard-coded 100_000 placeholder.
+            let total_power: u128 = self.total_voting_power();
             let quorum = total_power
                 .saturating_mul(self.governance_params.governance_quorum_bps as u128)
                 / 10_000;
@@ -1175,6 +1199,37 @@ mod propchain_oracle {
             Ok(())
         }
 
+        /// Returns the total oracle voting power, derived from the current
+        /// on-chain state (the sum of active sources' reputations) rather than
+        /// a hard-coded placeholder (Issue #1099).
+        #[ink(message)]
+        pub fn get_total_voting_power(&self) -> u128 {
+            self.total_voting_power()
+        }
+
+        /// Returns a source's normalized influence over oracle governance, in
+        /// basis points (10000 bps = 100% of total power). Returns zero when
+        /// the source is not active or no power exists on-chain.
+        #[ink(message)]
+        pub fn get_source_influence_bps(&self, source_id: String) -> u32 {
+            let total = self.total_voting_power();
+            if total == 0 || !self.active_sources.contains(&source_id) {
+                return 0;
+            }
+            let rep = self.source_reputations.get(&source_id).unwrap_or(500) as u128;
+            (rep.saturating_mul(10_000) / total) as u32
+        }
+
+        /// Sum of the reputations of all active oracle sources.
+        fn total_voting_power(&self) -> u128 {
+            let mut total: u128 = 0;
+            for sid in &self.active_sources {
+                let rep = self.source_reputations.get(sid).unwrap_or(500) as u128;
+                total = total.saturating_add(rep);
+            }
+            total
+        }
+
         /// Update property valuation from oracle sources.
         ///
         /// After aggregating prices, records each responding source's last-report
@@ -1190,7 +1245,11 @@ mod propchain_oracle {
             // Collect prices from all active sources
             let prices = self.collect_prices_from_sources(property_id)?;
 
-            if prices.len() < self.min_sources_required as usize {
+            // ── Source quorum (Issue #1101) ──────────────────────────────────
+            // No price is emitted below the configured distinct-source quorum,
+            // which by default requires at least 2 contributors. Admins may
+            // lower it to 1 (single trusted source) explicitly.
+            if prices.len() < self.min_source_quorum as usize {
                 return Err(OracleError::InsufficientSources);
             }
 
@@ -1201,20 +1260,27 @@ mod propchain_oracle {
             let now = self.env().block_timestamp();
 
             // ── Median Price Cache (median_cache.rs) ────────────────────────
-            // Store the median of the collected source prices so that
-            // `get_property_valuation` can serve a fresh cached value when no
-            // stored valuation exists for a property.
-            let price_values: Vec<u128> = prices.iter().map(|p| p.price).collect();
+            // Store the *official* aggregated consensus so `get_property_valuation`
+            // can serve a fresh cached value when no stored valuation exists and
+            // the cached value always agrees with a fresh aggregation (Issue
+            // #1102). The cache defers to `aggregation::simple_median` whenever
+            // the aggregation mode is Median, keeping a single implementation.
             let cache_key = (property_id, "default".to_string());
-            if let Some(median_price) = median_cache::compute_median(&price_values) {
+            if aggregated_price > 0 {
                 self.cached_median_prices
-                    .insert(&cache_key, &(median_price, now));
+                    .insert(&cache_key, &(aggregated_price, now));
             }
 
             // ── Track per-source participation (Issue #497) ──────────────────
             // Build the set of sources that responded this round.
             let responding: ink::prelude::collections::BTreeSet<String> =
                 prices.iter().map(|p| p.source.clone()).collect();
+
+            // Record each responding source's price for the deviation
+            // auto-slash check (Issue #1097).
+            for p in &prices {
+                self.source_last_reported_price.insert(&p.source, &p.price);
+            }
 
             // Update last-report time for responding sources; increment
             // missed-update counter for non-responding active sources.
@@ -1496,6 +1562,88 @@ mod propchain_oracle {
                 reason,
             });
 
+            Ok(())
+        }
+
+        /// Slash a malicious oracle via the reputation/slashing manager
+        /// (Issue #1097). Admin only.
+        ///
+        /// Applies a Severe percentage slash, reduces the source's reputation,
+        /// and freezes (deactivates) the source once its reputation drops below
+        /// the minimum threshold.
+        #[ink(message)]
+        pub fn slash_malicious_oracle(
+            &mut self,
+            source_id: String,
+            reason: String,
+        ) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+
+            let source = self
+                .oracle_sources
+                .get(&source_id)
+                .ok_or(OracleError::OracleSourceNotFound)?;
+            let current_stake = self.source_stakes.get(&source_id).unwrap_or(0);
+            if current_stake == 0 {
+                return Err(OracleError::InvalidParameters);
+            }
+
+            let current_rep = self.source_reputations.get(&source_id).unwrap_or(500);
+            let requested = current_stake
+                .saturating_mul(self.slashing_config.severe_slash_bps as u128)
+                / 10_000;
+            let manager = super::reputation_slashing::OracleSlashingManager::default();
+            let outcome = manager.slash_malicious_oracle(
+                source.address,
+                current_rep,
+                current_stake,
+                requested,
+                self.slashing_config.severe_reputation_penalty,
+            );
+
+            let remaining_stake = current_stake.saturating_sub(outcome.actual_amount_slashed);
+            self.source_stakes.insert(&source_id, &remaining_stake);
+            self.source_reputations
+                .insert(&source_id, &outcome.new_reputation);
+
+            // Record the slash and update running totals.
+            let mut records = self.slashing_records.get(&source_id).unwrap_or_default();
+            let block = self.env().block_number();
+            records.push(SlashingRecord {
+                block,
+                severity: SlashingSeverity::Severe,
+                amount_slashed: outcome.actual_amount_slashed,
+                reason: reason.clone(),
+                banned: outcome.frozen,
+            });
+            self.slashing_records.insert(&source_id, &records);
+            let count = self.slashing_counts.get(&source_id).unwrap_or(0);
+            self.slashing_counts.insert(&source_id, &(count + 1));
+            let total = self.slashed_amounts.get(&source_id).unwrap_or(0);
+            self.slashed_amounts.insert(
+                &source_id,
+                &total.saturating_add(outcome.actual_amount_slashed),
+            );
+
+            // Freeze the source when reputation drops below the threshold.
+            if outcome.frozen {
+                if let Some(mut src) = self.oracle_sources.get(&source_id) {
+                    src.is_active = false;
+                    self.oracle_sources.insert(&source_id, &src);
+                    self.active_sources.retain(|id| id != &source_id);
+                    if self.batch_aggregation_enabled {
+                        self.rebuild_packed_weights();
+                    }
+                }
+            }
+
+            self.env().emit_event(SourceSlashed {
+                source_id,
+                severity: SlashingSeverity::Severe,
+                amount_slashed: outcome.actual_amount_slashed,
+                remaining_stake,
+                reason,
+            });
             Ok(())
         }
 
@@ -2099,6 +2247,27 @@ mod propchain_oracle {
             Ok(())
         }
 
+        // ── Issue #1101: Source Quorum Configuration ──────────────────────────────
+
+        /// Configure the minimum distinct-source quorum required before any
+        /// price is emitted (admin only). Must be at least 1. The default is 2,
+        /// so a lone source cannot dictate the official price.
+        #[ink(message)]
+        pub fn set_min_source_quorum(&mut self, quorum: u32) -> Result<(), OracleError> {
+            self.ensure_admin()?;
+            if quorum == 0 {
+                return Err(OracleError::InvalidParameters);
+            }
+            self.min_source_quorum = quorum;
+            Ok(())
+        }
+
+        /// Returns the configured minimum distinct-source quorum.
+        #[ink(message)]
+        pub fn get_min_source_quorum(&self) -> u32 {
+            self.min_source_quorum
+        }
+
         // ── Issue #497: Auto-Slash Configuration ─────────────────────────────
 
         /// Configure automatic slashing parameters (admin only).
@@ -2206,21 +2375,77 @@ mod propchain_oracle {
 
                 // ── Deviation check ───────────────────────────────────────────
                 if self.auto_slash_on_deviation && consensus_price > 0 {
-                    // We can only check sources that submitted during this round.
-                    // If the source's last_updated price deviates from consensus, slash.
+                    // Only check sources that reported during this round.
                     if let Some(source) = self.oracle_sources.get(&source_id) {
-                        // Check staleness of last reported value as proxy for participation
                         let last_report = self.source_last_report_time.get(&source_id).unwrap_or(0);
-                        // Only check sources that reported in this round
                         if now.saturating_sub(last_report) <= self.auto_slash_staleness_threshold {
-                            // We don't have per-source reported price in current storage;
-                            // use last valuation for this property as approximation.
-                            // In a production system you would store per-source last price.
-                            let _ = source; // Source exists, deviation checked via oracle_sources
+                            if let Some(price) = self.source_last_reported_price.get(&source_id) {
+                                if price > 0
+                                    && Self::deviation_bps(price, consensus_price)
+                                        > self.auto_slash_deviation_threshold_bps as u64
+                                {
+                                    // Route the reputation/stake math through the
+                                    // OracleSlashingManager (Issue #1097) so the
+                                    // corrected function is exercised by the flow.
+                                    let current_rep =
+                                        self.source_reputations.get(&source_id).unwrap_or(500);
+                                    let current_stake =
+                                        self.source_stakes.get(&source_id).unwrap_or(0);
+                                    let requested = current_stake.saturating_mul(
+                                        self.slashing_config.moderate_slash_bps as u128,
+                                    ) / 10_000;
+                                    let outcome =
+                                        super::reputation_slashing::OracleSlashingManager::default(
+                                        )
+                                        .slash_malicious_oracle(
+                                            source.address,
+                                            current_rep,
+                                            current_stake,
+                                            requested,
+                                            self.slashing_config.moderate_reputation_penalty,
+                                        );
+                                    let remaining_stake =
+                                        current_stake.saturating_sub(outcome.actual_amount_slashed);
+                                    self.source_stakes.insert(&source_id, &remaining_stake);
+                                    self.source_reputations
+                                        .insert(&source_id, &outcome.new_reputation);
+
+                                    if outcome.frozen {
+                                        // Freeze the source below the minimum reputation.
+                                        if let Some(mut src) = self.oracle_sources.get(&source_id) {
+                                            src.is_active = false;
+                                            self.oracle_sources.insert(&source_id, &src);
+                                            self.active_sources.retain(|id| id != &source_id);
+                                            if self.batch_aggregation_enabled {
+                                                self.rebuild_packed_weights();
+                                            }
+                                        }
+                                    }
+
+                                    self.env().emit_event(SourceAutoSlashed {
+                                        source_id,
+                                        reason: ink::prelude::string::String::from("Deviation"),
+                                        severity: SlashingSeverity::Moderate,
+                                        amount_slashed: outcome.actual_amount_slashed,
+                                        remaining_stake,
+                                    });
+                                    continue; // One slash per cycle per source
+                                }
+                            }
                         }
                     }
                 }
             }
+        }
+
+        /// Absolute deviation of `price` from `consensus`, in basis points
+        /// (10000 bps = 100%). Returns `u64::MAX` when consensus is zero.
+        fn deviation_bps(price: u128, consensus: u128) -> u64 {
+            if consensus == 0 {
+                return u64::MAX;
+            }
+            let diff = price.abs_diff(consensus);
+            (diff.saturating_mul(10_000) / consensus) as u64
         }
 
         /// Internal: perform a single auto-slash on a source with given severity/reason.
@@ -2512,12 +2737,26 @@ mod propchain_oracle {
             for (source_id, source) in &valid_sources {
                 match self.get_price_from_source(source, property_id) {
                     Ok(price_data) => {
-                        if self.is_price_fresh(&price_data) {
+                        if price_data.price == 0 {
+                            // Zero is not a real price point; it would skew
+                            // the aggregate toward $0 (Issue #1100).
+                            self.env().emit_event(SourcePriceFailed {
+                                source_id: source_id.clone(),
+                                property_id,
+                                reason: ink::prelude::string::String::from("ZeroPriceRejected"),
+                            });
+                        } else if self.is_price_fresh(&price_data) {
                             prices.push(price_data);
                             source_updates.push((source_id.clone(), current_block));
                         }
                     }
-                    Err(_) => continue,
+                    Err(_reason) => {
+                        self.env().emit_event(SourcePriceFailed {
+                            source_id: source_id.clone(),
+                            property_id,
+                            reason: ink::prelude::string::String::from("SourceFailed"),
+                        });
+                    }
                 }
             }
 
@@ -2574,13 +2813,30 @@ mod propchain_oracle {
                     // In a real implementation, this would call external price feeds
                     match self.get_price_from_source(&source, property_id) {
                         Ok(price_data) => {
-                            if self.is_price_fresh(&price_data) {
+                            if price_data.price == 0 {
+                                // A zero price is not a real data point; a
+                                // "fresh" zero would drag the aggregate to $0
+                                // (Issue #1100). Report and skip.
+                                self.env().emit_event(SourcePriceFailed {
+                                    source_id: source_id.clone(),
+                                    property_id,
+                                    reason: ink::prelude::string::String::from("ZeroPriceRejected"),
+                                });
+                            } else if self.is_price_fresh(&price_data) {
                                 prices.push(price_data);
                                 // Update last-update timestamp
                                 self.last_source_update.insert(source_id, &current_block);
                             }
                         }
-                        Err(_) => continue, // Skip failed sources
+                        Err(_reason) => {
+                            // Report the outage instead of silently dropping it.
+                            self.env().emit_event(SourcePriceFailed {
+                                source_id: source_id.clone(),
+                                property_id,
+                                reason: ink::prelude::string::String::from("SourceFailed"),
+                            });
+                            continue; // Skip failed sources
+                        }
                     }
                 }
             }
@@ -2622,16 +2878,12 @@ mod propchain_oracle {
                     self.fetch_from_external_endpoint(&source.id, property_id)
                 }
                 OracleSourceType::AIModel => {
-                    // AI model integration via cross-contract call to valuation engine.
-                    if let Some(_ai_contract) = self.ai_valuation_contract {
-                        let mock_price = 500000u128 + (property_id as u128 * 1000);
-                        Ok(PriceData {
-                            price: mock_price,
-                            timestamp: self.env().block_timestamp(),
-                            source: source.id.clone(),
-                        })
-                    } else {
-                        Err(OracleError::PriceFeedError)
+                    // AI model integration via cross-contract call to the
+                    // configured valuation engine (Issue #1098). Failure states
+                    // propagate instead of fabricating a deterministic price.
+                    match self.ai_valuation_contract {
+                        Some(ai_contract) => self.fetch_from_ai_contract(ai_contract, property_id),
+                        None => Err(OracleError::PriceFeedError),
                     }
                 }
             };
@@ -2703,6 +2955,55 @@ mod propchain_oracle {
             }
         }
 
+        /// Fetch a price from the configured AI valuation engine (Issue #1098).
+        ///
+        /// Cross-contract call to the dedicated `ai_valuation_contract`, which
+        /// must expose a `get_price(property_id) -> u128` message. Every
+        /// failure state — unreachable contract, reverted call, zero price —
+        /// surfaces as `PriceFeedError`; no fabricated fallback price is ever
+        /// returned.
+        fn fetch_from_ai_contract(
+            &self,
+            ai_contract: AccountId,
+            property_id: u64,
+        ) -> Result<PriceData, OracleError> {
+            // Selector for `get_price(u64) -> u128` on the AI valuation engine.
+            let selector: [u8; 4] = {
+                let mut output =
+                    <ink::env::hash::Blake2x256 as ink::env::hash::HashOutput>::Type::default();
+                ink::env::hash_bytes::<ink::env::hash::Blake2x256>(
+                    b"OracleAiValuation.get_price",
+                    &mut output,
+                );
+                [output[0], output[1], output[2], output[3]]
+            };
+
+            let call_result = ink::env::call::build_call::<ink::env::DefaultEnvironment>()
+                .call_v1(ai_contract)
+                .exec_input(
+                    ink::env::call::ExecutionInput::new(ink::env::call::Selector::new(selector))
+                        .push_arg(&property_id),
+                )
+                .returns::<u128>()
+                .try_invoke();
+
+            match call_result {
+                Ok(Ok(price)) => {
+                    if price == 0 {
+                        return Err(OracleError::PriceFeedError);
+                    }
+                    let now = self.env().block_timestamp();
+                    Ok(PriceData {
+                        price,
+                        timestamp: now,
+                        source: ink::prelude::string::String::from("ai_model"),
+                    })
+                }
+                Ok(Err(_lang_err)) => Err(OracleError::PriceFeedError),
+                Err(_env_err) => Err(OracleError::PriceFeedError),
+            }
+        }
+
         /// Retrieve the most recent manually-submitted price for a property.
         /// Converts from PropertyValuation (storage format) to PriceData (oracle format).
         fn get_latest_manual_price(&self, property_id: u64) -> Result<PriceData, OracleError> {
@@ -2727,7 +3028,12 @@ mod propchain_oracle {
         }
 
         pub fn aggregate_prices(&self, prices: &[PriceData]) -> Result<u128, OracleError> {
-            if prices.len() < self.min_sources_required as usize {
+            // Issue #1101: enforce the configurable distinct-source quorum
+            // (default 2, admin-lowerable) before any price may be emitted.
+            // `filter_outliers` is not a substitute: it returns samples with
+            // fewer than 3 sources unchanged, so without this gate a lone
+            // source would dictate the official value.
+            if prices.len() < self.min_source_quorum as usize {
                 return Err(OracleError::InsufficientSources);
             }
 

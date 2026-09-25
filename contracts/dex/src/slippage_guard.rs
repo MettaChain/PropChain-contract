@@ -11,7 +11,7 @@ pub fn check_slippage(expected_out: u128, actual_out: u128, max_bps: u32) -> Res
 pub enum SlippageError { Exceeded, ZeroExpected }
 
 #[cfg(test)]
-mod tests {
+mod slippage_guard_tests {
     use super::*;
 
     #[test]

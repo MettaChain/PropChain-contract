@@ -152,9 +152,6 @@ pub struct BridgeConfig {
     pub gas_limit_per_bridge: u64,
     pub emergency_pause: bool,
     pub metadata_preservation: bool,
-    pub rate_limit_enabled: bool,
-    pub max_requests_per_day: u64,
-    pub max_value_per_day: u128,
 }
 
 /// Chain-specific bridge information

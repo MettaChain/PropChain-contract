@@ -106,9 +106,19 @@ pub const GOVERNANCE_DEFAULT_TIMELOCK_BLOCKS: u64 = 100;
 /// Maximum number of active proposals at once.
 pub const GOVERNANCE_MAX_ACTIVE_PROPOSALS: u32 = 100;
 
-/// Grace period (in blocks) before a pending emergency override takes effect,
-/// giving the signer set a window to notice and cancel a stale override.
-pub const GOVERNANCE_EMERGENCY_OVERRIDE_GRACE_BLOCKS: u64 = 20;
+// ── DEX Constants (Issue #1115) ──────────────────────────────────────────────
+
+/// Default pool slippage cap: 3 % of the computed output, enforced when a swap
+/// omits or understates its caller-supplied min-out.
+pub const DEX_DEFAULT_MAX_SLIPPAGE_BPS: u32 = 300;
+
+// ── Fee Constants (Issue #1118) ──────────────────────────────────────────────
+
+/// Reference dynamic fee rate (bps) at which the dynamic model returns 1× the
+/// strategy fee. Matches the constructor default of `DynamicFeeConfig
+/// ::base_fee_bps`, so a fresh contract behaves exactly as before while real
+/// config changes now reach `calculate_fee`.
+pub const FEE_DYNAMIC_REFERENCE_BPS: u32 = 30;
 
 // ── Staking Constants ────────────────────────────────────────────────────────
 

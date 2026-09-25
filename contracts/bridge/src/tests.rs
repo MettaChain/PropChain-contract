@@ -312,7 +312,7 @@ mod tests {
             .expect("execute bridge");
 
         // Get transaction hash from bridge history
-        let history = bridge.get_bridge_history(accounts.alice);
+        let history = bridge.get_bridge_history(accounts.alice, 0, 100);
         assert!(!history.is_empty());
         let transaction_hash = history[0].transaction_hash;
 
@@ -366,7 +366,7 @@ mod tests {
             .expect("execute bridge");
 
         // Get transaction hash and batch info
-        let history = bridge.get_bridge_history(accounts.alice);
+        let history = bridge.get_bridge_history(accounts.alice, 0, 100);
         let transaction_hash = history[0].transaction_hash;
         let batch_info = bridge.get_transaction_batch(transaction_hash).unwrap();
 
@@ -1775,7 +1775,7 @@ mod tests {
         test::set_caller::<DefaultEnvironment>(accounts.alice);
         bridge.execute_bridge(second).expect("execute second");
 
-        let history = bridge.get_bridge_history(accounts.alice);
+        let history = bridge.get_bridge_history(accounts.alice, 0, 100);
         assert!(history.len() >= 2, "both executions recorded");
         let (_, window_one) = bridge
             .get_transaction_batch(history[0].transaction_hash)
@@ -1841,6 +1841,38 @@ mod tests {
         );
     }
 
+    // ── Adoption tests: rate-limit config (#1107) ────────────────────────
+
+    fn new_rate_cfg(max_requests: u64) -> crate::rate_limit_config::RateLimitConfig {
+        crate::rate_limit_config::RateLimitConfig {
+            window_seconds: 86_400,
+            max_requests_per_day: max_requests,
+            max_value_per_day: 1_000_000_000_000_000_000,
+        }
+    }
+
+    #[ink::test]
+    fn rate_limit_config_is_admin_settable_and_enforced() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Non-admin cannot change the rate-limit config.
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            bridge.set_rate_limit_config(new_rate_cfg(1)),
+            Err(Error::Unauthorized)
+        );
+
+        // Admin lowers the per-window request cap to 1.
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.set_rate_limit_config(new_rate_cfg(1)).expect("admin can update");
+        assert_eq!(
+            bridge.get_rate_limit_config().max_requests_per_day,
+            1
+        );
+
+        let metadata = PropertyMetadata {
+            location: String::from("Test"),
     // ── Granular pause tests (Issue #1112) ────────────────────────────────
     //
     // Each test pauses ONE BridgeOperation and proves the matching message
@@ -1854,6 +1886,196 @@ mod tests {
             legal_description: String::from("Test"),
             valuation: 100000,
             documents_url: String::from("ipfs://test"),
+        };
+
+        // First request within the window is allowed.
+        let first = bridge.initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata.clone());
+        assert!(first.is_ok());
+
+        // Second request from the same account is rate-limited.
+        let second = bridge.initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata);
+        assert_eq!(second, Err(Error::RateLimitExceeded));
+    }
+
+    #[ink::test]
+    fn rate_limit_config_rejects_invalid_values() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        let bad = crate::rate_limit_config::RateLimitConfig {
+            max_requests_per_day: 0,
+            ..crate::rate_limit_config::RateLimitConfig::default()
+        };
+        assert_eq!(bridge.set_rate_limit_config(bad), Err(Error::InvalidRateLimit));
+        // Config unchanged on rejection.
+        assert_eq!(bridge.get_rate_limit_config().max_requests_per_day, 10);
+    }
+
+    // ── Adoption tests: validator staking (#1109) ─────────────────────────
+
+    #[ink::test]
+    fn stake_validator_requires_registered_validator() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        assert_eq!(bridge.stake_validator(10_000_000), Err(Error::Unauthorized));
+
+        bridge.add_validator(accounts.alice).expect("add validator");
+        bridge.stake_validator(10_000_000).expect("stake as validator");
+        assert_eq!(bridge.get_validator_stake(accounts.alice), 10_000_000);
+        assert_eq!(bridge.get_total_staked(), 10_000_000);
+        assert_eq!(bridge.get_slash_pool(), 0);
+
+        // Below-minimum stake is rejected and the ledger is unchanged.
+        assert_eq!(bridge.stake_validator(1), Err(Error::InvalidRequest));
+        assert_eq!(bridge.get_total_staked(), 10_000_000);
+    }
+
+    #[ink::test]
+    fn vote_conflict_slashes_the_signers_stake() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.add_validator(accounts.alice).expect("add validator");
+
+        let metadata = PropertyMetadata {
+            location: String::from("Test"),
+            size: 1000,
+            legal_description: String::from("Test"),
+            valuation: 500,
+            documents_url: String::from("ipfs://test"),
+        };
+        let request_id = bridge
+            .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(100), metadata)
+            .expect("initiate");
+
+        bridge.stake_validator(100_000_000).expect("stake validator");
+
+        // Approve, then flip to decline on the same request.
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.sign_bridge_request(request_id, true).expect("approve");
+        let conflict = bridge.sign_bridge_request(request_id, false);
+        assert_eq!(conflict, Err(Error::VoteConflict));
+
+        // 20% of 100_000_000 slashed into the pool; stake reduced.
+        assert_eq!(bridge.get_validator_stake(accounts.alice), 80_000_000);
+        assert_eq!(bridge.get_slash_pool(), 20_000_000);
+    }
+
+    #[ink::test]
+    fn approvals_need_staked_weight_quorum_not_bare_count() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.add_validator(accounts.alice).expect("validator alice");
+        bridge.add_validator(accounts.bob).expect("validator bob");
+        bridge.add_validator(accounts.charlie).expect("validator charlie");
+        bridge.add_bridge_operator(accounts.alice).expect("operator alice");
+
+        let metadata = PropertyMetadata {
+            location: String::from("Test"),
+            size: 1000,
+            legal_description: String::from("Test"),
+            valuation: 1000,
+            documents_url: String::from("ipfs://test"),
+        };
+        let request_id = bridge
+            .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(100), metadata)
+            .expect("initiate");
+
+        // Stake makes the required signatures insufficient on their own:
+        // alice(10M) + bob(10M) + charlie(100M) -> total 120M, quorum 72M.
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.stake_validator(10_000_000).expect("stake alice");
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge.stake_validator(10_000_000).expect("stake bob");
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        bridge.stake_validator(100_000_000).expect("stake charlie");
+
+        // Two signatures hit the bare required count (2) but only carry 20M
+        // of weight — request must NOT lock.
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.sign_bridge_request(request_id, true).expect("alice signs");
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge.sign_bridge_request(request_id, true).expect("bob signs");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        assert_eq!(bridge.execute_bridge(request_id), Err(Error::InvalidRequest));
+
+        // Adding charlie's (heavy) signature crosses the quorum and locks.
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        bridge.sign_bridge_request(request_id, true).expect("charlie signs");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.execute_bridge(request_id).expect("locked with quorum");
+    }
+
+    #[ink::test]
+    fn slash_validator_is_admin_only() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.add_validator(accounts.alice).expect("add validator");
+        bridge.add_validator(accounts.bob).expect("add validator bob");
+        bridge.stake_validator(10_000_000).expect("stake alice");
+        bridge.stake_validator(10_000_000).expect("stake alice again");
+        assert_eq!(bridge.get_validator_stake(accounts.alice), 20_000_000);
+
+        // Non-admin is rejected.
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            bridge.slash_validator(accounts.alice),
+            Err(Error::Unauthorized)
+        );
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let penalty = bridge.slash_validator(accounts.alice).expect("admin slashes");
+        assert_eq!(penalty, 4_000_000);
+        assert_eq!(bridge.get_validator_stake(accounts.alice), 16_000_000);
+        assert_eq!(bridge.get_slash_pool(), 4_000_000);
+    }
+
+    // ── Adoption tests: bounded modules (#1110) ───────────────────────────
+
+    #[ink::test]
+    fn audit_log_is_bounded_and_queryable() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.set_emergency_pause(true).expect("pause");
+        bridge.set_emergency_pause(false).expect("unpause");
+
+        let logs = bridge.get_audit_logs();
+        assert_eq!(logs.len(), 2);
+        assert!(logs[0].paused);
+        assert!(!logs[1].paused);
+    }
+
+    #[ink::test]
+    fn validator_registry_is_capped_by_bitmap_proof() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        for i in 0..100 {
+            let mut bytes = [0u8; 32];
+            bytes[31] = (i + 1) as u8;
+            bridge
+                .add_validator(AccountId::from(bytes))
+                .expect("validator added within cap");
+        }
+        assert_eq!(bridge.get_validators().len(), 100);
+
+        // The 101st validator exceeds the proven 100-slot bitmap bound.
+        let extra = AccountId::from([0xffu8; 32]);
+        assert_eq!(bridge.add_validator(extra), Err(Error::InsufficientSignatures));
+        assert_eq!(bridge.get_validators().len(), 100);
         }
     }
 
@@ -2140,5 +2362,293 @@ mod tests {
         };
         let result = bridge.sign_bridge_request_with_signature(request_id, true, Some(approval));
         assert_eq!(result, Err(Error::Unauthorized));
+    }
+
+    // ── Issue #1106: TokenFreezeManager must be enforced at execution and
+    //    unfreeze must clear the storage key ────────────────────────────────
+
+    #[ink::test]
+    fn test_frozen_token_blocks_execution_until_unfrozen() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        bridge
+            .add_validator(accounts.alice)
+            .expect("add validator");
+        bridge.add_validator(accounts.bob).expect("add validator");
+        bridge
+            .add_bridge_operator(accounts.alice)
+            .expect("add operator");
+
+        let request_id = bridge
+            .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata())
+            .expect("initiate before freeze");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("alice signs");
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("bob signs");
+
+        // Freeze the underlying token between signing and execution
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge.freeze_token(1).expect("admin freezes");
+
+        let result = bridge.execute_bridge(request_id);
+        assert_eq!(result, Err(Error::AssetAlreadyFrozen));
+        assert!(
+            bridge.get_bridge_history(accounts.alice, 0, 100).is_empty(),
+            "a blocked execution must not be recorded in history"
+        );
+
+        // Unfreeze the token and execution proceeds cleanly
+        bridge.unfreeze_token(1).expect("admin unfreezes");
+        let result = bridge.execute_bridge(request_id);
+        assert!(result.is_ok(), "execution proceeds after unfreeze");
+        assert_eq!(bridge.get_bridge_history(accounts.alice, 0, 100).len(), 1);
+    }
+
+    #[ink::test]
+    fn test_unfreeze_token_removes_storage_key() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        bridge.freeze_token(1).expect("freeze");
+        assert!(bridge.is_token_frozen(1));
+        assert!(bridge.frozen_tokens.get(1).is_some());
+
+        bridge.unfreeze_token(1).expect("unfreeze");
+
+        assert!(!bridge.is_token_frozen(1));
+        assert!(
+            bridge.frozen_tokens.get(1).is_none(),
+            "unfreeze must remove the storage key, not write an explicit false"
+        );
+
+        // A re-freeze after unfreeze is a clean insert again.
+        bridge.freeze_token(1).expect("refreeze");
+        assert!(bridge.frozen_tokens.get(1).is_some());
+    }
+
+    // ── Issue #1105: recover_failed_bridge actions ─────────────────────────
+
+    #[ink::test]
+    fn test_recover_failed_bridge_refunds_gas_to_sender() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        bridge
+            .add_validator(accounts.alice)
+            .expect("add validator");
+
+        let route = vec![2, 3];
+        let request_id = bridge
+            .initiate_multi_hop_bridge(1, route.clone(), accounts.bob, 2, Some(50), metadata())
+            .expect("initiate multi-hop");
+        let gas_estimate = bridge
+            .estimate_multi_hop_bridge_gas(route.clone())
+            .expect("gas estimate");
+        assert!(gas_estimate > 0, "multi-hop carries a positive gas escrow");
+
+        // Reject the request to move it into the Failed state.
+        bridge
+            .sign_bridge_request(request_id, false)
+            .expect("reject vote");
+
+        // Fund the contract so the escrow can actually be paid back.
+        let callee = test::callee::<DefaultEnvironment>();
+        let contract_before =
+            test::get_account_balance::<DefaultEnvironment>(callee).unwrap_or_default();
+        test::set_account_balance::<DefaultEnvironment>(callee, contract_before + u128::from(gas_estimate));
+
+        let sender_before =
+            test::get_account_balance::<DefaultEnvironment>(accounts.alice).unwrap_or_default();
+
+        let result = bridge.recover_failed_bridge(request_id, RecoveryAction::RefundGas);
+        assert_eq!(result, Ok(()));
+
+        let sender_after =
+            test::get_account_balance::<DefaultEnvironment>(accounts.alice).unwrap_or_default();
+        assert_eq!(sender_after - sender_before, u128::from(gas_estimate));
+
+        assert_eq!(
+            bridge.get_multi_hop_status(request_id).expect("status"),
+            MultiHopStatus::Failed
+        );
+
+        let events = test::recorded_events().collect::<Vec<_>>();
+        let decoded = <BridgeRecovered as scale::Decode>::decode(
+            &mut &events[events.len() - 1].data[..],
+        )
+        .expect("decode BridgeRecovered");
+        assert_eq!(decoded.request_id, request_id);
+        assert_eq!(decoded.recovery_action, RecoveryAction::RefundGas);
+        assert_eq!(decoded.refunded_amount, u128::from(gas_estimate));
+    }
+
+    #[ink::test]
+    fn test_recover_failed_bridge_unlock_requires_full_signer_set() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        bridge
+            .add_validator(accounts.alice)
+            .expect("add alice");
+        bridge.add_validator(accounts.bob).expect("add bob");
+
+        // required = 3 while only two signatures are ever collected: an
+        // unlock must be rejected even though the request has already Failed.
+        let request_id = bridge
+            .initiate_bridge_multisig(1, 2, accounts.bob, 3, Some(50), metadata())
+            .expect("initiate");
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("alice signs");
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .sign_bridge_request(request_id, false)
+            .expect("bob rejects");
+
+        assert_eq!(
+            bridge.recover_failed_bridge(request_id, RecoveryAction::UnlockToken),
+            Err(Error::InsufficientSignatures)
+        );
+    }
+
+    #[ink::test]
+    fn test_recover_failed_bridge_unlock_succeeds_with_full_signer_set() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        bridge
+            .add_validator(accounts.alice)
+            .expect("add alice");
+        bridge.add_validator(accounts.bob).expect("add bob");
+        bridge
+            .add_validator(accounts.charlie)
+            .expect("add charlie");
+
+        let request_id = bridge
+            .initiate_bridge_multisig(1, 2, accounts.bob, 2, Some(50), metadata())
+            .expect("initiate");
+
+        // The full required signer set is collected (request Locked)...
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("alice signs");
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        bridge
+            .sign_bridge_request(request_id, true)
+            .expect("bob signs");
+
+        // ...then a later rejection vote moves it to Failed.
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        bridge
+            .sign_bridge_request(request_id, false)
+            .expect("charlie rejects");
+
+        assert_eq!(
+            bridge.recover_failed_bridge(request_id, RecoveryAction::UnlockToken),
+            Ok(())
+        );
+        assert_eq!(
+            bridge.get_multi_hop_status(request_id).expect("status"),
+            MultiHopStatus::Failed
+        );
+
+        let events = test::recorded_events().collect::<Vec<_>>();
+        let decoded = <BridgeRecovered as scale::Decode>::decode(
+            &mut &events[events.len() - 1].data[..],
+        )
+        .expect("decode BridgeRecovered");
+        assert_eq!(decoded.request_id, request_id);
+        assert_eq!(decoded.recovery_action, RecoveryAction::UnlockToken);
+        assert_eq!(decoded.refunded_amount, 0);
+    }
+
+    // ── Issue #1104: bounded, paginated bridge history ─────────────────────
+
+    #[ink::test]
+    fn test_bridge_history_is_capped_and_paginated() {
+        let mut bridge = setup_bridge();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        bridge
+            .add_validator(accounts.alice)
+            .expect("add alice");
+        bridge.add_validator(accounts.bob).expect("add bob");
+        bridge
+            .add_bridge_operator(accounts.alice)
+            .expect("add operator");
+
+        // Raise the rate limits the loading loop would otherwise hit: the
+        // default daily cap is 10 requests/account and the default per-block
+        // burst threshold is 5 requests.
+        bridge.config.max_requests_per_day = u64::MAX;
+        bridge
+            .suspicious_config
+            .max_requests_per_block_per_account = u32::MAX;
+
+        const REQUESTS: usize = 150;
+        assert!(REQUESTS > PropertyBridge::MAX_BRIDGE_HISTORY_PER_ACCOUNT);
+        for _ in 0..REQUESTS {
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+            let request_id = bridge
+                .initiate_bridge_multisig(1, 2, accounts.bob, 2, None, metadata())
+                .expect("initiate");
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+            bridge
+                .sign_bridge_request(request_id, true)
+                .expect("alice signs");
+            test::set_caller::<DefaultEnvironment>(accounts.bob);
+            bridge
+                .sign_bridge_request(request_id, true)
+                .expect("bob signs");
+            test::set_caller::<DefaultEnvironment>(accounts.alice);
+            bridge
+                .execute_bridge(request_id)
+                .expect("execute");
+        }
+
+        // The stored history is capped: the oldest entries were evicted.
+        let full = bridge.get_bridge_history(accounts.alice, 0, 1_000_000);
+        assert_eq!(
+            full.len(),
+            PropertyBridge::MAX_BRIDGE_HISTORY_PER_ACCOUNT,
+            "history is capped at MAX_BRIDGE_HISTORY_PER_ACCOUNT"
+        );
+
+        // Pagination is zero-indexed and slides over the oldest-first order.
+        assert_eq!(bridge.get_bridge_history(accounts.alice, 0, 50).len(), 50);
+        assert_eq!(
+            bridge.get_bridge_history(accounts.alice, 0, 50)[0].transaction_hash,
+            full[0].transaction_hash
+        );
+        let page_one = bridge.get_bridge_history(accounts.alice, 1, 50);
+        assert_eq!(page_one.len(), 50);
+        assert_eq!(page_one[0].transaction_hash, full[50].transaction_hash);
+        assert_eq!(
+            bridge.get_bridge_history(accounts.alice, 2, 50).len(),
+            0,
+            "third page is empty"
+        );
+
+        // Empty / out-of-range reads are clean.
+        assert!(bridge.get_bridge_history(accounts.bob, 0, 100).is_empty());
+        assert!(bridge
+            .get_bridge_history(accounts.alice, 99, 100)
+            .is_empty());
     }
 }

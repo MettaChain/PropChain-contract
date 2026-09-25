@@ -4,7 +4,9 @@
 use ink::env::{test, DefaultEnvironment};
 
 use super::*;
-use crate::propchain_lending::{CollateralKind, PaymentScheduleStatus, Schedule};
+use crate::propchain_lending::{
+    CollateralKind, ListingStatus, LoanStatus, LoanType, PaymentScheduleStatus, Schedule,
+};
 
 #[ink::test]
 fn test_loan_interest_accrual_is_jit_only_on_loan_modification() {
@@ -384,5 +386,199 @@ fn restructuring_requires_both_parties_and_cleans_up_record() {
     assert_eq!(
         contract.approve_loan_restructuring(loan_id),
         Err(LendingError::RestructuringNotFound)
+    );
+}
+
+// ── Issue #1095: regression coverage for unexercised mutating messages ──────
+
+#[ink::test]
+fn fixed_rate_loan_application_persists_all_terms() {
+    let accounts = test::default_accounts::<DefaultEnvironment>();
+    test::set_caller::<DefaultEnvironment>(accounts.alice);
+    let mut contract = PropertyLending::new(accounts.alice);
+
+    test::set_caller::<DefaultEnvironment>(accounts.bob);
+    let loan_id = contract
+        .apply_for_fixed_rate_loan(1, 500_000, 1_000_000, 700, 24, 800)
+        .unwrap();
+
+    let loan = contract.get_loan(loan_id).unwrap();
+    assert_eq!(loan.loan_id, loan_id);
+    assert_eq!(loan.applicant, accounts.bob);
+    assert_eq!(loan.property_id, 1);
+    assert_eq!(loan.requested_amount, 500_000);
+    assert_eq!(loan.collateral_value, 1_000_000);
+    assert_eq!(loan.credit_score, 700);
+    assert_eq!(loan.term_months, 24);
+    assert_eq!(loan.interest_rate_bps, 800);
+    assert_eq!(loan.loan_type, LoanType::FixedRate);
+    assert_eq!(loan.status, LoanStatus::Pending);
+    assert!(!loan.approved);
+}
+
+#[ink::test]
+fn fixed_rate_loan_application_rejects_zero_terms() {
+    let accounts = test::default_accounts::<DefaultEnvironment>();
+    test::set_caller::<DefaultEnvironment>(accounts.alice);
+    let mut contract = PropertyLending::new(accounts.alice);
+
+    test::set_caller::<DefaultEnvironment>(accounts.bob);
+    // Zero principal or zero rate must be rejected up front.
+    assert_eq!(
+        contract.apply_for_fixed_rate_loan(1, 0, 1_000_000, 700, 24, 800),
+        Err(LendingError::InvalidParameters)
+    );
+    assert_eq!(
+        contract.apply_for_fixed_rate_loan(1, 500_000, 1_000_000, 700, 24, 0),
+        Err(LendingError::InvalidParameters)
+    );
+    // No loan was created for the rejected applications.
+    assert_eq!(contract.get_loan(1), None);
+}
+
+#[ink::test]
+fn lender_submits_offer_against_open_listing() {
+    let accounts = test::default_accounts::<DefaultEnvironment>();
+    test::set_caller::<DefaultEnvironment>(accounts.alice);
+    let mut contract = PropertyLending::new(accounts.alice);
+
+    test::set_caller::<DefaultEnvironment>(accounts.bob);
+    let listing_id = contract
+        .create_loan_listing(1, 1_000_000, 800, 12, CollateralKind::Unsecured, vec![])
+        .unwrap();
+
+    // A lender (charlie) submits an offer at or below the max rate.
+    test::set_caller::<DefaultEnvironment>(accounts.charlie);
+    let offer_id = contract
+        .submit_loan_offer(listing_id, 900_000, 750, 12)
+        .unwrap();
+
+    let offer = contract.get_loan_offer(offer_id).unwrap();
+    assert_eq!(offer.offer_id, offer_id);
+    assert_eq!(offer.listing_id, listing_id);
+    assert_eq!(offer.lender, accounts.charlie);
+    assert_eq!(offer.offered_amount, 900_000);
+    assert_eq!(offer.rate_bps, 750);
+    assert_eq!(offer.term_months, 12);
+    assert!(!offer.is_accepted);
+}
+
+#[ink::test]
+fn submit_loan_offer_enforces_rate_cap_and_listing_state() {
+    let accounts = test::default_accounts::<DefaultEnvironment>();
+    test::set_caller::<DefaultEnvironment>(accounts.alice);
+    let mut contract = PropertyLending::new(accounts.alice);
+
+    test::set_caller::<DefaultEnvironment>(accounts.bob);
+    let listing_id = contract
+        .create_loan_listing(1, 1_000_000, 800, 12, CollateralKind::Unsecured, vec![])
+        .unwrap();
+
+    // Rate above the borrower's cap is refused.
+    assert_eq!(
+        contract.submit_loan_offer(listing_id, 900_000, 900, 12),
+        Err(LendingError::InvalidParameters)
+    );
+    // Zero amount or zero term is refused.
+    assert_eq!(
+        contract.submit_loan_offer(listing_id, 0, 700, 12),
+        Err(LendingError::InvalidParameters)
+    );
+    assert_eq!(
+        contract.submit_loan_offer(listing_id, 900_000, 700, 0),
+        Err(LendingError::InvalidParameters)
+    );
+
+    // Unknown listing: loan not found.
+    assert_eq!(
+        contract.submit_loan_offer(9_999, 900_000, 700, 12),
+        Err(LendingError::LoanNotFound)
+    );
+}
+
+#[ink::test]
+fn accept_loan_offer_originates_loan_and_updates_state() {
+    let accounts = test::default_accounts::<DefaultEnvironment>();
+    test::set_caller::<DefaultEnvironment>(accounts.alice);
+    let mut contract = PropertyLending::new(accounts.alice);
+
+    test::set_caller::<DefaultEnvironment>(accounts.bob);
+    let listing_id = contract
+        .create_loan_listing(1, 1_000_000, 800, 12, CollateralKind::Unsecured, vec![])
+        .unwrap();
+
+    test::set_caller::<DefaultEnvironment>(accounts.charlie);
+    let offer_id = contract
+        .submit_loan_offer(listing_id, 900_000, 750, 12)
+        .unwrap();
+
+    // A third party cannot accept the borrower's listing.
+    test::set_caller::<DefaultEnvironment>(accounts.charlie);
+    assert_eq!(
+        contract.accept_loan_offer(offer_id),
+        Err(LendingError::Unauthorized)
+    );
+
+    // The borrower accepts and the loan originates.
+    test::set_caller::<DefaultEnvironment>(accounts.bob);
+    let loan_id = contract.accept_loan_offer(offer_id).unwrap();
+
+    let loan = contract.get_loan(loan_id).unwrap();
+    assert_eq!(loan.applicant, accounts.bob);
+    assert_eq!(loan.property_id, 1);
+    assert_eq!(loan.requested_amount, 900_000);
+    assert_eq!(loan.loan_type, LoanType::Variable);
+    assert_eq!(loan.status, LoanStatus::Active);
+    assert!(loan.approved);
+
+    // Listing and offer reflect origination.
+    let listing = contract.get_loan_listing(listing_id).unwrap();
+    assert_eq!(listing.status, ListingStatus::Originated);
+    assert_eq!(listing.accepted_offer_id, Some(offer_id));
+    assert!(contract.get_loan_offer(offer_id).unwrap().is_accepted);
+
+    // The accepted offer cannot originate a second loan: the listing is
+    // no longer Open.
+    assert_eq!(
+        contract.accept_loan_offer(offer_id),
+        Err(LendingError::LoanNotActive)
+    );
+}
+
+#[ink::test]
+fn cancel_loan_listing_marks_listing_cancelled() {
+    let accounts = test::default_accounts::<DefaultEnvironment>();
+    test::set_caller::<DefaultEnvironment>(accounts.alice);
+    let mut contract = PropertyLending::new(accounts.alice);
+
+    test::set_caller::<DefaultEnvironment>(accounts.bob);
+    let listing_id = contract
+        .create_loan_listing(1, 1_000_000, 800, 12, CollateralKind::Unsecured, vec![])
+        .unwrap();
+
+    // Only the borrower may withdraw the listing.
+    test::set_caller::<DefaultEnvironment>(accounts.charlie);
+    assert_eq!(
+        contract.cancel_loan_listing(listing_id),
+        Err(LendingError::Unauthorized)
+    );
+
+    test::set_caller::<DefaultEnvironment>(accounts.bob);
+    assert!(contract.cancel_loan_listing(listing_id).is_ok());
+    assert_eq!(
+        contract.get_loan_listing(listing_id).unwrap().status,
+        ListingStatus::Cancelled
+    );
+
+    // A cancelled listing cannot be cancelled again.
+    assert_eq!(
+        contract.cancel_loan_listing(listing_id),
+        Err(LendingError::LoanNotActive)
+    );
+
+    // Unknown listing.
+    assert_eq!(
+        contract.cancel_loan_listing(9_999),
+        Err(LendingError::LoanNotFound)
     );
 }

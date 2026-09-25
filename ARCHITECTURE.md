@@ -110,6 +110,13 @@ graph TD
 | `traits` | `propchain-traits` | Shared types, errors, macros |
 | `lib` | `propchain-lib` | Shared utilities & Kani proofs |
 
+> **DEX scope note (Issue #1116):** the dormant `concentrated_liquidity.rs`
+> module (range-liquidity type sketches) was dead code that was never compiled
+> into the contract and has been removed. The live liquidity surface is the
+> constant-product AMM (`add_liquidity`/`remove_liquidity` on `LiquidityPool`).
+> Range liquidity over `[lower_tick, upper_tick]` with per-position fee accrual
+> remains out of scope for the current contract.
+
 ---
 
 ## 3. Component Interaction Diagrams
@@ -350,6 +357,20 @@ packed variant is advertised until the migration and proof actually land.
 
 See [`SECURITY.md`](./SECURITY.md) and [`security-audit/`](./security-audit/)
 for the full threat model and third-party audit reports.
+
+### 6.1 Bridge rate limiting, staking, and module disposition
+
+The bridge contract's security-relevant subsystems are organised so that no
+declared-but-unused module remains in `contracts/bridge/src/lib.rs`:
+
+| Module | Status | Notes |
+|--------|--------|-------|
+| `rate_limit_config::RateLimitConfig` | **Adopted (#1107)** | Stored on the contract as `PropertyBridge::rate_limit`; single source of truth for all rate-limit decisions (per-window request cap, per-route value floor). Admin-settable via `set_rate_limit_config`. Replaces the hardcoded `max_requests_per_day`/`max_value_per_day` fields that were removed from `BridgeConfig` (traits). |
+| `validator_staking::ValidatorStaking` | **Adopted (#1109)** | Stored as `PropertyBridge::staking`; credit-based stake ledger (no token transfers). Approvals for bridge requests require a staked-weight quorum of `STAKED_QUORUM_BPS` (60%) of `total_staked`, not a bare signature count. Conflicting votes slash `SLASH_PERCENT` (20%) of the signer's stake into the slash pool. Messages: `stake_validator`, `withdraw_stake`, `slash_validator`, `get_validator_stake`, `get_total_staked`, `get_slash_pool`. |
+| `audit_log_bounded::BoundedAuditLog` | **Adopted (#1110)** | Enforces the `PAUSE_AUDIT_LOG_LIMIT` cap in `PropertyBridge::push_audit_entry`; readable via `get_audit_logs`/`get_pause_audit_log`. |
+| `validator_bitmap_fix::ValidatorBitmapSigner` | **Adopted (#1110)** | Caps the validator registry at 100 bitmap slots in `assign_validator_bit_position` (guards the 256-bit signature bitmap). |
+| `status_packing.rs` | **Shelved / deleted (#1108)** | `BridgeStatus` pack-or-delete decision: deleted. `BridgeTransaction` and `StoredBridgeRequest` keep their current SCALE-encodable storage layout; a packed encoding requires a Kani proof and a storage migration that are tracked as a follow-up issue. |
+| `submodules.rs`, `token_freeze.rs`, `bridge_history_pagination.rs` | **Shelved / deleted (#1110)** | Dead scaffolding removed; freeze checks live in `PropertyBridge::ensure_token_not_frozen` and history pagination is tracked as a follow-up issue. |
 
 ---
 

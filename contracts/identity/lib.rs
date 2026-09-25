@@ -337,7 +337,13 @@ pub mod propchain_identity {
 
     /// Reputation metrics based on transaction history
     #[derive(
-        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+        Debug,
+        Clone,
+        Default,
+        PartialEq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct ReputationMetrics {
@@ -1641,7 +1647,7 @@ pub mod propchain_identity {
             offset: u64,
             limit: u64,
         ) -> Vec<AuditEntry> {
-            let count = self.account_audit_count.get(&account).unwrap_or(0);
+            let count = self.get_account_audit_count(account);
             let mut entries = Vec::new();
             let end = (offset + limit).min(count);
             for i in offset..end {
@@ -1652,6 +1658,15 @@ pub mod propchain_identity {
                 }
             }
             entries
+        }
+
+        /// Get the number of audit entries recorded for a specific account.
+        ///
+        /// Exposed so the dashboard can report a real per-account audit count
+        /// instead of guessing one (#1129).
+        #[ink(message)]
+        pub fn get_account_audit_count(&self, account: AccountId) -> u64 {
+            self.account_audit_count.get(&account).unwrap_or(0)
         }
 
         /// Internal helper: record an audit entry

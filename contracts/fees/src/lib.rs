@@ -5,6 +5,7 @@
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
 use ink::storage::Mapping;
+use propchain_traits::constants;
 use propchain_traits::{DynamicFeeProvider, FeeOperation};
 
 /// Dynamic Fee and Market Mechanism contract for PropChain.
@@ -172,7 +173,10 @@ pub mod propchain_fees {
                 validator_share_bp: BasisPoints::new(5000), // 50% to validators
                 treasury_share_bp: BasisPoints::new(5000),  // 50% to treasury
                 dynamic_fee_config: DynamicFeeConfig {
-                    base_fee_bps: BasisPoints::new(30), // 0.30 % base
+                    // Reference rate used by `calculate_fee` (Issue #1118):
+                    // at this base the dynamic model is a no-op, so behaviour
+                    // is unchanged until an admin reconfigures it.
+                    base_fee_bps: BasisPoints::new(constants::FEE_DYNAMIC_REFERENCE_BPS),
                     congestion_multiplier: 300,         // up to 3× at full utilisation
                     max_fee_bps: BasisPoints::new(200), // hard cap at 2.00 %
                 },
@@ -248,10 +252,33 @@ pub mod propchain_fees {
                 demand_factor_bp: self.demand_factor_bp(),
                 operation,
             };
-            FeeCalculator::calculate(&config, &context)
+            let fee = FeeCalculator::calculate(&config, &context);
+            // Feed the stored DynamicFeeConfig into the live fee path (Issue
+            // #1118). Before this, `dynamic_fee_config` was settable and
+            // queryable but never reached the calculation, so `FeeRateUpdated`
+            // events were a silent lie. For the congestion-driven strategies the
+            // effective dynamic rate (in bps) scales the strategy fee relative
+            // to the reference rate, so a fresh contract (base_fee_bps ==
+            // reference) returns exactly what it did before.
+            match config.calculation_method {
+                FeeCalculationMethod::Dynamic | FeeCalculationMethod::Exponential => {
+                    let dynamic_rate_bps =
+                        Self::compute_fee_rate(&self.dynamic_fee_config, context.congestion_index)
+                            as u128;
+                    fee.saturating_mul(dynamic_rate_bps)
+                        .saturating_div(constants::FEE_DYNAMIC_REFERENCE_BPS as u128)
+                        .clamp(config.min_fee, config.max_fee)
+                }
+                FeeCalculationMethod::Fixed | FeeCalculationMethod::Tiered => fee,
+            }
         }
 
-        /// Record that a fee was collected (called by registry or self after charging)
+        /// Record that a fee was collected (admin only).
+        ///
+        /// Fees are booked straight into `fee_treasury`/`total_fees_collected`
+        /// and later become claimable via `distribute_fees`, so only the admin
+        /// may mutate the ledger. Previously this was an unauthenticated
+        /// message that let any caller forge the treasury (Issue #1117).
         #[ink(message)]
         pub fn record_fee_collected(
             &mut self,
@@ -259,6 +286,7 @@ pub mod propchain_fees {
             amount: u128,
             from: AccountId,
         ) -> Result<(), FeeError> {
+            self.ensure_admin()?;
             let _ = from;
             // Roll the window over first so the increment below is attributed
             // to a fresh window (shared rollover — `rollover_congestion`).

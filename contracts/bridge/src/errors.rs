@@ -91,6 +91,9 @@ pub enum Error {
     AssetNotFrozen,
     /// Insufficient emergency signatures.
     InsufficientEmergencySignatures,
+    /// An outgoing native-value transfer (e.g. a gas refund during
+    /// [`RecoveryAction::RefundGas`]) could not be executed.
+    TransferFailed,
 }
 
 impl Error {
@@ -202,6 +205,7 @@ impl ContractError for Error {
             Error::AssetAlreadyFrozen => bridge_codes::BRIDGE_INVALID_REQUEST,
             Error::AssetNotFrozen => bridge_codes::BRIDGE_INVALID_REQUEST,
             Error::InsufficientEmergencySignatures => bridge_codes::BRIDGE_INSUFFICIENT_SIGNATURES,
+            Error::TransferFailed => bridge_codes::BRIDGE_TRANSFER_FAILED,
         }
     }
 
@@ -260,6 +264,9 @@ impl ContractError for Error {
             }
             Error::InsufficientEmergencySignatures => {
                 "Not enough emergency signatures collected for the operation"
+            }
+            Error::TransferFailed => {
+                "The native-value transfer for this bridge recovery could not be executed"
             }
         }
     }

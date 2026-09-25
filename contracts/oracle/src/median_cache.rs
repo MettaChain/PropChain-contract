@@ -2,24 +2,24 @@
 //!
 //! Wired into live code paths in `contracts/oracle/src/lib.rs`:
 //! - `compute_median` is used by `update_valuation_from_sources` to store the
-//!   median of the collected source prices in the `cached_median_prices`
-//!   storage mapping under `(property_id, "default")`;
+//!   consensus median of the collected source prices in the
+//!   `cached_median_prices` storage mapping under `(property_id, "default")`;
 //! - `is_cache_fresh` is used by `get_property_valuation` to decide whether a
 //!   cached entry is still within its TTL (configured via `set_cache_ttl`).
+//!
+//! Issue #1102: the cache delegates every median computation to
+//! `aggregation::simple_median`, so `aggregation.rs` is the single
+//! implementation of median/trimmed-mean logic and the cache can never produce
+//! a different "official" median than a fresh aggregation.
 
-/// Computes the median of `prices`, sorting a local copy (input is not mutated).
+// Computes the median of `prices`, delegating the actual math to
+// `aggregation::simple_median` (the single source of truth). A local copy is
+// sorted; the input is not mutated.
 pub fn compute_median(prices: &[u128]) -> Option<u128> {
     if prices.is_empty() {
         return None;
     }
-    let mut sorted = prices.to_vec();
-    sorted.sort_unstable();
-    let mid = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
-        Some((sorted[mid - 1] + sorted[mid]) / 2)
-    } else {
-        Some(sorted[mid])
-    }
+    Some(crate::aggregation::simple_median(&mut prices.to_vec()))
 }
 
 /// Returns true if `current_block - cached_at < ttl`, i.e. the cached

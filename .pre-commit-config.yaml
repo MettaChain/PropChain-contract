@@ -92,6 +92,12 @@ repos:
         pass_filenames: false
         files: ^contracts/.*\.rs$
 
+      - id: no-unresolved-issue-placeholder
+        name: reject unresolved "Issue #XXX" placeholders in source comments
+        entry: bash -c '! grep -rn "Issue #XXX" --include="*.rs" contracts'
+        language: system
+        pass_filenames: false
+
   # Documentation checks
   - repo: local
     hooks:

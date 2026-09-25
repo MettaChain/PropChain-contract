@@ -93,6 +93,9 @@ pub struct LiquidityPool {
     pub reserve_quote: u128,
     pub total_lp_shares: u128,
     pub fee_bips: u32,
+    /// Default slippage cap in basis points enforced when a swap omits its
+    /// min-out (Issue #1115). Exposed via `get_pool_max_slippage`.
+    pub max_slippage_bps: u32,
     pub reward_index: u128,
     pub cumulative_volume: u128,
     pub last_price: u128,

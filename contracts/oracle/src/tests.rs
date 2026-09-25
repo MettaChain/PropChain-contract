@@ -88,11 +88,13 @@ mod oracle_tests {
     #[ink::test]
     fn test_get_nonexistent_valuation_fails() {
         let oracle = setup_oracle();
-        // Missing properties return a zeroed placeholder valuation rather
-        // than an error (aggregation fallback for unknown ids).
-        let valuation = oracle.get_property_valuation(999).expect("must not error");
-        assert_eq!(valuation.valuation, 0);
-        assert_eq!(valuation.property_id, 999);
+        // Missing properties now surface a PriceFeedError instead of a zeroed
+        // placeholder, which would have been treated as "fresh" by downstream
+        // aggregation and pulled the median toward $0 (Issue #1100).
+        assert_eq!(
+            oracle.get_property_valuation(999),
+            Err(OracleError::PriceFeedError)
+        );
     }
 
     #[ink::test]
@@ -110,19 +112,18 @@ mod oracle_tests {
             .insert(&(property_id, "default".to_string()), &(123_456, now));
 
         // No stored valuation but a fresh cache entry: the cached median is
-        // served instead of the zeroed placeholder.
+        // served as a real data point.
         let valuation = oracle
             .get_property_valuation(property_id)
             .expect("must not error");
         assert_eq!(valuation.valuation, 123_456);
 
-        // Past the TTL the cache entry is stale, so the documented zeroed
-        // placeholder is returned.
+        // Past the TTL the cache entry is stale, so the read fails loudly.
         ink::env::test::set_block_timestamp::<DefaultEnvironment>(now + 7200 * 1000);
-        let valuation = oracle
-            .get_property_valuation(property_id)
-            .expect("must not error");
-        assert_eq!(valuation.valuation, 0);
+        assert_eq!(
+            oracle.get_property_valuation(property_id),
+            Err(OracleError::PriceFeedError)
+        );
     }
 
     #[ink::test]
@@ -276,6 +277,249 @@ mod oracle_tests {
         let filtered = oracle.filter_outliers(&prices);
         assert_eq!(filtered.len(), 5);
         assert!(filtered.iter().all(|p| p.price < 200));
+    }
+
+    #[ink::test]
+    fn test_total_voting_power_derived_from_state_not_placeholder() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Empty state → zero total power, no influence (Issue #1099).
+        assert_eq!(oracle.get_total_voting_power(), 0);
+        assert_eq!(
+            oracle.get_source_influence_bps("ghost".to_string()),
+            0
+        );
+
+        let src = |id: &str| OracleSource {
+            id: id.to_string(),
+            source_type: OracleSourceType::Chainlink,
+            address: accounts.bob,
+            is_active: true,
+            weight: 50,
+            last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+        };
+
+        // One source at the default reputation (500) → sole holder of power.
+        oracle.add_oracle_source(src("A")).expect("admin add");
+        assert_eq!(oracle.get_total_voting_power(), 500);
+        assert_eq!(oracle.get_source_influence_bps("A".to_string()), 10_000);
+
+        // A second source halves A's influence.
+        oracle.add_oracle_source(src("B")).expect("admin add");
+        assert_eq!(oracle.get_total_voting_power(), 1000);
+        assert_eq!(oracle.get_source_influence_bps("A".to_string()), 5000);
+
+        // Slashing A's reputation changes every source's relative influence.
+        oracle.source_reputations.insert(&"A".to_string(), &200);
+        assert_eq!(oracle.get_total_voting_power(), 700);
+        assert_eq!(oracle.get_source_influence_bps("A".to_string()), 2857);
+        assert_eq!(oracle.get_source_influence_bps("B".to_string()), 7142);
+
+        // Removing a source re-derives power from the remaining state.
+        oracle
+            .propose_remove_oracle_source("B".to_string())
+            .expect("immediate removal when no signers are configured");
+        assert_eq!(oracle.get_total_voting_power(), 200);
+        assert_eq!(oracle.get_source_influence_bps("A".to_string()), 10_000);
+        assert_eq!(oracle.get_source_influence_bps("B".to_string()), 0);
+    }
+
+    #[ink::test]
+    fn test_zero_price_never_contributes_to_aggregate() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        oracle
+            .add_oracle_source(OracleSource {
+                id: "manual_feed".to_string(),
+                source_type: OracleSourceType::Manual,
+                address: accounts.bob,
+                is_active: true,
+                weight: 50,
+                last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+            })
+            .expect("admin add");
+
+        // Seed the feed's latest manual reading with a zero (broken feed).
+        // `update_property_valuation` refuses zero, so prime storage directly
+        // to simulate the corrupted downstream state (Issue #1100).
+        oracle.historical_valuations.insert(
+            &7,
+            &vec![PropertyValuation {
+                property_id: 7,
+                valuation: 0,
+                confidence_score: 0,
+                sources_used: 1,
+                last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+                valuation_method: ValuationMethod::Manual,
+            }],
+        );
+
+        // The zero is skipped, never collected into the sample.
+        let prices = oracle
+            .collect_prices_sequential(7)
+            .expect("collection returns");
+        assert!(prices.is_empty(), "zero price must not enter the sample");
+
+        // A zero therefore cannot influence the aggregate.
+        assert_eq!(
+            oracle.aggregate_prices(&prices),
+            Err(OracleError::InsufficientSources)
+        );
+
+        // A valid manual price flows through normally afterwards.
+        oracle.historical_valuations.insert(
+            &7,
+            &vec![PropertyValuation {
+                property_id: 7,
+                valuation: 500_000,
+                confidence_score: 90,
+                sources_used: 1,
+                last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+                valuation_method: ValuationMethod::Manual,
+            }],
+        );
+        let prices = oracle
+            .collect_prices_sequential(7)
+            .expect("collection returns");
+        assert_eq!(prices.len(), 1);
+        assert_eq!(prices[0].price, 500_000);
+    }
+
+    #[ink::test]
+    fn test_min_source_quorum_gates_aggregation() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Default quorum is 2 (Issue #1101).
+        assert_eq!(oracle.get_min_source_quorum(), 2);
+
+        for (id, weight) in &[("a", 50u32), ("b", 50u32)] {
+            oracle
+                .add_oracle_source(OracleSource {
+                    id: id.to_string(),
+                    source_type: OracleSourceType::Chainlink,
+                    address: accounts.bob,
+                    is_active: true,
+                    weight: *weight,
+                    last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+                })
+                .expect("admin add");
+        }
+
+        let single = vec![PriceData {
+            price: 100,
+            timestamp: 0,
+            source: "a".to_string(),
+        }];
+        // A lone source cannot dictate the official price.
+        assert_eq!(
+            oracle.aggregate_prices(&single),
+            Err(OracleError::InsufficientSources)
+        );
+
+        let two = vec![
+            PriceData {
+                price: 100,
+                timestamp: 0,
+                source: "a".to_string(),
+            },
+            PriceData {
+                price: 110,
+                timestamp: 0,
+                source: "b".to_string(),
+            },
+        ];
+        assert!(oracle.aggregate_prices(&two).is_ok());
+
+        // The operator may explicitly lower the quorum to admit one source.
+        oracle.set_min_source_quorum(1).expect("admin config");
+        assert_eq!(oracle.get_min_source_quorum(), 1);
+        assert_eq!(oracle.aggregate_prices(&single), Ok(100));
+
+        // Zero quorum and non-admin changes are rejected.
+        assert_eq!(
+            oracle.set_min_source_quorum(0),
+            Err(OracleError::InvalidParameters)
+        );
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            oracle.set_min_source_quorum(1),
+            Err(OracleError::Unauthorized)
+        );
+    }
+
+    #[ink::test]
+    fn test_cached_consensus_matches_fresh_aggregation() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        oracle
+            .add_oracle_source(OracleSource {
+                id: "manual_a".to_string(),
+                source_type: OracleSourceType::Manual,
+                address: accounts.bob,
+                is_active: true,
+                weight: 50,
+                last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+            })
+            .expect("admin add");
+        oracle
+            .add_oracle_source(OracleSource {
+                id: "manual_b".to_string(),
+                source_type: OracleSourceType::Manual,
+                address: accounts.bob,
+                is_active: true,
+                weight: 25,
+                last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+            })
+            .expect("admin add");
+
+        oracle
+            .update_property_valuation(
+                77,
+                PropertyValuation {
+                    property_id: 77,
+                    valuation: 500_000,
+                    confidence_score: 90,
+                    sources_used: 2,
+                    last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+                    valuation_method: ValuationMethod::Manual,
+                },
+            )
+            .expect("admin valuation");
+
+        // Manual feeds both report the property's single manual price; aggregate
+        // with Median so the weight lookup (keyed on source id) is irrelevant.
+        oracle.aggregation_method = AggregationMethod::Median;
+
+        oracle
+            .update_valuation_from_sources(77)
+            .expect("aggregation succeeds");
+
+        // The cache now holds the official consensus from the update round,
+        // so a later fresh aggregation over identical data can never diverge
+        // from the cached value (Issue #1102).
+        let (cached, _at) = oracle
+            .cached_median_prices
+            .get(&(77, "default".to_string()))
+            .expect("consensus must be cached");
+        let prices = oracle
+            .collect_prices_sequential(77)
+            .expect("collect");
+        let fresh = oracle
+            .aggregate_prices(&prices)
+            .expect("fresh consensus");
+        assert_eq!(cached, fresh);
+
+        // Single-source-of-truth: the median cache delegates to
+        // aggregation::simple_median rather than re-implementing the math.
+        let vals = vec![100u128, 200, 300, 400];
+        assert_eq!(
+            median_cache::compute_median(&vals),
+            Some(aggregation::simple_median(&mut vals.clone()))
+        );
     }
 
     #[ink::test]
@@ -711,6 +955,34 @@ mod oracle_tests {
         assert!(oracle.pending_requests.get(&2).is_some());
         assert!(oracle.pending_requests.get(&3).is_some());
     }
+
+    #[ink::test]
+    fn test_ai_source_without_engine_errors_not_placeholder_price() {
+        let mut oracle = setup_oracle();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        oracle
+            .add_oracle_source(OracleSource {
+                id: "ai_model".to_string(),
+                source_type: OracleSourceType::AIModel,
+                address: accounts.bob,
+                is_active: true,
+                weight: 50,
+                last_updated: ink::env::block_timestamp::<DefaultEnvironment>(),
+            })
+            .unwrap();
+
+        // No AI valuation engine configured => PriceFeedError, and never the
+        // old deterministic `500000 + property_id * 1000` formula.
+        let source = oracle
+            .oracle_sources
+            .get(&"ai_model".to_string())
+            .expect("source registered");
+        assert_eq!(
+            oracle.get_price_from_source(&source, 7),
+            Err(OracleError::PriceFeedError)
+        );
+    }
 }
 
 // =========================================================================
@@ -910,6 +1182,184 @@ mod auto_slash_tests {
         assert_eq!(
             oracle.get_source_missed_updates("nonexistent".to_string()),
             0
+        );
+    }
+
+    #[ink::test]
+    fn test_auto_slash_on_deviation_reduces_reputation_and_stake() {
+        let mut oracle = setup();
+        add_source(&mut oracle, "deviant_src");
+
+        // Enable deviation auto-slash (20% default threshold).
+        oracle
+            .set_auto_slash_config(false, 3600, true, 2000, false, 3)
+            .unwrap();
+
+        // Source reported price 1500 against consensus 1000 (50% deviation).
+        test::set_block_timestamp::<DefaultEnvironment>(100);
+        oracle
+            .source_last_report_time
+            .insert(&"deviant_src".to_string(), &100u64);
+        oracle
+            .source_last_reported_price
+            .insert(&"deviant_src".to_string(), &1500u128);
+
+        let rep_before = oracle
+            .source_reputations
+            .get(&"deviant_src".to_string())
+            .unwrap_or(0);
+        let stake_before = oracle
+            .source_stakes
+            .get(&"deviant_src".to_string())
+            .unwrap_or(0);
+
+        oracle.run_auto_slash_checks(1000);
+
+        let rep_after = oracle
+            .source_reputations
+            .get(&"deviant_src".to_string())
+            .unwrap_or(0);
+        let stake_after = oracle
+            .source_stakes
+            .get(&"deviant_src".to_string())
+            .unwrap_or(0);
+
+        // Reputation 500 -> 350 (moderate penalty), stake 1_000_000 -> 850_000.
+        assert!(rep_after < rep_before, "reputation must drop for a deviation");
+        assert!(stake_after < stake_before, "stake must be slashed for a deviation");
+        assert_eq!(rep_after, 350);
+        assert_eq!(stake_after, 850_000);
+        // A single slash does not freeze the source yet.
+        assert!(oracle.active_sources.contains(&"deviant_src".to_string()));
+    }
+
+    #[ink::test]
+    fn test_repeated_deviation_outliers_decrease_reputation_and_freeze_source() {
+        let mut oracle = setup();
+        add_source(&mut oracle, "deviant_src");
+
+        oracle
+            .set_auto_slash_config(false, 3600, true, 2000, false, 3)
+            .unwrap();
+
+        test::set_block_timestamp::<DefaultEnvironment>(100);
+        oracle
+            .source_last_report_time
+            .insert(&"deviant_src".to_string(), &100u64);
+        oracle
+            .source_last_reported_price
+            .insert(&"deviant_src".to_string(), &1500u128);
+
+        // The source keeps reporting the same runaway price every cycle.
+        let mut frozen = false;
+        let mut rep = 0u32;
+        for _ in 0..10 {
+            oracle.run_auto_slash_checks(1000);
+            oracle
+                .source_last_report_time
+                .insert(&"deviant_src".to_string(), &100u64);
+            oracle
+                .source_last_reported_price
+                .insert(&"deviant_src".to_string(), &1500u128);
+            rep = oracle
+                .source_reputations
+                .get(&"deviant_src".to_string())
+                .unwrap_or(0);
+            if !oracle.active_sources.contains(&"deviant_src".to_string()) {
+                frozen = true;
+                break;
+            }
+        }
+
+        assert!(frozen, "repeated outliers must freeze (deactivate) the source");
+        assert!(
+            rep < propchain_traits::constants::ORACLE_MIN_REPUTATION_THRESHOLD,
+            "reputation keeps decreasing below the threshold, got {rep}"
+        );
+    }
+
+    #[ink::test]
+    fn test_no_deviation_slash_when_price_within_threshold() {
+        let mut oracle = setup();
+        add_source(&mut oracle, "well_behaved");
+
+        oracle
+            .set_auto_slash_config(false, 3600, true, 2000, false, 3)
+            .unwrap();
+
+        test::set_block_timestamp::<DefaultEnvironment>(100);
+        oracle
+            .source_last_report_time
+            .insert(&"well_behaved".to_string(), &100u64);
+        // 1100 vs consensus 1000 = 10% < 20% threshold -> no slash.
+        oracle
+            .source_last_reported_price
+            .insert(&"well_behaved".to_string(), &1100u128);
+
+        oracle.run_auto_slash_checks(1000);
+
+        let rep = oracle
+            .source_reputations
+            .get(&"well_behaved".to_string())
+            .unwrap_or(0);
+        let stake = oracle
+            .source_stakes
+            .get(&"well_behaved".to_string())
+            .unwrap_or(0);
+        assert_eq!(rep, 500);
+        assert_eq!(stake, 1_000_000);
+        assert!(oracle.active_sources.contains(&"well_behaved".to_string()));
+    }
+
+    #[ink::test]
+    fn test_slash_malicious_oracle_message_reduces_reputation() {
+        let mut oracle = setup();
+        add_source(&mut oracle, "bad_src");
+
+        oracle
+            .slash_malicious_oracle("bad_src".to_string(), "BadActor".to_string())
+            .unwrap();
+
+        let status = oracle
+            .get_source_status("bad_src".to_string())
+            .expect("status exists");
+        // Severe: -300 reputation, 30% of 1_000_000 stake.
+        assert_eq!(status.reputation, 200);
+        assert_eq!(status.stake, 700_000);
+        assert_eq!(status.total_slashes, 1);
+        assert!(!status.is_banned);
+    }
+
+    #[ink::test]
+    fn test_slash_malicious_oracle_message_freezes_after_repeated_slashes() {
+        let mut oracle = setup();
+        add_source(&mut oracle, "bad_src");
+
+        for _ in 0..10 {
+            oracle
+                .slash_malicious_oracle("bad_src".to_string(), "Repeated".to_string())
+                .unwrap();
+        }
+
+        let status = oracle
+            .get_source_status("bad_src".to_string())
+            .expect("status exists");
+        let frozen = !oracle.active_sources.contains(&"bad_src".to_string());
+        assert!(frozen, "repeated malicious slashes must freeze the source");
+        assert!(!status.is_active);
+        assert!(status.reputation < 200);
+    }
+
+    #[ink::test]
+    fn test_slash_malicious_oracle_requires_admin() {
+        let mut oracle = setup();
+        add_source(&mut oracle, "bad_src");
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            oracle.slash_malicious_oracle("bad_src".to_string(), "Rogue".to_string()),
+            Err(OracleError::Unauthorized)
         );
     }
 }
