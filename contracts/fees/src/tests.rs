@@ -7,6 +7,7 @@
 #[cfg(test)]
 mod fee_tests {
     use super::*;
+    use scale::Decode as _;
 
     type DefaultEnvironment = ink::env::DefaultEnvironment;
 
@@ -636,6 +637,105 @@ mod fee_tests {
         assert!(contract.get_auction(id).unwrap().settled);
     }
 
+    // ========== Issue #1117: record_fee_collected access control ==========
+
+    #[ink::test]
+    fn record_fee_collected_rejects_non_admin() {
+        let mut contract = FeeManager::new(1000, 100, 100_000);
+        let accounts = default_accounts();
+
+        ink::env::test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            contract.record_fee_collected(FeeOperation::RegisterProperty, 1_000_000, accounts.bob),
+            Err(FeeError::Unauthorized)
+        );
+        assert_eq!(contract.fee_treasury(), 0);
+        assert_eq!(contract.get_fee_report().total_fees_collected, 0);
+    }
+
+    #[ink::test]
+    fn record_fee_collected_allowed_for_admin() {
+        let mut contract = FeeManager::new(1000, 100, 100_000);
+        let accounts = default_accounts();
+        ink::env::test::set_caller::<DefaultEnvironment>(accounts.alice);
+
+        contract
+            .record_fee_collected(FeeOperation::RegisterProperty, 5_000, accounts.bob)
+            .unwrap();
+        assert_eq!(contract.fee_treasury(), 5_000);
+        assert_eq!(contract.get_fee_report().total_fees_collected, 5_000);
+    }
+
+    // ========== Issue #1118: dynamic_fee_config reaches calculate_fee ==========
+
+    #[ink::test]
+    fn changing_dynamic_fee_config_changes_calculate_fee() {
+        let mut contract = FeeManager::new(1000, 100, 100_000);
+
+        // Baseline: fresh contract, dynamic rate == reference → fee unchanged.
+        let baseline = contract.calculate_fee(FeeOperation::RegisterProperty);
+
+        // Raise base_fee_bps 30 → 60 (rate doubles at any utilisation).
+        contract
+            .set_dynamic_fee_config(DynamicFeeConfig {
+                base_fee_bps: BasisPoints::new(constants::FEE_DYNAMIC_REFERENCE_BPS * 2),
+                congestion_multiplier: 300,
+                max_fee_bps: BasisPoints::new(200),
+            })
+            .unwrap();
+
+        let raised = contract.calculate_fee(FeeOperation::RegisterProperty);
+        assert!(
+            raised > baseline,
+            "doubling base_fee_bps should raise calculate_fee: {raised} <= {baseline}"
+        );
+        // With the rate doubled the fee doubles too (clamped by max_fee).
+        assert_eq!(raised, (baseline.saturating_mul(2)).min(100_000));
+    }
+
+    #[ink::test]
+    fn fee_rate_updated_is_emitted_on_dynamic_config_change() {
+        let mut contract = FeeManager::new(1000, 100, 100_000);
+
+        let events_before = ink::env::test::recorded_events().count();
+        contract
+            .set_dynamic_fee_config(DynamicFeeConfig {
+                base_fee_bps: BasisPoints::new(40),
+                congestion_multiplier: 200,
+                max_fee_bps: BasisPoints::new(150),
+            })
+            .unwrap();
+
+        let events = ink::env::test::recorded_events().collect::<Vec<_>>();
+        assert!(
+            events.len() > events_before,
+            "set_dynamic_fee_config must emit an event"
+        );
+        let decoded = FeeRateUpdated::decode(&mut &events[events_before].data[..])
+            .expect("first new event is FeeRateUpdated");
+        assert!(
+            decoded.new_rate_bps.get() > decoded.old_rate_bps.get(),
+            "raising base_fee_bps should raise the effective rate"
+        );
+        assert_ne!(decoded.new_rate_bps, decoded.old_rate_bps);
+    }
+
+    #[ink::test]
+    fn default_dynamic_config_is_a_no_op_for_calculate_fee() {
+        let contract = FeeManager::new(1000, 100, 100_000);
+        let config = contract.default_config();
+        let fee = contract.calculate_fee(FeeOperation::RegisterProperty);
+        assert_eq!(
+            fee,
+            FeeCalculator::calculate(
+                &config,
+                &FeeContext {
+                    congestion_index: contract.congestion_index(),
+                    demand_factor_bp: contract.demand_factor_bp(),
+                    operation: FeeOperation::RegisterProperty,
+                }
+            ),
+            "default dynamic fee rate (== reference) must not alter the fee"
     // ========== Fee rounding (Issue #1119) ==========
 
     /// Collection fees are rounded UP so the contract never under-collects:

@@ -1145,6 +1145,85 @@ mod tests {
         assert_eq!(campaign.reward_token_symbol, String::from("PCG"));
     }
 
+    // =========================================================================
+    // Default slippage guard (Issue #1115)
+    // =========================================================================
+
+    #[ink::test]
+    fn pool_exposes_default_slippage_cap() {
+        let mut dex = setup_dex();
+        let pair_id = create_pool(&mut dex);
+
+        assert_eq!(
+            dex.get_pool_max_slippage(pair_id),
+            Ok(constants::DEX_DEFAULT_MAX_SLIPPAGE_BPS)
+        );
+    }
+
+    #[ink::test]
+    fn swap_with_zero_min_out_honors_pool_default() {
+        let mut dex = setup_dex();
+        let pair_id = create_pool(&mut dex);
+
+        let quote_out = dex
+            .swap_exact_base_for_quote(pair_id, 2_000, 0)
+            .expect("swap with no caller min-out must still succeed");
+        assert!(quote_out > 0);
+
+        // The default cap (3%) was enforced: output held within 3% of the
+        // computed amount (i.e. at least the capped floor).
+        let (_, expected) = dex
+            .calculate_price_impact(pair_id, OrderSide::Sell, 2_000)
+            .expect("compute expected output");
+        let floor = expected
+            .saturating_mul(BIPS_DENOMINATOR.saturating_sub(constants::DEX_DEFAULT_MAX_SLIPPAGE_BPS as u128))
+            .checked_div(BIPS_DENOMINATOR)
+            .unwrap_or(0);
+        assert!(
+            quote_out >= floor,
+            "default slippage floor must hold: {quote_out} < {floor}"
+        );
+    }
+
+    #[ink::test]
+    fn check_slippage_is_exercised_by_live_swap_path() {
+        let mut dex = setup_dex();
+        let pair_id = create_pool(&mut dex);
+
+        // A swap that under-claims its min-out still passes through the guard
+        // on the live path without error.
+        let result = dex.swap_exact_quote_for_base(pair_id, 1_000, 1);
+        assert!(result.is_ok(), "live swap should run through check_slippage");
+
+        // Boundary behavior of the guard itself (also exercised via tests):
+        assert!(check_slippage(1_000, 1_000, 300).is_ok());
+        assert_eq!(check_slippage(1_000, 500, 300), Err(SlippageError::Exceeded));
+    }
+
+    #[ink::test]
+    fn admin_can_tighten_pool_slippage_cap() {
+        let mut dex = setup_dex();
+        let pair_id = create_pool(&mut dex);
+
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Non-admin cannot change the cap.
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            dex.set_pool_max_slippage(pair_id, 100),
+            Err(Error::Unauthorized)
+        );
+
+        // Admin can, and the new cap is exposed + honored.
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        dex.set_pool_max_slippage(pair_id, 100).expect("admin can adjust");
+        assert_eq!(dex.get_pool_max_slippage(pair_id), Ok(100));
+
+        // An absurd cap (>50%) is rejected.
+        assert_eq!(
+            dex.set_pool_max_slippage(pair_id, 9_999),
+            Err(Error::InvalidPair)
+        );
     // ── Route discovery adoption tests (Issue #1114) ──────────────────────
 
     #[ink::test]

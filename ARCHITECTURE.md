@@ -110,6 +110,13 @@ graph TD
 | `traits` | `propchain-traits` | Shared types, errors, macros |
 | `lib` | `propchain-lib` | Shared utilities & Kani proofs |
 
+> **DEX scope note (Issue #1116):** the dormant `concentrated_liquidity.rs`
+> module (range-liquidity type sketches) was dead code that was never compiled
+> into the contract and has been removed. The live liquidity surface is the
+> constant-product AMM (`add_liquidity`/`remove_liquidity` on `LiquidityPool`).
+> Range liquidity over `[lower_tick, upper_tick]` with per-position fee accrual
+> remains out of scope for the current contract.
+
 ---
 
 ## 3. Component Interaction Diagrams
