@@ -7,6 +7,8 @@
     clippy::too_many_arguments
 )]
 
+mod reward_snapshots;
+
 #[ink::contract]
 mod staking {
     use ink::prelude::vec::Vec;
@@ -16,6 +18,10 @@ mod staking {
 
     include!("errors.rs");
     include!("types.rs");
+
+    use crate::reward_snapshots::{
+        CheckpointReason, RewardCheckpoint, RewardSnapshot, REWARD_POINTS_DENOM,
+    };
 
     impl From<propchain_traits::ReentrancyError> for Error {
         fn from(_: propchain_traits::ReentrancyError) -> Self {
@@ -71,6 +77,21 @@ mod staking {
         #[ink(topic)]
         pub funder: AccountId,
         pub amount: u128,
+    }
+
+    /// A reward segment was settled for a staker and recorded in their history
+    /// (#1154). `points` is the segment's reward-per-stake at the named
+    /// `REWARD_POINTS_DENOM` scale; `total_points` is the staker's cumulative
+    /// total across every recorded segment.
+    #[ink(event)]
+    pub struct RewardCheckpointRecorded {
+        #[ink(topic)]
+        pub staker: AccountId,
+        pub block: u64,
+        pub points: u128,
+        pub rewards: u128,
+        pub total_points: u128,
+        pub reason: CheckpointReason,
     }
 
     #[ink(event)]
@@ -260,6 +281,12 @@ mod staking {
         min_stake: u128,
         acc_reward_per_share: u128,
         last_reward_block: u64,
+        /// Settled reward history per staker (#1154): the latest snapshot, and
+        /// the append-only list of segments closed at a claim boundary. A
+        /// segment recorded in `reward_history` is never re-priced, so a later
+        /// `reward_rate_bps` change cannot rewrite it.
+        reward_snapshots: Mapping<AccountId, RewardSnapshot>,
+        reward_history: Mapping<AccountId, Vec<RewardCheckpoint>>,
         governance_power: Mapping<AccountId, u128>,
         staker_list: Vec<AccountId>,
         reentrancy_guard: propchain_traits::ReentrancyGuard,
@@ -311,6 +338,8 @@ mod staking {
                 min_stake: safe_min,
                 acc_reward_per_share: 0,
                 last_reward_block: 0,
+                reward_snapshots: Mapping::default(),
+                reward_history: Mapping::default(),
                 governance_power: Mapping::default(),
                 staker_list: Vec::new(),
                 reentrancy_guard: propchain_traits::ReentrancyGuard::new(),
@@ -359,6 +388,11 @@ mod staking {
         }
 
         /// Calculates pending rewards for a staker.
+        ///
+        /// This is a live projection over the open segment only: it is priced
+        /// at the *current* `reward_rate_bps` and moves as blocks pass. Segments
+        /// already settled are in `get_reward_history` and are not re-priced
+        /// (#1154).
         #[ink(message)]
         pub fn get_pending_rewards(&self, staker: AccountId) -> u128 {
             if let Some(stake) = self.stakes.get(staker) {
@@ -366,6 +400,48 @@ mod staking {
             } else {
                 0
             }
+        }
+
+        /// The staker's latest reward snapshot, if they have staked (#1154).
+        ///
+        /// Holds cumulative reward points per unit of stake (scaled by
+        /// `REWARD_POINTS_DENOM`) as of `last_updated_block`, which is the block
+        /// their most recent segment was settled at.
+        #[ink(message)]
+        pub fn get_reward_snapshot(&self, staker: AccountId) -> Option<RewardSnapshot> {
+            self.reward_snapshots.get(staker)
+        }
+
+        /// The staker's settled reward segments, oldest first (#1154).
+        ///
+        /// One entry per claim boundary, each stamped with the block it settled
+        /// at, the reward amount, the points it scored, and why it settled.
+        /// Summing `rewards` across the history gives the staker a figure that
+        /// a later config change cannot move.
+        #[ink(message)]
+        pub fn get_reward_history(&self, staker: AccountId) -> Vec<RewardCheckpoint> {
+            self.reward_history.get(staker).unwrap_or_default()
+        }
+
+        /// Total reward points the staker has scored across every settled
+        /// segment (#1154), or 0 if they have never settled one.
+        #[ink(message)]
+        pub fn get_reward_points(&self, staker: AccountId) -> u128 {
+            self.reward_snapshots
+                .get(staker)
+                .map(|snapshot| snapshot.accrued_per_token)
+                .unwrap_or(0)
+        }
+
+        /// Scale factor for reward points, as a fraction of one token of stake
+        /// per point (#1154).
+        ///
+        /// Exposed so off-chain callers can convert between the points in
+        /// `get_reward_points` and reward amounts without hard-coding the
+        /// constant.
+        #[ink(message)]
+        pub fn get_reward_points_denominator(&self) -> u128 {
+            REWARD_POINTS_DENOM
         }
 
         /// Returns the governance power for an account (own + delegated).
@@ -442,7 +518,11 @@ mod staking {
         }
 
         /// Estimate projected staking rewards for a given amount, lock period, and duration.
-        /// This is a read-only calculator — no state is modified.
+        ///
+        /// This is a read-only calculator - no state is modified, and it is a
+        /// projection, not a record. A projection assumes the current
+        /// `reward_rate_bps` holds for the whole horizon; settled rewards live
+        /// in `get_reward_history` (#1154).
         #[ink(message)]
         pub fn calculate_projected_rewards(
             &self,
@@ -528,6 +608,13 @@ mod staking {
                 auto_compound: false,
                 vesting_schedule: None,
             };
+
+            // Open this staker's reward history (#1154). The snapshot starts at
+            // zero points on the stake block; every later reward boundary
+            // rewrites it, and `reward_history` keeps the segments themselves.
+            let mut snapshot = RewardSnapshot::new();
+            snapshot.flush(0, now);
+            self.reward_snapshots.insert(caller, &snapshot);
 
             self.stakes.insert(caller, &stake_info);
             self.total_staked = self.total_staked.saturating_add(amount);
@@ -615,6 +702,11 @@ mod staking {
 
             // Reserve the reward amount from the pool
             self.reward_pool = self.reward_pool.saturating_sub(total_reward_amount);
+
+            // Open this staker's reward history (#1154), as `stake` does.
+            let mut snapshot = RewardSnapshot::new();
+            snapshot.flush(0, now);
+            self.reward_snapshots.insert(caller, &snapshot);
 
             self.stakes.insert(caller, &stake_info);
             self.total_staked = self.total_staked.saturating_add(amount);
@@ -737,6 +829,7 @@ mod staking {
                 let mut stake = self.stakes.get(caller).ok_or(Error::StakeNotFound)?;
 
                 // Determine how much can be claimed
+                let staked_basis = stake.amount;
                 let claimable_amount = if let Some(vesting) = stake.vesting_schedule {
                     let now = self.env().block_number() as u64;
                     let total_vested = if now < vesting.cliff_block {
@@ -787,6 +880,13 @@ mod staking {
                         amount: claimable_amount,
                         total_vested: vesting.vested_amount,
                     });
+                    self.record_reward_checkpoint(
+                        caller,
+                        staked_basis,
+                        claimable_amount,
+                        CheckpointReason::VestingClaimed,
+                        now,
+                    );
                 } else if stake.auto_compound {
                     stake.amount = stake.amount.saturating_add(claimable_amount);
                     self.total_staked = self.total_staked.saturating_add(claimable_amount);
@@ -807,6 +907,13 @@ mod staking {
                         staker: caller,
                         amount: claimable_amount,
                     });
+                    self.record_reward_checkpoint(
+                        caller,
+                        staked_basis,
+                        claimable_amount,
+                        CheckpointReason::AutoCompounded,
+                        now,
+                    );
                 } else {
                     stake.staked_at = now;
                     stake.reward_debt = self.acc_reward_per_share;
@@ -816,6 +923,13 @@ mod staking {
                         staker: caller,
                         amount: claimable_amount,
                     });
+                    self.record_reward_checkpoint(
+                        caller,
+                        staked_basis,
+                        claimable_amount,
+                        CheckpointReason::Claimed,
+                        now,
+                    );
                 }
 
                 Ok(claimable_amount)
@@ -896,6 +1010,11 @@ mod staking {
         }
 
         /// Update staking configuration. Only admin may call.
+        ///
+        /// `reward_rate_bps` only prices what accrues *after* this call.
+        /// Segments already settled into a staker's reward history are recorded
+        /// in `reward_history` and are never re-priced (#1154); the open segment
+        /// is projected at the new rate by `get_pending_rewards`.
         #[ink(message)]
         pub fn update_config(
             &mut self,
@@ -1120,6 +1239,46 @@ mod staking {
                 return Err(Error::Unauthorized);
             }
             Ok(())
+        }
+
+        /// Settle `rewards` into the staker's reward history (#1154).
+        ///
+        /// Appends a checkpoint stamped with `block`, moves the staker's
+        /// snapshot to the new cumulative points total, and emits
+        /// `RewardCheckpointRecorded`. Call this at a reward boundary - i.e.
+        /// exactly where the live accrual clock is reset - so a segment is
+        /// recorded once and never re-priced. `staked` is the stake the segment
+        /// was earned against, which is what the segment's points are scored
+        /// against.
+        fn record_reward_checkpoint(
+            &mut self,
+            staker: AccountId,
+            staked: u128,
+            rewards: u128,
+            reason: CheckpointReason,
+            block: u64,
+        ) {
+            let checkpoint = RewardCheckpoint::new(staked, rewards, block, reason);
+
+            let mut history = self.reward_history.get(staker).unwrap_or_default();
+            history.push(checkpoint);
+            self.reward_history.insert(staker, &history);
+
+            let mut snapshot = self.reward_snapshots.get(staker).unwrap_or_default();
+            let total_points = snapshot
+                .accrued_per_token
+                .saturating_add(checkpoint.points);
+            snapshot.flush(total_points, block);
+            self.reward_snapshots.insert(staker, &snapshot);
+
+            self.env().emit_event(RewardCheckpointRecorded {
+                staker,
+                block,
+                points: checkpoint.points,
+                rewards,
+                total_points,
+                reason,
+            });
         }
 
         fn calculate_rewards(&self, stake: &StakeInfo) -> u128 {
