@@ -1,9 +1,23 @@
 //! Formal verification harnesses using Kani.
 //!
-//! These proofs cover three invariants required by the security issue:
+//! # Scope — read this before citing a green run
+//!
+//! Every harness below proves a property of a **local stand-in type defined in
+//! this file** (`TokenLedger`, `AccessControl`, `OraclePrice`). None of them
+//! touch `PropertyRegistry`, its storage, or the chain environment, and each
+//! stand-in is marked `replace with your actual contract types`.
+//!
+//! So these proofs establish that the *reasoning* behind three invariants is
+//! sound — not that the deployed contract upholds them:
 //!   1. Balance conservation  — tokens cannot be created or destroyed
 //!   2. Access-control roles  — only authorised addresses can call admin functions
 //!   3. Oracle staleness bound — price data must be recent enough to be trusted
+//!
+//! A passing CI run here is evidence about these models only. The harnesses
+//! that do reason about real contract code live in the `verification` module in
+//! `lib.rs`, which proves the pure input-validation guards. Closing the gap
+//! between the models and the contract means replacing the stand-ins with the
+//! real types; that is tracked as follow-up work, not claimed as done here.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. BALANCE CONSERVATION
