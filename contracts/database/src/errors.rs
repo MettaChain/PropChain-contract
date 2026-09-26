@@ -9,6 +9,13 @@ pub enum Error {
     InvalidDataRange,
     IndexerNotFound,
     IndexerAlreadyRegistered,
+    /// The registry already holds `MAX_INDEXERS` indexers.
+    ///
+    /// The cap exists so `indexer_list` cannot grow without bound; without it
+    /// the list is a pure leak, since entries are only ever appended.
+    IndexerLimitReached,
+    /// The indexer exists but has been deactivated, so it may not act.
+    IndexerInactive,
     InvalidChecksum,
     SnapshotNotFound,
 }

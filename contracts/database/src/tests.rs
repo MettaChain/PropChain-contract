@@ -93,6 +93,250 @@ mod tests {
     }
 
     // ========================================================================
+    // Indexer registry lifecycle (Issue #1192)
+    // ========================================================================
+
+    /// Advances the chain clock so staleness can be exercised.
+    ///
+    /// `ink::env::test::set_block_timestamp` moves time forward for the
+    /// contract under test, which is what the staleness window reads.
+    fn advance_time(seconds: u64) {
+        let now = ink::env::block_timestamp::<ink::env::DefaultEnvironment>();
+        ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(now + seconds);
+    }
+
+    fn indexer_account(seed: u8) -> AccountId {
+        AccountId::from([seed; 32])
+    }
+
+    /// A freshly registered indexer counts as active.
+    #[ink::test]
+    fn registered_indexer_is_active() {
+        let contract = new_admin_contract();
+        let indexer = indexer_account(0x11);
+
+        assert_eq!(
+            contract.register_indexer(indexer, String::from("Fresh")),
+            Ok(())
+        );
+
+        assert_eq!(contract.get_active_indexers(), vec![indexer]);
+    }
+
+    /// A heartbeat inside the window keeps an indexer in the active set.
+    #[ink::test]
+    fn heartbeat_keeps_indexer_active() {
+        let mut contract = new_admin_contract();
+        let indexer = indexer_account(0x12);
+
+        contract
+            .register_indexer(indexer, String::from("Alive"))
+            .unwrap();
+
+        // Most of the way to the window, then a heartbeat.
+        let window = contract.indexer_stale_window();
+        advance_time(window - 1);
+
+        let sync_id = contract
+            .emit_sync_event(DataType::Properties, Hash::from([0x01; 32]), 1)
+            .unwrap();
+
+        ink::env::test::set_caller::<ink::env::DefaultEnvironment>(indexer);
+        assert_eq!(contract.confirm_sync(sync_id), Ok(()));
+        ink::env::test::set_caller::<ink::env::DefaultEnvironment>(
+            ink::env::test::default_accounts::<ink::env::DefaultEnvironment>().alice,
+        );
+
+        let info = contract.get_indexer(indexer).unwrap();
+        assert!(info.is_active);
+        assert_eq!(contract.get_active_indexers(), vec![indexer]);
+    }
+
+    /// An indexer that goes quiet past the window drops out of the active set.
+    ///
+    /// This is the core of the issue: a burnt-out indexer must stop being
+    /// counted as healthy.
+    #[ink::test]
+    fn stale_indexer_leaves_active_set() {
+        let mut contract = new_admin_contract();
+        let indexer = indexer_account(0x13);
+
+        contract
+            .register_indexer(indexer, String::from("Doomed"))
+            .unwrap();
+        assert_eq!(contract.get_active_indexers(), vec![indexer]);
+
+        // One second past the window.
+        advance_time(contract.indexer_stale_window() + 1);
+
+        // Excluded on read, with no sweep required.
+        assert!(contract.get_active_indexers().is_empty());
+        // Still present in the raw registry listing, which is the distinction
+        // the two getters exist to make.
+        assert_eq!(contract.get_indexer_list(), vec![indexer]);
+    }
+
+    /// The boundary is inclusive: exactly at the window is still live.
+    #[ink::test]
+    fn indexer_at_exactly_the_window_is_still_active() {
+        let mut contract = new_admin_contract();
+        let indexer = indexer_account(0x14);
+
+        contract
+            .register_indexer(indexer, String::from("Edge"))
+            .unwrap();
+
+        advance_time(contract.indexer_stale_window());
+
+        assert_eq!(contract.get_active_indexers(), vec![indexer]);
+    }
+
+    /// Sweeping persists the demotion and reclaims the slot.
+    #[ink::test]
+    fn prune_removes_stale_indexers() {
+        let mut contract = new_admin_contract();
+        let live = indexer_account(0x15);
+        let dead = indexer_account(0x16);
+
+        contract.register_indexer(live, String::from("Live")).unwrap();
+        contract.register_indexer(dead, String::from("Dead")).unwrap();
+
+        // Keep `live` fresh, then let both age out.
+        advance_time(contract.indexer_stale_window() / 2);
+        let sync_id = contract
+            .emit_sync_event(DataType::Properties, Hash::from([0x02; 32]), 1)
+            .unwrap();
+        ink::env::test::set_caller::<ink::env::DefaultEnvironment>(live);
+        contract.confirm_sync(sync_id).unwrap();
+        ink::env::test::set_caller::<ink::env::DefaultEnvironment>(
+            ink::env::test::default_accounts::<ink::env::DefaultEnvironment>().alice,
+        );
+
+        advance_time(contract.indexer_stale_window());
+
+        // `dead` is now stale, `live` is not.
+        assert_eq!(contract.prune_stale_indexers(), Ok(1));
+        assert_eq!(contract.get_indexer_list(), vec![live]);
+        assert_eq!(contract.get_active_indexers(), vec![live]);
+
+        let dead_info = contract.get_indexer(dead).unwrap();
+        assert!(!dead_info.is_active, "pruned indexer must be demoted");
+    }
+
+    /// A deactivated indexer is out of the active set and out of the list.
+    #[ink::test]
+    fn deactivation_removes_from_list_and_frees_slot() {
+        let mut contract = new_admin_contract();
+        let indexer = indexer_account(0x17);
+
+        contract
+            .register_indexer(indexer, String::from("Doomed"))
+            .unwrap();
+
+        assert_eq!(contract.deactivate_indexer(indexer), Ok(()));
+        assert!(contract.get_active_indexers().is_empty());
+        assert!(contract.get_indexer_list().is_empty());
+        // The record survives for lookups.
+        assert!(!contract.get_indexer(indexer).unwrap().is_active);
+
+        // Deactivating twice is an error, not a silent success.
+        assert_eq!(
+            contract.deactivate_indexer(indexer),
+            Err(Error::IndexerInactive)
+        );
+    }
+
+    /// A deactivated indexer cannot confirm syncs or refresh its heartbeat.
+    #[ink::test]
+    fn deactivated_indexer_cannot_confirm_sync() {
+        let mut contract = new_admin_contract();
+        let indexer = indexer_account(0x18);
+
+        contract
+            .register_indexer(indexer, String::from("Doomed"))
+            .unwrap();
+
+        let sync_id = contract
+            .emit_sync_event(DataType::Properties, Hash::from([0x03; 32]), 1)
+            .unwrap();
+
+        contract.deactivate_indexer(indexer).unwrap();
+
+        ink::env::test::set_caller::<ink::env::DefaultEnvironment>(indexer);
+        assert_eq!(contract.confirm_sync(sync_id), Err(Error::IndexerInactive));
+    }
+
+    /// Reactivation returns an indexer to the live set.
+    #[ink::test]
+    fn reactivation_restores_indexer() {
+        let mut contract = new_admin_contract();
+        let indexer = indexer_account(0x19);
+
+        contract
+            .register_indexer(indexer, String::from("Paused"))
+            .unwrap();
+        contract.deactivate_indexer(indexer).unwrap();
+        assert!(contract.get_active_indexers().is_empty());
+
+        assert_eq!(contract.reactivate_indexer(indexer), Ok(()));
+        assert_eq!(contract.get_active_indexers(), vec![indexer]);
+        assert_eq!(contract.get_indexer_list(), vec![indexer]);
+
+        // Reactivating a live indexer is rejected.
+        assert_eq!(
+            contract.reactivate_indexer(indexer),
+            Err(Error::IndexerAlreadyRegistered)
+        );
+    }
+
+    /// The registry refuses to grow past `MAX_INDEXERS`.
+    ///
+    /// Also pins down the documented limit so the constant and the behaviour
+    /// cannot drift apart silently.
+    #[ink::test]
+    fn registration_is_capped() {
+        let mut contract = new_admin_contract();
+        let cap = contract.max_indexers();
+
+        for i in 0..cap {
+            assert_eq!(
+                contract.register_indexer(indexer_account(0x20 + i as u8), String::from("Filler")),
+                Ok(()),
+                "registration {i} should succeed"
+            );
+        }
+
+        assert_eq!(contract.get_indexer_list().len() as u32, cap);
+
+        // One past the cap.
+        assert_eq!(
+            contract.register_indexer(indexer_account(0x80), String::from("OneTooMany")),
+            Err(Error::IndexerLimitReached)
+        );
+        assert_eq!(contract.get_indexer_list().len() as u32, cap);
+    }
+
+    /// Lifecycle management is admin-only.
+    #[ink::test]
+    fn indexer_lifecycle_is_admin_only() {
+        let accounts = ink::env::test::default_accounts::<ink::env::DefaultEnvironment>();
+        let mut contract = new_admin_contract();
+        let indexer = indexer_account(0x1A);
+
+        contract
+            .register_indexer(indexer, String::from("Owned"))
+            .unwrap();
+
+        ink::env::test::set_caller::<ink::env::DefaultEnvironment>(accounts.bob);
+        assert_eq!(
+            contract.deactivate_indexer(indexer),
+            Err(Error::Unauthorized)
+        );
+        assert_eq!(contract.reactivate_indexer(indexer), Err(Error::Unauthorized));
+        assert_eq!(contract.prune_stale_indexers(), Err(Error::Unauthorized));
+    }
+
+    // ========================================================================
     // Export-request lifecycle (Issue #1016)
     // ========================================================================
 
