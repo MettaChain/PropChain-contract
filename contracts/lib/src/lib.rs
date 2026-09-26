@@ -4279,28 +4279,83 @@ pub mod propchain_contracts {
         }
     }
 
+    // =========================================================================
+    // Kani harnesses
+    //
+    // These prove properties of `PropertyRegistry`'s own input-validation
+    // guards. They deliberately do not attempt to model storage or the chain
+    // environment: a harness over storage-backed state would have to stand up
+    // the whole environment to say anything, and would prove less per line than
+    // the guards below do.
+    //
+    // The model-level harnesses in `verification/invariants.rs` cover balance
+    // conservation, role checks and oracle staleness, but those prove local
+    // stand-in types, not this contract. Read that module's header before
+    // treating a green run as assurance about `PropertyRegistry`.
+    // =========================================================================
     #[cfg(kani)]
     mod verification {
         use super::*;
 
+        // `ensure_not_zero_address` and `ensure_not_self` are the only guards
+        // in this contract that Kani can discharge exactly: they are pure
+        // functions of their arguments, with no storage, no `self.env()`, and
+        // no allocation.
+        //
+        // Each is proved in *both* directions on purpose. Proving only the
+        // rejection direction is close to vacuous — it is implied by reading
+        // the body. The `Ok` direction is the one that carries information,
+        // because it rules out a guard that has drifted over-broad and started
+        // rejecting legitimate callers, which is the failure mode that would
+        // otherwise only ever show up in production.
+
+        /// The zero address is rejected, for the one input that is the zero
+        /// address.
         #[kani::proof]
-        fn verify_arithmetic_overflow() {
-            let a: u64 = kani::any();
-            let b: u64 = kani::any();
-            // Verify that addition is safe
-            if a < 100 && b < 100 {
-                assert!(a + b < 200);
-            }
+        fn prove_zero_address_is_always_rejected() {
+            let raw: [u8; 32] = kani::any();
+            kani::assume(raw == [0u8; 32]);
+            assert_eq!(
+                PropertyRegistry::ensure_not_zero_address(AccountId::from(raw)),
+                Err(Error::ZeroAddress)
+            );
         }
 
+        /// No other address is rejected. This is the direction that can fail.
         #[kani::proof]
-        fn verify_property_info_struct() {
-            let id: u64 = kani::any();
-            // Verify PropertyInfo layout/safety if needed
-            // This is a placeholder for checking structural invariants
-            if id > 0 {
-                assert!(id > 0);
-            }
+        fn prove_every_non_zero_address_is_accepted() {
+            let raw: [u8; 32] = kani::any();
+            // Exactly the negation of the guard's own condition, so this
+            // explores all 2^256 - 1 remaining addresses.
+            kani::assume(raw != [0u8; 32]);
+            assert!(PropertyRegistry::ensure_not_zero_address(AccountId::from(raw)).is_ok());
+        }
+
+        /// A caller equal to the target is rejected.
+        #[kani::proof]
+        fn prove_self_transfer_is_always_rejected() {
+            let raw: [u8; 32] = kani::any();
+            let account = AccountId::from(raw);
+            assert_eq!(
+                PropertyRegistry::ensure_not_self(account, account),
+                Err(Error::SelfTransferNotAllowed)
+            );
+        }
+
+        /// Distinct caller and target are accepted, for every such pair
+        /// including the zero address on either side.
+        #[kani::proof]
+        fn prove_distinct_caller_and_target_are_accepted() {
+            let caller_raw: [u8; 32] = kani::any();
+            let target_raw: [u8; 32] = kani::any();
+            kani::assume(caller_raw != target_raw);
+            assert!(
+                PropertyRegistry::ensure_not_self(
+                    AccountId::from(caller_raw),
+                    AccountId::from(target_raw)
+                )
+                .is_ok()
+            );
         }
     }
 
