@@ -67,6 +67,17 @@ pub enum MulticallError {
     /// does not forward message-level value. Per-call value should be set
     /// via `CallRequest.transferred_value`.
     UnexpectedValue,
+    /// A `CallRequest.selector_and_input` was shorter than
+    /// `CALL_SELECTOR_LEN`, so it does not even contain a complete 4-byte
+    /// selector (Issue #1164).
+    ///
+    /// Reported by `validate_calls` before any dispatch is attempted, and
+    /// carries both the offending `index` and the `len` that was supplied so a
+    /// caller can tell a truncated selector from an empty one. Previously the
+    /// contract sliced `[..4]` on a possibly-shorter buffer, which panics, and
+    /// whose `unwrap_or([0u8; 4])` fallback would have invoked selector
+    /// `0x00000000` against the callee had it ever been reached.
+    SelectorTooShort { index: u32, len: u32 },
 }
 
 // ---------------------------------------------------------------------------
@@ -228,5 +239,63 @@ mod tests {
         let callee = AccountId::from([0xab; 32]);
         let calls = aggregate_verifications(callee, &[], &[1, 2, 3]);
         assert!(calls.is_empty());
+    }
+
+    // ---- #1164: SelectorTooShort ----
+
+    #[test]
+    fn selector_too_short_round_trips_through_scale() {
+        // The variant is the payload a failed `dispatch` puts in
+        // `CallResult.return_data`, so it has to survive a decode on the way
+        // back out.
+        use scale::{Decode, Encode};
+
+        for (index, len) in [(0u32, 0u32), (1, 3), (u32::MAX, 1)] {
+            let error = MulticallError::SelectorTooShort { index, len };
+            let encoded = error.encode();
+            assert_eq!(
+                MulticallError::decode(&mut &encoded[..]),
+                Ok(error),
+                "SelectorTooShort {{ index: {index}, len: {len} }} must round-trip"
+            );
+        }
+    }
+
+    #[test]
+    fn selector_too_short_keeps_its_fields_distinguishable() {
+        // Two malformed requests that differ only in index or length must not
+        // encode to the same bytes, or a caller cannot tell them apart.
+        use scale::Encode;
+
+        let a = MulticallError::SelectorTooShort { index: 0, len: 3 }.encode();
+        let b = MulticallError::SelectorTooShort { index: 1, len: 3 }.encode();
+        let c = MulticallError::SelectorTooShort { index: 0, len: 2 }.encode();
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn every_variant_remains_reachable_after_the_new_one_was_added() {
+        // Adding a variant must not renumber the existing ones, or a client
+        // decoding `return_data` against a previously-built enum would read the
+        // wrong error. `SelectorTooShort` is appended last, so every pre-existing
+        // discriminant is unchanged.
+        use scale::Encode;
+
+        let existing = [
+            MulticallError::EmptyCalls,
+            MulticallError::TooManyCalls,
+            MulticallError::CallReverted(0),
+            MulticallError::Paused,
+            MulticallError::Unauthorized,
+            MulticallError::UnexpectedValue,
+        ];
+        for error in existing {
+            assert_ne!(
+                error.encode(),
+                MulticallError::SelectorTooShort { index: 0, len: 0 }.encode(),
+                "{error:?} must not collide with the new variant"
+            );
+        }
     }
 }
