@@ -18,10 +18,17 @@ mod risk_assessment;
 // Fraud Detection System (Task #258)
 mod fraud_detection;
 
-// Premium calculation engine
-// Note: `premium_engine.rs` is include!()-ed inside `mod propchain_insurance`
-// below. Do NOT also `mod premium_engine;` here — the dual declaration
-// triggers E0255 "defined multiple times" for every type the file references.
+// Premium calculation engine (Issue #1162)
+//
+// This is an ordinary module. It used to be `include!()`-ed textually into
+// `mod propchain_insurance`, which meant the file could not be addressed by
+// path, the six types it works on had to happen to be in scope in the contract
+// module, and adding a `mod premium_engine;` declaration anywhere was a
+// duplicate-definition build break guarded only by a comment. With a real
+// declaration the engine is reachable as `crate::premium_engine`, and the
+// `premium_engine_is_declared_exactly_once` test in the module enforces the
+// single-declaration rule that the comment used to describe.
+pub mod premium_engine;
 
 /// Decentralized Property Insurance Platform
 #[ink::contract]
@@ -89,9 +96,8 @@ pub mod propchain_insurance {
     // Risk Assessment Model (Task #254)
     // Fraud Detection System (Task #258)
     use crate::fraud_detection::fraud_detection;
+    use crate::premium_engine::calculate_dynamic_premium;
     use crate::risk_assessment::risk_model;
-    // Premium calculation engine
-    include!("premium_engine.rs");
 
     #[ink(storage)]
     pub struct PropertyInsurance {

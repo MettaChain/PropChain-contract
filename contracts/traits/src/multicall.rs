@@ -67,6 +67,17 @@ pub enum MulticallError {
     /// does not forward message-level value. Per-call value should be set
     /// via `CallRequest.transferred_value`.
     UnexpectedValue,
+    /// A `CallRequest.selector_and_input` was shorter than
+    /// `CALL_SELECTOR_LEN`, so it does not even contain a complete 4-byte
+    /// selector (Issue #1164).
+    ///
+    /// Reported by `validate_calls` before any dispatch is attempted, and
+    /// carries both the offending `index` and the `len` that was supplied so a
+    /// caller can tell a truncated selector from an empty one. Previously the
+    /// contract sliced `[..4]` on a possibly-shorter buffer, which panics, and
+    /// whose `unwrap_or([0u8; 4])` fallback would have invoked selector
+    /// `0x00000000` against the callee had it ever been reached.
+    SelectorTooShort { index: u32, len: u32 },
 }
 
 // ---------------------------------------------------------------------------

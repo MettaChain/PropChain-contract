@@ -8,6 +8,7 @@
 )]
 
 mod reward_snapshots;
+mod unbonding_tiers;
 
 #[ink::contract]
 mod staking {
@@ -21,6 +22,10 @@ mod staking {
 
     use crate::reward_snapshots::{
         CheckpointReason, RewardCheckpoint, RewardSnapshot, REWARD_POINTS_DENOM,
+    };
+    use crate::unbonding_tiers::{
+        effective_penalty_bps, effective_unlock_block, tier_for_duration, UnbondingTier,
+        UnbondingTierConfig, MAX_TIER_UNBONDING_BLOCKS,
     };
 
     impl From<propchain_traits::ReentrancyError> for Error {
@@ -92,6 +97,33 @@ mod staking {
         pub rewards: u128,
         pub total_points: u128,
         pub reason: CheckpointReason,
+    }
+
+    /// Emitted when a stake is placed on a rung of the unbonding ladder (#1155).
+    #[ink(event)]
+    pub struct UnbondingTierAssigned {
+        #[ink(topic)]
+        pub staker: AccountId,
+        pub tier: UnbondingTier,
+        pub lock_period: LockPeriod,
+        /// Earliest block this stake can exit without penalty, i.e. the later
+        /// of the staker's own `lock_until` and the tier's minimum window.
+        pub unlock_at: u64,
+    }
+
+    /// Emitted when the admin rewrites one rung of the unbonding ladder
+    /// (#1155). Reports both the old and the new value so the change is
+    /// auditable off-chain without replaying storage.
+    #[ink(event)]
+    pub struct UnbondingTierConfigChanged {
+        #[ink(topic)]
+        pub tier: UnbondingTier,
+        pub old_unbonding_blocks: u64,
+        pub new_unbonding_blocks: u64,
+        pub old_early_exit_penalty_bps: u128,
+        pub new_early_exit_penalty_bps: u128,
+        pub early_exit_allowed: bool,
+        pub updated_by: AccountId,
     }
 
     #[ink(event)]
@@ -300,6 +332,12 @@ mod staking {
         quorum_bps: u32,
         early_withdrawal_penalty_bps: u128,
         boost_curve: BoostCurve,
+        // ----- Unbonding tiers (#1155) -----
+        /// Rung of the A/B/C ladder each staker was placed on at `stake` time.
+        /// Absent for stakes taken before #1155, which are read as tier `C`.
+        stake_tiers: Mapping<AccountId, UnbondingTier>,
+        /// Operator-configurable parameters per ladder rung.
+        unbonding_tier_configs: Mapping<UnbondingTier, UnbondingTierConfig>,
         // ----- Validator / Delegation -----
         validators: Mapping<AccountId, ValidatorInfo>,
         delegations: Mapping<(AccountId, AccountId), DelegationRecord>,
@@ -352,6 +390,14 @@ mod staking {
                 quorum_bps: DEFAULT_QUORUM_BPS,
                 early_withdrawal_penalty_bps: constants::DEFAULT_EARLY_WITHDRAWAL_PENALTY_BPS,
                 boost_curve: BoostCurve::Linear,
+                stake_tiers: Mapping::default(),
+                unbonding_tier_configs: {
+                    let mut configs = Mapping::default();
+                    for tier in UnbondingTier::ALL {
+                        configs.insert(tier, &UnbondingTierConfig::default_for(tier));
+                    }
+                    configs
+                },
                 validators: Mapping::default(),
                 delegations: Mapping::default(),
                 validator_list: Vec::new(),
@@ -632,6 +678,8 @@ mod staking {
                 lock_until,
             });
 
+            self.assign_unbonding_tier(&stake_info);
+
             Ok(())
         }
 
@@ -731,13 +779,28 @@ mod staking {
                 end_block,
             });
 
+            self.assign_unbonding_tier(&stake_info);
+
             Ok(())
         }
 
-        /// Unstake tokens. If called before the lock period expires, a penalty
-        /// of `early_withdrawal_penalty_bps` is deducted from the returned amount.
-        /// The penalty amount is retained in the reward pool.
-        /// If vesting schedule exists, unvested rewards are returned to the reward pool.
+        /// Unstake tokens.
+        ///
+        /// A stake exits without penalty only once *both* of its bounds have
+        /// passed (#1155): the `LockPeriod` the staker chose, and the minimum
+        /// unbonding window of the ladder rung they were placed on. Exiting
+        /// before the earlier of the two is an early exit and is priced at
+        /// `max(early_withdrawal_penalty_bps, tier.early_exit_penalty_bps)`.
+        ///
+        /// Two carve-outs:
+        /// * `LockPeriod::Flexible` has no lock, so no tier window applies to
+        ///   it — the flexible product stays flexible.
+        /// * If the operator set `early_exit_allowed = false` on the tier,
+        ///   exiting before the window is rejected with `Error::LockActive`
+        ///   instead of being priced. The shipped default is `true`.
+        ///
+        /// The penalty amount is retained in the reward pool. If a vesting
+        /// schedule exists, unvested rewards are returned to the reward pool.
         #[ink(message)]
         pub fn unstake(&mut self) -> Result<(), Error> {
             propchain_traits::non_reentrant!(self, {
@@ -746,19 +809,38 @@ mod staking {
 
                 let now = self.env().block_number() as u64;
 
-                // Lock period is over, or we'll apply early withdrawal penalty
-
                 let amount = stake.amount;
-                let is_early = now < stake.lock_until;
+                let is_flexible = stake.lock_period == LockPeriod::Flexible;
+                let tier = self.stake_tiers.get(caller).unwrap_or_default();
+                let tier_config = self.tier_config_or_default(tier);
 
-                // Calculate penalty for early withdrawal (zero for on-time or flexible)
-                let penalty = if is_early && stake.lock_period != LockPeriod::Flexible {
-                    amount
-                        .saturating_mul(self.early_withdrawal_penalty_bps)
-                        .saturating_div(constants::BASIS_POINTS_DENOMINATOR as u128)
+                // The stake is only free once the staker's own lock *and* the
+                // tier window have both elapsed.
+                let unlock_at = effective_unlock_block(
+                    stake.staked_at,
+                    stake.lock_until,
+                    &tier_config,
+                    !is_flexible,
+                );
+                let is_early = !is_flexible && now < unlock_at;
+
+                if is_early && !tier_config.early_exit_allowed {
+                    return Err(Error::LockActive);
+                }
+
+                // A tier may raise the price of leaving early but never lower
+                // it below the contract-wide rate.
+                let penalty_bps = if is_early {
+                    effective_penalty_bps(
+                        self.early_withdrawal_penalty_bps,
+                        tier_config.early_exit_penalty_bps,
+                    )
                 } else {
                     0
                 };
+                let penalty = amount
+                    .saturating_mul(penalty_bps)
+                    .saturating_div(constants::BASIS_POINTS_DENOMINATOR as u128);
 
                 let amount_returned = amount.saturating_sub(penalty);
 
@@ -772,6 +854,7 @@ mod staking {
                 self.remove_governance_power(&stake);
 
                 self.stakes.remove(caller);
+                self.stake_tiers.remove(caller);
                 self.total_staked = self.total_staked.saturating_sub(amount);
 
                 // Penalty stays in the reward pool to benefit remaining stakers
@@ -784,7 +867,7 @@ mod staking {
                     self.staker_list.swap_remove(pos);
                 }
 
-                if is_early && stake.lock_period != LockPeriod::Flexible {
+                if is_early {
                     self.env().emit_event(EarlyWithdrawal {
                         staker: caller,
                         amount_returned,
@@ -800,6 +883,86 @@ mod staking {
                 Ok(())
             })
         }
+
+        /// Returns the unbonding ladder rung a stake sits on (#1155).
+        ///
+        /// Accounts with no recorded tier — every stake taken before #1155 —
+        /// read as tier `C`, the shortest window, so this never reports a rung
+        /// stricter than the one that will actually be enforced at `unstake`.
+        #[ink(message)]
+        pub fn get_unbonding_tier(&self, staker: AccountId) -> UnbondingTier {
+            self.stake_tiers.get(staker).unwrap_or_default()
+        }
+
+        /// Returns the operator-configurable parameters for one ladder rung.
+        #[ink(message)]
+        pub fn get_unbonding_tier_config(&self, tier: UnbondingTier) -> UnbondingTierConfig {
+            self.tier_config_or_default(tier)
+        }
+
+        /// Returns the block at which a staker's current position becomes free
+        /// to exit: the later of their own `lock_until` and their tier's
+        /// minimum window. `0` if the account has no active stake.
+        #[ink(message)]
+        pub fn get_unbonding_tier_unlock_at(&self, staker: AccountId) -> u64 {
+            match self.stakes.get(staker) {
+                Some(stake) => {
+                    let tier = self.stake_tiers.get(staker).unwrap_or_default();
+                    let is_flexible = stake.lock_period == LockPeriod::Flexible;
+                    effective_unlock_block(
+                        stake.staked_at,
+                        stake.lock_until,
+                        &self.tier_config_or_default(tier),
+                        !is_flexible,
+                    )
+                }
+                None => 0,
+            }
+        }
+
+        /// Updates one rung of the unbonding ladder (admin only).
+        ///
+        /// `unbonding_blocks` may be `0` (disables the tier minimum, restoring
+        /// the pre-#1155 single-`lock_until` behaviour) but may not exceed
+        /// `MAX_TIER_UNBONDING_BLOCKS`, so a typo cannot pin every affected
+        /// stake until the chain state is replaced. `early_exit_penalty_bps`
+        /// may not exceed `constants::MAX_EARLY_WITHDRAWAL_PENALTY_BPS`.
+        ///
+        /// The change applies to future exits; it does not re-price a penalty
+        /// that has already been charged, and it cannot shorten a staker's own
+        /// `LockPeriod`, only lengthen the floor beneath it.
+        #[ink(message)]
+        pub fn set_unbonding_tier_config(
+            &mut self,
+            tier: UnbondingTier,
+            config: UnbondingTierConfig,
+        ) -> Result<(), Error> {
+            if self.env().caller() != self.admin {
+                return Err(Error::Unauthorized);
+            }
+            if config.unbonding_blocks > MAX_TIER_UNBONDING_BLOCKS {
+                return Err(Error::InvalidConfig);
+            }
+            if config.early_exit_penalty_bps > constants::MAX_EARLY_WITHDRAWAL_PENALTY_BPS {
+                return Err(Error::InvalidConfig);
+            }
+
+            let old = self.tier_config_or_default(tier);
+            self.unbonding_tier_configs.insert(tier, &config);
+
+            self.env().emit_event(UnbondingTierConfigChanged {
+                tier,
+                old_unbonding_blocks: old.unbonding_blocks,
+                new_unbonding_blocks: config.unbonding_blocks,
+                old_early_exit_penalty_bps: old.early_exit_penalty_bps,
+                new_early_exit_penalty_bps: config.early_exit_penalty_bps,
+                early_exit_allowed: config.early_exit_allowed,
+                updated_by: self.env().caller(),
+            });
+
+            Ok(())
+        }
+
         /// Update the early withdrawal penalty rate. Admin only.
         /// `penalty_bps` must not exceed `MAX_EARLY_WITHDRAWAL_PENALTY_BPS`.
         ///
@@ -1306,6 +1469,42 @@ mod staking {
             let tier = self.get_tier_internal(stake.amount);
             let tier_multiplier = tier.reward_multiplier();
             reward.saturating_mul(tier_multiplier) / 100
+        }
+
+        /// Places a freshly created stake on the unbonding ladder (#1155) and
+        /// announces the resulting unlock block.
+        ///
+        /// The rung is derived from the staker's chosen `LockPeriod` only; see
+        /// the module header in `unbonding_tiers.rs` for why stake *amount* is
+        /// deliberately not an input (it already selects `StakingTier`).
+        fn assign_unbonding_tier(&mut self, stake: &StakeInfo) {
+            let tier = tier_for_duration(stake.lock_period.duration_blocks());
+            self.stake_tiers.insert(stake.staker, &tier);
+
+            let is_flexible = stake.lock_period == LockPeriod::Flexible;
+            let unlock_at = effective_unlock_block(
+                stake.staked_at,
+                stake.lock_until,
+                &self.tier_config_or_default(tier),
+                !is_flexible,
+            );
+
+            self.env().emit_event(UnbondingTierAssigned {
+                staker: stake.staker,
+                tier,
+                lock_period: stake.lock_period,
+                unlock_at,
+            });
+        }
+
+        /// Reads a rung's configuration, falling back to the shipped default
+        /// when the mapping has no entry. Keeps a ladder that was never written
+        /// (or was written before this constructor) from reading as a zero
+        /// window.
+        fn tier_config_or_default(&self, tier: UnbondingTier) -> UnbondingTierConfig {
+            self.unbonding_tier_configs
+                .get(tier)
+                .unwrap_or_else(|| UnbondingTierConfig::default_for(tier))
         }
 
         fn get_tier_internal(&self, amount: u128) -> StakingTier {
