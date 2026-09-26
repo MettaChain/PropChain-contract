@@ -2454,4 +2454,502 @@ fn staking_tiers_applied_correctly() {
         );
         assert_eq!(staking.get_reward_points(accounts.charlie), 0);
     }
+
+    // =========================================================================
+    // Unbonding tiers (#1155)
+    //
+    // The pre-#1155 contract knew one number per stake, `lock_until`, and
+    // priced any early exit at a single contract-wide rate. `LockPeriod::Custom`
+    // accepted any block count, so `Custom(1)` bought a one-block "lock" that
+    // then cost the same 10% to leave early as a 28-day commitment. The
+    // assertions below pin the tier minimum, the `max(global, tier)` penalty
+    // rule, and the two carve-outs (Flexible, and a configurable hard lock).
+    // =========================================================================
+
+    /// One year in blocks — the cap on a configurable tier window.
+    const TIER_MAX_WINDOW: u64 = 5_256_000;
+
+    /// Tier C's shipped window: 7 days at 6-second blocks.
+    const TIER_C_WINDOW: u64 = 100_800;
+
+    /// Tier A's shipped window: 28 days at 6-second blocks.
+    const TIER_A_WINDOW: u64 = 403_200;
+
+    /// Sets a tier's configuration as the admin (Alice, the deployer).
+    /// Leaves the caller as Alice, so tests must re-establish their staker.
+    fn configure_tier(
+        staking: &mut Staking,
+        tier: UnbondingTier,
+        unbonding_blocks: u64,
+        early_exit_penalty_bps: u128,
+        early_exit_allowed: bool,
+    ) {
+        let accounts = default_accounts();
+        set_caller(accounts.alice);
+        staking
+            .set_unbonding_tier_config(
+                tier,
+                UnbondingTierConfig {
+                    unbonding_blocks,
+                    early_exit_penalty_bps,
+                    early_exit_allowed,
+                },
+            )
+            .unwrap();
+    }
+
+    /// Jumps the clock to an absolute block. `advance_block` steps one block
+    /// per call, which is what a boundary check wants but would mean ~1.3M
+    /// environment calls just to cross a 90-day tier window.
+    fn jump_to_block(n: u64) {
+        ink::env::test::set_block_number::<ink::env::DefaultEnvironment>(n);
+    }
+
+    #[ink::test]
+    fn tier_defaults_match_the_documented_ladder() {
+        let staking = create_staking();
+
+        assert_eq!(
+            staking.get_unbonding_tier_config(UnbondingTier::A).unbonding_blocks,
+            TIER_A_WINDOW
+        );
+        assert_eq!(
+            staking.get_unbonding_tier_config(UnbondingTier::B).unbonding_blocks,
+            201_600
+        );
+        assert_eq!(
+            staking.get_unbonding_tier_config(UnbondingTier::C).unbonding_blocks,
+            TIER_C_WINDOW
+        );
+
+        // Shipped defaults must not reprice anyone: a zero tier penalty leaves
+        // the contract-wide rate in charge.
+        for tier in UnbondingTier::ALL {
+            let config = staking.get_unbonding_tier_config(tier);
+            assert_eq!(config.early_exit_penalty_bps, 0);
+            assert!(config.early_exit_allowed);
+        }
+    }
+
+    #[ink::test]
+    fn tier_is_assigned_from_the_chosen_lock_period() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        // 30 days clears tier A's 28-day window.
+        set_caller(accounts.alice);
+        staking.stake(REWARD_TEST_STAKE, LockPeriod::ThirtyDays).unwrap();
+        assert_eq!(
+            staking.get_unbonding_tier(accounts.alice),
+            UnbondingTier::A
+        );
+        staking.unstake().unwrap();
+
+        // Exactly 14 days is tier B.
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Custom(201_600))
+            .unwrap();
+        assert_eq!(staking.get_unbonding_tier(accounts.bob), UnbondingTier::B);
+        staking.unstake().unwrap();
+
+        // One block short of tier C's window is still tier C.
+        set_caller(accounts.charlie);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Custom(TIER_C_WINDOW - 1))
+            .unwrap();
+        assert_eq!(
+            staking.get_unbonding_tier(accounts.charlie),
+            UnbondingTier::C
+        );
+    }
+
+    #[ink::test]
+    fn flexible_stake_lands_on_the_lowest_tier() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        set_caller(accounts.bob);
+        staking
+            .stake(REWARD_TEST_STAKE, LockPeriod::Flexible)
+            .unwrap();
+
+        assert_eq!(staking.get_unbonding_tier(accounts.bob), UnbondingTier::C);
+    }
+
+    #[ink::test]
+    fn vesting_stake_also_lands_on_a_tier() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        set_caller(accounts.alice);
+        staking.fund_reward_pool(1_000_000_000u128).unwrap();
+
+        set_caller(accounts.bob);
+        staking
+            .stake_with_vesting(10_000, LockPeriod::NinetyDays, 500_000, 1_000, 2_000)
+            .unwrap();
+
+        // 90 days clears tier A.
+        assert_eq!(staking.get_unbonding_tier(accounts.bob), UnbondingTier::A);
+    }
+
+    #[ink::test]
+    fn tier_window_delays_an_exit_the_staker_already_served() {
+        // This is the regression #1155 is about. `Custom(1_000)` used to be
+        // "on time" at block 1_000 and exit free; on tier C the floor is 7 days.
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        set_caller(accounts.bob);
+        staking
+            .stake(10_000, LockPeriod::Custom(1_000))
+            .unwrap();
+
+        assert_eq!(staking.get_stake(accounts.bob).unwrap().lock_until, 1_000);
+        assert_eq!(
+            staking.get_unbonding_tier_unlock_at(accounts.bob),
+            TIER_C_WINDOW,
+            "the tier floor must sit above the staker's own 1_000-block lock"
+        );
+
+        advance_block(1_000);
+        let pool_before = staking.get_reward_pool();
+        staking.unstake().unwrap();
+
+        // Reached the staker's own lock_until and is still early: 10% penalty.
+        assert_eq!(
+            staking.get_reward_pool() - pool_before,
+            1_000,
+            "exiting at lock_until under the tier floor must still be priced"
+        );
+    }
+
+    #[ink::test]
+    fn tier_window_releases_the_stake_once_it_elapses() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        set_caller(accounts.bob);
+        staking
+            .stake(10_000, LockPeriod::Custom(1_000))
+            .unwrap();
+
+        jump_to_block(TIER_C_WINDOW);
+        let pool_before = staking.get_reward_pool();
+        staking.unstake().unwrap();
+
+        assert_eq!(staking.get_total_staked(), 0);
+        assert_eq!(
+            staking.get_reward_pool(),
+            pool_before,
+            "a stake held past its tier window exits free"
+        );
+    }
+
+    #[ink::test]
+    fn a_longer_staker_lock_is_never_shortened_by_its_tier() {
+        // A 90-day lock is tier A by duration, but its own window is later than
+        // tier A's 28-day floor and must win.
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        set_caller(accounts.bob);
+        staking
+            .stake(10_000, LockPeriod::NinetyDays)
+            .unwrap();
+
+        let own_lock = staking.get_stake(accounts.bob).unwrap().lock_until;
+        assert!(own_lock > TIER_A_WINDOW);
+        assert_eq!(staking.get_unbonding_tier_unlock_at(accounts.bob), own_lock);
+
+        // One block before the staker's own lock expires: still early.
+        jump_to_block(own_lock - 1);
+        let pool_before = staking.get_reward_pool();
+        staking.unstake().unwrap();
+        assert!(staking.get_reward_pool() > pool_before);
+
+        // And free at the staker's own lock_until, not at the tier's.
+        let mut staking = create_staking();
+        set_caller(accounts.bob);
+        staking
+            .stake(10_000, LockPeriod::NinetyDays)
+            .unwrap();
+        jump_to_block(own_lock);
+        let pool_before = staking.get_reward_pool();
+        staking.unstake().unwrap();
+        assert_eq!(staking.get_reward_pool(), pool_before);
+    }
+
+    #[ink::test]
+    fn flexible_stake_ignores_a_tier_window_even_when_it_is_harsher() {
+        // The most important carve-out: gating Flexible would silently turn the
+        // contract's explicit "no lock" product into a 7-day lock.
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        // Strictest possible tier C: 1-year floor, 50% penalty, no early exit.
+        configure_tier(
+            &mut staking,
+            UnbondingTier::C,
+            TIER_MAX_WINDOW,
+            5_000,
+            false,
+        );
+
+        set_caller(accounts.bob);
+        staking
+            .stake(10_000, LockPeriod::Flexible)
+            .unwrap();
+
+        assert_eq!(
+            staking.get_unbonding_tier_unlock_at(accounts.bob),
+            0,
+            "a Flexible stake taken at block 0 is never gated by a tier window"
+        );
+
+        let pool_before = staking.get_reward_pool();
+        staking.unstake().unwrap();
+        assert_eq!(staking.get_total_staked(), 0);
+        assert_eq!(staking.get_reward_pool(), pool_before);
+    }
+
+    #[ink::test]
+    fn tier_penalty_raises_the_early_exit_cost() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        // Global rate stays at its 1_000 bps default; the tier adds 3_000.
+        configure_tier(
+            &mut staking,
+            UnbondingTier::C,
+            TIER_C_WINDOW,
+            3_000,
+            true,
+        );
+
+        set_caller(accounts.bob);
+        staking
+            .stake(10_000, LockPeriod::Custom(1_000))
+            .unwrap();
+
+        let pool_before = staking.get_reward_pool();
+        staking.unstake().unwrap();
+
+        // 10_000 * 3_000 / 10_000, not the 1_000 the global rate alone would give.
+        assert_eq!(staking.get_reward_pool() - pool_before, 3_000);
+    }
+
+    #[ink::test]
+    fn tier_penalty_never_lowers_the_contract_wide_rate() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        set_caller(accounts.alice);
+        staking.set_early_withdrawal_penalty(5_000).unwrap();
+
+        // A tier priced below the global rate must not undercut it.
+        configure_tier(
+            &mut staking,
+            UnbondingTier::C,
+            TIER_C_WINDOW,
+            1_000,
+            true,
+        );
+
+        set_caller(accounts.bob);
+        staking
+            .stake(10_000, LockPeriod::Custom(1_000))
+            .unwrap();
+
+        let pool_before = staking.get_reward_pool();
+        staking.unstake().unwrap();
+
+        assert_eq!(staking.get_reward_pool() - pool_before, 5_000);
+    }
+
+    #[ink::test]
+    fn forbidden_early_exit_reverts_and_never_charges_a_penalty() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        configure_tier(
+            &mut staking,
+            UnbondingTier::C,
+            TIER_C_WINDOW,
+            0,
+            false,
+        );
+
+        set_caller(accounts.bob);
+        staking
+            .stake(10_000, LockPeriod::Custom(1_000))
+            .unwrap();
+
+        let pool_before = staking.get_reward_pool();
+        // `Error::LockActive` was declared but never constructed before #1155.
+        assert_eq!(staking.unstake(), Err(Error::LockActive));
+        assert_eq!(staking.get_reward_pool(), pool_before);
+        assert!(
+            staking.get_stake(accounts.bob).is_some(),
+            "a rejected exit must leave the stake untouched"
+        );
+
+        // Once the window elapses the same call succeeds for free.
+        jump_to_block(TIER_C_WINDOW);
+        assert!(staking.unstake().is_ok());
+        assert_eq!(staking.get_total_staked(), 0);
+    }
+
+    #[ink::test]
+    fn a_zero_window_tier_restores_single_lock_semantics() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        // An operator opting out of tier floors entirely.
+        configure_tier(&mut staking, UnbondingTier::C, 0, 0, true);
+
+        set_caller(accounts.bob);
+        staking
+            .stake(10_000, LockPeriod::Custom(1_000))
+            .unwrap();
+        assert_eq!(staking.get_unbonding_tier_unlock_at(accounts.bob), 1_000);
+
+        advance_block(1_000);
+        let pool_before = staking.get_reward_pool();
+        staking.unstake().unwrap();
+        assert_eq!(staking.get_reward_pool(), pool_before);
+    }
+
+    #[ink::test]
+    fn set_tier_config_is_admin_only() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        set_caller(accounts.bob);
+        assert_eq!(
+            staking.set_unbonding_tier_config(
+                UnbondingTier::A,
+                UnbondingTierConfig {
+                    unbonding_blocks: 1_000,
+                    early_exit_penalty_bps: 0,
+                    early_exit_allowed: true,
+                },
+            ),
+            Err(Error::Unauthorized)
+        );
+
+        // Rejected, so the ladder is untouched.
+        assert_eq!(
+            staking
+                .get_unbonding_tier_config(UnbondingTier::A)
+                .unbonding_blocks,
+            TIER_A_WINDOW
+        );
+    }
+
+    #[ink::test]
+    fn set_tier_config_rejects_a_window_above_the_cap() {
+        let mut staking = create_staking();
+
+        set_caller(default_accounts().alice);
+        assert_eq!(
+            staking.set_unbonding_tier_config(
+                UnbondingTier::B,
+                UnbondingTierConfig {
+                    unbonding_blocks: TIER_MAX_WINDOW + 1,
+                    early_exit_penalty_bps: 0,
+                    early_exit_allowed: true,
+                },
+            ),
+            Err(Error::InvalidConfig)
+        );
+        // The cap itself is accepted.
+        assert!(staking
+            .set_unbonding_tier_config(
+                UnbondingTier::B,
+                UnbondingTierConfig {
+                    unbonding_blocks: TIER_MAX_WINDOW,
+                    early_exit_penalty_bps: 0,
+                    early_exit_allowed: true,
+                },
+            )
+            .is_ok());
+    }
+
+    #[ink::test]
+    fn set_tier_config_rejects_a_penalty_above_the_contract_cap() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        set_caller(accounts.alice);
+        assert_eq!(
+            staking.set_unbonding_tier_config(
+                UnbondingTier::A,
+                UnbondingTierConfig {
+                    unbonding_blocks: TIER_A_WINDOW,
+                    // Matches MAX_EARLY_WITHDRAWAL_PENALTY_BPS + 1.
+                    early_exit_penalty_bps: 5_001,
+                    early_exit_allowed: true,
+                },
+            ),
+            Err(Error::InvalidConfig)
+        );
+        assert_eq!(
+            staking.get_unbonding_tier_config(UnbondingTier::A).unbonding_blocks,
+            TIER_A_WINDOW
+        );
+    }
+
+    #[ink::test]
+    fn tier_config_change_applies_to_existing_stakes() {
+        // The ladder is read at exit time, so lowering a window releases a
+        // position that was previously held by it.
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        set_caller(accounts.bob);
+        staking
+            .stake(10_000, LockPeriod::Custom(1_000))
+            .unwrap();
+        advance_block(1_000);
+        assert_eq!(staking.unstake(), Err(Error::LockActive));
+
+        configure_tier(&mut staking, UnbondingTier::C, 0, 0, false);
+
+        set_caller(accounts.bob);
+        assert!(staking.unstake().is_ok());
+    }
+
+    #[ink::test]
+    fn unstake_clears_the_tier_assignment() {
+        let mut staking = create_staking();
+        let accounts = default_accounts();
+
+        set_caller(accounts.bob);
+        staking
+            .stake(10_000, LockPeriod::NinetyDays)
+            .unwrap();
+        assert_eq!(staking.get_unbonding_tier(accounts.bob), UnbondingTier::A);
+
+        jump_to_block(constants::LOCK_PERIOD_90_DAYS);
+        staking.unstake().unwrap();
+
+        // A re-stake must be able to take a different rung, so the old binding
+        // cannot be left behind.
+        assert_eq!(staking.get_unbonding_tier(accounts.bob), UnbondingTier::C);
+    }
+
+    #[ink::test]
+    fn unlock_query_is_zero_for_an_account_without_a_stake() {
+        let staking = create_staking();
+        let accounts = default_accounts();
+
+        assert_eq!(staking.get_unbonding_tier_unlock_at(accounts.charlie), 0);
+        assert_eq!(
+            staking.get_unbonding_tier(accounts.charlie),
+            UnbondingTier::C,
+            "an unrecorded tier reads as the shortest rung, never a stricter one"
+        );
+    }
 }
