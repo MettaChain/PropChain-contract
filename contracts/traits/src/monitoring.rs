@@ -102,6 +102,118 @@ pub struct AlertConfig {
     pub last_triggered_at: u64,
 }
 
+/// Stable, machine-readable name for an alert type.
+///
+/// Used to render self-contained delivery payloads without requiring the
+/// consumer to decode the SCALE enum discriminant.
+pub const fn alert_type_name(alert_type: &AlertType) -> &'static str {
+    match alert_type {
+        AlertType::HighErrorRate => "HighErrorRate",
+        AlertType::SystemDegraded => "SystemDegraded",
+    }
+}
+
+/// Severity ranking for an alert type, used by delivery consumers to triage.
+///
+/// Higher is more urgent. The on-chain record remains authoritative; this only
+/// orders a batch for the operator.
+pub const fn alert_type_severity(alert_type: &AlertType) -> u8 {
+    match alert_type {
+        AlertType::HighErrorRate => 1,
+        AlertType::SystemDegraded => 2,
+    }
+}
+
+/// A single alert as recorded on chain.
+///
+/// Alerts are appended to a bounded ring buffer (see
+/// [`MONITORING_MAX_ALERT_LOG`](crate::constants::MONITORING_MAX_ALERT_LOG)) so
+/// that an off-chain delivery worker can read recent alerts without tailing
+/// every `AlertTriggered` event, and so a critical alert that could not be
+/// delivered is still readable after the fact.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+#[cfg_attr(feature = "std", derive(TypeInfo, ink::storage::traits::StorageLayout))]
+pub struct AlertRecord {
+    /// Monotonic identifier, also the ring-buffer slot.
+    pub alert_id: u64,
+    pub alert_type: AlertType,
+    /// Observed value that breached the threshold, in bips.
+    pub current_value: u32,
+    /// Configured threshold that was breached, in bips.
+    pub threshold: u32,
+    /// Ledger timestamp at which the alert fired.
+    pub triggered_at: u64,
+    /// Set once a delivery worker confirms receipt. Drives retry: an alert left
+    /// unacknowledged is one the worker has not yet confirmed.
+    pub acknowledged: bool,
+}
+
+/// Self-contained alert blob intended for out-of-band delivery.
+///
+/// Contains everything a webhook/indexer needs in a single read: the structured
+/// fields plus a canonical JSON rendering. The consumer never has to make
+/// follow-up contract calls to interpret the alert, which is what lets
+/// delivery be retried reliably.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+#[cfg_attr(feature = "std", derive(TypeInfo, ink::storage::traits::StorageLayout))]
+pub struct AlertPayload {
+    pub alert_id: u64,
+    pub alert_type: AlertType,
+    pub current_value: u32,
+    pub threshold: u32,
+    pub triggered_at: u64,
+    pub acknowledged: bool,
+    /// Stable name of `alert_type`, so consumers need not decode the enum.
+    pub alert_type_name: ink::prelude::string::String,
+    /// Severity ranking; higher is more urgent.
+    pub severity: u8,
+    /// Canonical JSON object with all of the above, safe to POST as a webhook
+    /// body. Field names are stable and the alert id is the delivery key, so a
+    /// redelivery is idempotent on the consumer side.
+    pub json: ink::prelude::string::String,
+}
+
+/// Renders an [`AlertRecord`] into its self-contained [`AlertPayload`].
+///
+/// The JSON is assembled from a closed set of type names and integers, so no
+/// escaping is required: the only strings in the object are the fixed
+/// `alertType` value and the fixed object keys. `alertId` is the delivery key,
+/// which lets a consumer drop a redelivered alert idempotently.
+pub fn build_alert_payload(record: &AlertRecord) -> AlertPayload {
+    use ink::prelude::format;
+    use ink::prelude::string::String;
+
+    let name = alert_type_name(&record.alert_type);
+    let severity = alert_type_severity(&record.alert_type);
+
+    let json = format!(
+        concat!(
+            "{{\"alertId\":{},\"alertType\":\"{}\",\"severity\":{},",
+            "\"currentValue\":{},\"threshold\":{},\"triggeredAt\":{},",
+            "\"acknowledged\":{}}}"
+        ),
+        record.alert_id,
+        name,
+        severity,
+        record.current_value,
+        record.threshold,
+        record.triggered_at,
+        record.acknowledged,
+    );
+
+    AlertPayload {
+        alert_id: record.alert_id,
+        alert_type: record.alert_type,
+        current_value: record.current_value,
+        threshold: record.threshold,
+        triggered_at: record.triggered_at,
+        acknowledged: record.acknowledged,
+        alert_type_name: String::from(name),
+        severity,
+        json,
+    }
+}
+
 /// Errors that can be returned by the monitoring contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 #[cfg_attr(feature = "std", derive(TypeInfo))]
@@ -112,6 +224,9 @@ pub enum MonitoringError {
     SubscriberLimitReached,
     SubscriberNotFound,
     HealthCheckFailed,
+    /// The requested alert id was never recorded or has been evicted from the
+    /// bounded alert log.
+    AlertNotFound,
 }
 
 impl fmt::Display for MonitoringError {
@@ -125,6 +240,9 @@ impl fmt::Display for MonitoringError {
             }
             MonitoringError::SubscriberNotFound => write!(f, "Subscriber not found"),
             MonitoringError::HealthCheckFailed => write!(f, "Health check endpoint failed"),
+            MonitoringError::AlertNotFound => {
+                write!(f, "Alert not found in the retained alert log")
+            }
         }
     }
 }
@@ -142,6 +260,7 @@ impl ContractError for MonitoringError {
                 monitoring_codes::MONITORING_SUBSCRIBER_NOT_FOUND
             }
             MonitoringError::HealthCheckFailed => monitoring_codes::MONITORING_HEALTH_CHECK_FAILED,
+            MonitoringError::AlertNotFound => monitoring_codes::MONITORING_ALERT_NOT_FOUND,
         }
     }
 
@@ -157,6 +276,9 @@ impl ContractError for MonitoringError {
             }
             MonitoringError::SubscriberNotFound => "The subscriber account is not registered",
             MonitoringError::HealthCheckFailed => "Failed to retrieve health status from contract",
+            MonitoringError::AlertNotFound => {
+                "Alert id is unknown or has been evicted from the alert log"
+            }
         }
     }
 
@@ -172,6 +294,7 @@ impl ContractError for MonitoringError {
             MonitoringError::SubscriberLimitReached => "monitoring.subscriber_limit_reached",
             MonitoringError::SubscriberNotFound => "monitoring.subscriber_not_found",
             MonitoringError::HealthCheckFailed => "monitoring.health_check_failed",
+            MonitoringError::AlertNotFound => "monitoring.alert_not_found",
         }
     }
 }
@@ -210,6 +333,38 @@ pub trait MonitoringSystem {
     /// Retrieve a previously stored snapshot by its buffer slot index.
     #[ink(message)]
     fn get_metrics_snapshot(&self, slot: u64) -> Option<MetricsSnapshot>;
+
+    /// Retrieve a self-contained delivery payload for one recorded alert.
+    ///
+    /// Returns `None` if `alert_id` has been evicted from the bounded alert log
+    /// or was never recorded.
+    #[ink(message)]
+    fn alert_payload(&self, alert_id: u64) -> Option<AlertPayload>;
+
+    /// Batch recent alerts, oldest first, starting after `since_alert_id`.
+    ///
+    /// `limit` is clamped to [`MONITORING_MAX_ALERT_LOG`](crate::constants::MONITORING_MAX_ALERT_LOG)
+    /// so a single call cannot exceed the retained window. Pass
+    /// `since_alert_id = 0` to start from the oldest retained alert; the
+    /// contract also accepts a value older than the window, which is clamped
+    /// to the oldest retained entry, so a worker that fell behind resumes
+    /// without gaps rather than silently skipping alerts.
+    #[ink(message)]
+    fn get_recent_alerts(&self, since_alert_id: u64, limit: u32) -> Vec<AlertRecord>;
+
+    /// Mark an alert as delivered, clearing it from the retry set.
+    ///
+    /// Admin only. Idempotent: acknowledging an already-acknowledged alert
+    /// succeeds without changing state. Returns an error for an unknown id.
+    #[ink(message)]
+    fn acknowledge_alert(&mut self, alert_id: u64) -> Result<(), MonitoringError>;
+
+    /// Number of retained alerts that have not been acknowledged.
+    ///
+    /// A non-zero value that is not falling means delivery is stuck; this is
+    /// the signal a worker or an operator monitor should alert on.
+    #[ink(message)]
+    fn pending_alert_count(&self) -> u32;
 }
 
 /// On-chain health report from a contract.

@@ -129,6 +129,22 @@ pub mod propchain_analytics {
         admin: AccountId,
         /// Current market metrics
         current_metrics: MarketMetrics,
+        /// Integrity checksum over `current_metrics`, recomputable from storage.
+        ///
+        /// Lets `verify_market_metrics_integrity` detect a partial or corrupted
+        /// write instead of reporting whatever bytes happen to be stored.
+        /// See [`AnalyticsDashboard::metrics_checksum`].
+        metrics_checksum: u64,
+        /// Ledger timestamp of the last write to `current_metrics`.
+        metrics_updated_at: u64,
+        /// Account that performed the last write to `current_metrics`.
+        metrics_updated_by: AccountId,
+        /// Lifetime count of writes to `current_metrics`.
+        metrics_update_count: u64,
+        /// Whether `current_metrics` currently holds an admin-supplied value
+        /// rather than a contract-derived one. See the override semantics note
+        /// on `update_market_metrics`.
+        metrics_is_override: bool,
         /// Historical market trends
         historical_trends: ink::storage::Mapping<u64, MarketTrend>,
         /// Trend count
@@ -190,9 +206,172 @@ pub mod propchain_analytics {
     pub struct BatchMetricsUpdated {
         #[ink(topic)]
         count: u64,
+        /// The combined metrics actually written, so the event cannot disagree
+        /// with the stored value the way a bare count could.
+        result: MarketMetrics,
+    }
+
+    /// Emitted by `batch_add_trends`.
+    ///
+    /// This used to reuse `BatchMetricsUpdated`, so a consumer tailing that
+    /// event for market-metric changes also received one every time a trend was
+    /// added, with no way to tell the two apart.
+    #[ink(event)]
+    pub struct BatchTrendsAdded {
+        #[ink(topic)]
+        count: u64,
+    }
+
+    /// Emitted on every admin write to `current_metrics`, carrying the values
+    /// before and after so an override is always attributable.
+    #[ink(event)]
+    pub struct MarketMetricsOverridden {
+        #[ink(topic)]
+        updated_by: AccountId,
+        previous_average_price: u128,
+        previous_total_volume: u128,
+        previous_properties_listed: u64,
+        new_average_price: u128,
+        new_total_volume: u128,
+        new_properties_listed: u64,
+        updated_at: u64,
+    }
+
+    /// Provenance of the current market metrics.
+    ///
+    /// Reported alongside `get_market_metrics` so a consumer can tell an
+    /// admin-supplied figure from a contract-derived one, and can tell a value
+    /// that still matches its integrity checksum from one that does not.
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct MetricsProvenance {
+        pub metrics: MarketMetrics,
+        /// Ledger timestamp of the last write.
+        pub updated_at: u64,
+        /// Account that performed the last write.
+        pub updated_by: AccountId,
+        /// Lifetime number of writes.
+        pub update_count: u64,
+        /// `true` when the stored value came from an admin write.
+        pub is_override: bool,
+        /// `true` when the stored metrics still match their integrity checksum.
+        pub is_intact: bool,
     }
 
     impl AnalyticsDashboard {
+        /// Reads the stored metrics as a plain value.
+        ///
+        /// The single read path for the metrics, so the getter cannot drift
+        /// from what is actually stored.
+        fn stored_market_metrics(&self) -> MarketMetrics {
+            self.current_metrics.clone()
+        }
+
+        /// FNV-1a over the three metric fields, widened to 64 bits.
+        ///
+        /// An integrity check, not a cryptographic commitment: it detects a
+        /// partial or corrupted write to `current_metrics`, which is what the
+        /// "recompute == stored" invariant is guarding against. It is not meant
+        /// to be proof against a malicious writer, who recomputes the checksum
+        /// anyway.
+        fn metrics_checksum(metrics: &MarketMetrics) -> u64 {
+            const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+            const PRIME: u64 = 0x0000_0100_0000_01b3;
+
+            let mut hash = OFFSET;
+            let mut absorb = |mut value: u128| {
+                // Feed the 128-bit value a byte at a time, little-endian, so the
+                // digest depends on the full width rather than a truncation.
+                for _ in 0..16 {
+                    hash ^= (value & 0xff) as u64;
+                    hash = hash.wrapping_mul(PRIME);
+                    value >>= 8;
+                }
+            };
+            absorb(metrics.average_price);
+            absorb(metrics.total_volume);
+            absorb(metrics.properties_listed as u128);
+            hash
+        }
+
+        /// `true` when the stored metrics match their recorded checksum.
+        fn metrics_integrity_ok(&self) -> bool {
+            self.metrics_checksum == Self::metrics_checksum(&self.stored_market_metrics())
+        }
+
+        /// Writes `next` to `current_metrics` and updates the derived bookkeeping.
+        ///
+        /// The single write path, so the checksum, provenance and trace event
+        /// can never be left out of an update path.
+        fn set_market_metrics(&mut self, next: &MarketMetrics) {
+            let previous = self.stored_market_metrics();
+            let writer = self.env().caller();
+            let now = self.env().block_timestamp();
+
+            self.env().emit_event(MarketMetricsOverridden {
+                updated_by: writer,
+                previous_average_price: previous.average_price,
+                previous_total_volume: previous.total_volume,
+                previous_properties_listed: previous.properties_listed,
+                new_average_price: next.average_price,
+                new_total_volume: next.total_volume,
+                new_properties_listed: next.properties_listed,
+                updated_at: now,
+            });
+
+            self.current_metrics = next.clone();
+            self.metrics_checksum = Self::metrics_checksum(&self.current_metrics);
+            self.metrics_updated_at = now;
+            self.metrics_updated_by = writer;
+            self.metrics_update_count = self.metrics_update_count.saturating_add(1);
+            self.metrics_is_override = true;
+        }
+
+        /// Combines partial metric contributions into one market view.
+        ///
+        /// Volume-weighted mean price, falling back to the unweighted mean when
+        /// the entries carry no volume.
+        fn combine_metric_updates(updates: &[MetricUpdate]) -> MarketMetrics {
+            if updates.is_empty() {
+                return MarketMetrics {
+                    average_price: 0,
+                    total_volume: 0,
+                    properties_listed: 0,
+                };
+            }
+
+            let total_volume: u128 = updates.iter().map(|u| u.total_volume).sum();
+            let properties_listed: u64 = updates.iter().map(|u| u.properties_listed).sum();
+
+            let average_price = if total_volume == 0 {
+                // No volume to weight by, so fall back to a plain mean.
+                let price_sum: u128 = updates.iter().map(|u| u.average_price).sum();
+                price_sum / updates.len() as u128
+            } else {
+                // Each price is weighted by the volume it represents. Products
+                // are accumulated in u128; the intermediate sum can exceed it
+                // for large inputs, so fold in two steps to stay exact.
+                let mut weighted_sum: u128 = 0;
+                for u in updates.iter() {
+                    weighted_sum = weighted_sum.saturating_add(
+                        u.average_price
+                            .saturating_mul(u.total_volume)
+                            .checked_div(total_volume)
+                            .unwrap_or(0),
+                    );
+                }
+                weighted_sum
+            };
+
+            MarketMetrics {
+                average_price,
+                total_volume,
+                properties_listed,
+            }
+        }
+
         #[ink(constructor)]
         pub fn new() -> Self {
             let caller = Self::env().caller();
@@ -203,6 +382,15 @@ pub mod propchain_analytics {
                     total_volume: 0,
                     properties_listed: 0,
                 },
+                metrics_checksum: Self::metrics_checksum(&MarketMetrics {
+                    average_price: 0,
+                    total_volume: 0,
+                    properties_listed: 0,
+                }),
+                metrics_updated_at: 0,
+                metrics_updated_by: caller,
+                metrics_update_count: 0,
+                metrics_is_override: false,
                 historical_trends: ink::storage::Mapping::default(),
                 trend_count: 0,
                 property_sentiments: ink::storage::Mapping::default(),
@@ -218,12 +406,67 @@ pub mod propchain_analytics {
             }
         }
 
-        /// Implement property market metrics calculation (average price, volume, etc.)
+        /// The current market metrics, exactly as stored.
+        ///
+        /// This is a faithful projection of `current_metrics`: it applies no
+        /// defaulting, smoothing or clamping. The provenance of the value is
+        /// reported separately by [`AnalyticsDashboard::get_metrics_provenance`]
+        /// so a consumer can tell an admin-supplied figure from a
+        /// contract-derived one instead of having to trust it.
         #[ink(message)]
         pub fn get_market_metrics(&self) -> MarketMetrics {
-            self.current_metrics.clone()
+            self.stored_market_metrics()
         }
 
+        /// Where the current `get_market_metrics` value came from.
+        #[ink(message)]
+        pub fn get_metrics_provenance(&self) -> MetricsProvenance {
+            MetricsProvenance {
+                metrics: self.stored_market_metrics(),
+                updated_at: self.metrics_updated_at,
+                updated_by: self.metrics_updated_by,
+                update_count: self.metrics_update_count,
+                is_override: self.metrics_is_override,
+                is_intact: self.metrics_integrity_ok(),
+            }
+        }
+
+        /// Recomputes the checksum over the stored metrics and compares it with
+        /// the recorded one.
+        ///
+        /// Returns `false` if the stored metrics no longer match the checksum
+        /// written alongside them, which is what a partial write or corrupted
+        /// storage entry looks like. This is the on-chain expression of the
+        /// "recompute == stored" invariant; the same comparison is asserted
+        /// directly in the unit tests.
+        #[ink(message)]
+        pub fn verify_market_metrics_integrity(&self) -> bool {
+            self.metrics_integrity_ok()
+        }
+
+        /// Overwrites the current market metrics. Admin only.
+        ///
+        /// # Override semantics
+        ///
+        /// There is no on-chain derivation path for these figures in this
+        /// contract: it stores no property valuations, listing set or trade
+        /// tape, so `average_price`, `total_volume` and `properties_listed` can
+        /// only be supplied by the admin from an off-chain aggregation. This
+        /// setter is therefore the single source of truth, and the value it
+        /// writes is authoritative until it is written again.
+        ///
+        /// Consequences a consumer must account for:
+        ///
+        /// * `metrics_is_override` stays `true` after an admin write. Nothing
+        ///   recomputes these numbers on chain, so a consumer that needs
+        ///   independent verification has to recompute them off chain from the
+        ///   same source and compare, or wait for an oracle integration to land
+        ///   (not present in this contract; tracked as a follow-up).
+        /// * Every write is traced: `MarketMetricsOverridden` carries the
+        ///   previous and new values, and `get_metrics_provenance` reports the
+        ///   writer, the timestamp and a lifetime update count. A silent
+        ///   divergence between what was reported and what is stored is
+        ///   therefore always attributable to a specific admin write.
         #[ink(message)]
         pub fn update_market_metrics(
             &mut self,
@@ -232,15 +475,32 @@ pub mod propchain_analytics {
             properties_listed: u64,
         ) -> Result<(), AnalyticsError> {
             self.ensure_admin()?;
-            self.current_metrics = MarketMetrics {
+            self.set_market_metrics(&MarketMetrics {
                 average_price,
                 total_volume,
                 properties_listed,
-            };
+            });
             Ok(())
         }
 
-        /// Batch update multiple market metrics in a single transaction.
+        /// Combines several metric contributions into one market view. Admin only.
+        ///
+        /// # Aggregation semantics
+        ///
+        /// Each entry contributes a partial view, so the entries are combined
+        /// rather than overwriting one another:
+        ///
+        /// * `total_volume` is the sum of the entries' volumes.
+        /// * `properties_listed` is the sum of the entries' counts.
+        /// * `average_price` is the volume-weighted mean of the entries'
+        ///   prices. When the entries carry no volume at all the weighting is
+        ///   undefined, so it falls back to the unweighted mean.
+        ///
+        /// This previously overwrote `current_metrics` once per entry, so only
+        /// the final entry survived while `BatchMetricsUpdated` reported the
+        /// full count — a silent divergence between the event and the stored
+        /// value. The event now carries the resulting metrics as well, so the
+        /// two cannot disagree.
         #[ink(message)]
         pub fn batch_update_metrics(
             &mut self,
@@ -250,15 +510,12 @@ pub mod propchain_analytics {
             if updates.len() > MAX_BATCH_SIZE {
                 return Err(AnalyticsError::BatchSizeExceeded);
             }
-            for upd in updates.iter() {
-                self.current_metrics = MarketMetrics {
-                    average_price: upd.average_price,
-                    total_volume: upd.total_volume,
-                    properties_listed: upd.properties_listed,
-                };
-            }
+
+            let combined = Self::combine_metric_updates(&updates);
+            self.set_market_metrics(&combined);
             self.env().emit_event(BatchMetricsUpdated {
                 count: updates.len() as u64,
+                result: combined,
             });
             Ok(())
         }
@@ -274,7 +531,7 @@ pub mod propchain_analytics {
                 self.historical_trends.insert(self.trend_count, trend);
                 self.trend_count += 1;
             }
-            self.env().emit_event(BatchMetricsUpdated {
+            self.env().emit_event(BatchTrendsAdded {
                 count: trends.len() as u64,
             });
             Ok(())
@@ -950,6 +1207,202 @@ pub mod propchain_analytics {
                 c.get_benchmark_index(propchain_traits::PropertyType::Commercial),
                 9
             );
+        }
+
+        // =====================================================================
+        // Market metrics consistency and override tracing (issue #1195)
+        // =====================================================================
+
+        fn update(average_price: u128, total_volume: u128, properties_listed: u64) -> MetricUpdate {
+            MetricUpdate {
+                average_price,
+                total_volume,
+                properties_listed,
+            }
+        }
+
+        /// The core invariant: what the getter reports equals what storage holds,
+        /// and the stored value still matches the checksum written with it.
+        #[ink::test]
+        fn reported_metrics_match_stored_metrics() {
+            let mut c = admin_contract();
+            assert_eq!(c.update_market_metrics(150, 300, 4), Ok(()));
+
+            // Recomputed independently from the same values the admin supplied.
+            let expected = MarketMetrics {
+                average_price: 150,
+                total_volume: 300,
+                properties_listed: 4,
+            };
+            assert_eq!(c.get_market_metrics(), expected);
+            assert!(c.verify_market_metrics_integrity());
+        }
+
+        #[ink::test]
+        fn integrity_holds_after_every_update_path() {
+            let mut c = admin_contract();
+            assert!(c.verify_market_metrics_integrity(), "fresh deploy");
+
+            c.update_market_metrics(150, 300, 4).unwrap();
+            assert!(c.verify_market_metrics_integrity(), "single update");
+
+            c.batch_update_metrics(vec![update(10, 100, 1), update(30, 300, 3)])
+                .unwrap();
+            assert!(
+                c.verify_market_metrics_integrity(),
+                "batch update must leave a matching checksum"
+            );
+        }
+
+        #[ink::test]
+        fn integrity_detects_a_mismatched_checksum() {
+            let mut c = admin_contract();
+            c.update_market_metrics(150, 300, 4).unwrap();
+            assert!(c.verify_market_metrics_integrity());
+
+            // Simulate a partial or corrupted write to the stored metrics.
+            c.current_metrics.average_price = 999;
+            assert!(
+                !c.verify_market_metrics_integrity(),
+                "a value that no longer matches its checksum must be reported"
+            );
+            assert!(!c.get_metrics_provenance().is_intact);
+        }
+
+        #[ink::test]
+        fn checksum_covers_every_field() {
+            let base = MarketMetrics {
+                average_price: 150,
+                total_volume: 300,
+                properties_listed: 4,
+            };
+            let base_sum = AnalyticsDashboard::metrics_checksum(&base);
+
+            let mut differs = base.clone();
+            differs.average_price += 1;
+            assert_ne!(base_sum, AnalyticsDashboard::metrics_checksum(&differs));
+
+            let mut differs = base.clone();
+            differs.total_volume += 1;
+            assert_ne!(base_sum, AnalyticsDashboard::metrics_checksum(&differs));
+
+            let mut differs = base.clone();
+            differs.properties_listed += 1;
+            assert_ne!(base_sum, AnalyticsDashboard::metrics_checksum(&differs));
+        }
+
+        #[ink::test]
+        fn override_is_recorded_in_provenance() {
+            let accounts = accounts();
+            let mut c = admin_contract();
+
+            // Fresh metrics are not an override: nothing has overridden them.
+            assert!(!c.get_metrics_provenance().is_override);
+            assert_eq!(c.get_metrics_provenance().update_count, 0);
+
+            c.update_market_metrics(150, 300, 4).unwrap();
+            let p = c.get_metrics_provenance();
+            assert!(p.is_override, "an admin write is an override");
+            assert_eq!(p.update_count, 1);
+            assert_eq!(p.updated_by, accounts.alice, "the writer is recorded");
+            assert_eq!(p.metrics.average_price, 150);
+        }
+
+        #[ink::test]
+        fn every_write_is_traced_so_divergence_is_attributable() {
+            let mut c = admin_contract();
+            c.update_market_metrics(150, 300, 4).unwrap();
+
+            ink::env::test::set_block_timestamp::<Environment>(1_700_000);
+            c.update_market_metrics(160, 320, 5).unwrap();
+            c.batch_update_metrics(vec![update(200, 400, 6)]).unwrap();
+
+            // A lifetime count plus the last writer and timestamp is what makes
+            // an unexplained change in the reported number traceable.
+            let p = c.get_metrics_provenance();
+            assert_eq!(p.update_count, 3);
+            assert_eq!(p.updated_at, 1_700_000, "last write is timestamped");
+        }
+
+        #[ink::test]
+        fn provenance_reports_the_live_value() {
+            let mut c = admin_contract();
+            c.update_market_metrics(150, 300, 4).unwrap();
+            assert_eq!(c.get_metrics_provenance().metrics, c.get_market_metrics());
+        }
+
+        // --- batch aggregation (previously kept only the last entry) ---
+
+        #[ink::test]
+        fn batch_update_combines_entries_instead_of_discarding_them() {
+            let mut c = admin_contract();
+            c.batch_update_metrics(vec![update(100, 1_000, 1), update(300, 3_000, 3)])
+                .unwrap();
+
+            let m = c.get_market_metrics();
+            assert_eq!(m.total_volume, 4_000, "volumes must sum");
+            assert_eq!(m.properties_listed, 4, "counts must sum");
+            // Volume-weighted mean: (100*1000 + 300*3000) / 4000 = 250.
+            assert_eq!(m.average_price, 250);
+        }
+
+        #[ink::test]
+        fn batch_update_keeps_the_final_entry_when_there_is_one() {
+            let mut c = admin_contract();
+            c.batch_update_metrics(vec![update(160, 320, 5)]).unwrap();
+            let m = c.get_market_metrics();
+            assert_eq!(m.average_price, 160);
+            assert_eq!(m.total_volume, 320);
+            assert_eq!(m.properties_listed, 5);
+        }
+
+        #[ink::test]
+        fn batch_update_falls_back_to_unweighted_mean_without_volume() {
+            let mut c = admin_contract();
+            // Weighting by zero volume is undefined, so use a plain mean.
+            c.batch_update_metrics(vec![update(100, 0, 1), update(300, 0, 1)])
+                .unwrap();
+            assert_eq!(c.get_market_metrics().average_price, 200);
+        }
+
+        #[ink::test]
+        fn batch_update_of_nothing_leaves_zeroed_metrics() {
+            let mut c = admin_contract();
+            c.batch_update_metrics(vec![]).unwrap();
+            let m = c.get_market_metrics();
+            assert_eq!(m.average_price, 0);
+            assert_eq!(m.total_volume, 0);
+            assert_eq!(m.properties_listed, 0);
+            assert!(c.verify_market_metrics_integrity());
+        }
+
+        #[ink::test]
+        fn batch_update_still_rejects_oversized_batches() {
+            let mut c = admin_contract();
+            let too_many: Vec<MetricUpdate> =
+                (0..=MAX_BATCH_SIZE).map(|_| update(1, 1, 1)).collect();
+            assert_eq!(
+                c.batch_update_metrics(too_many),
+                Err(AnalyticsError::BatchSizeExceeded)
+            );
+        }
+
+        #[ink::test]
+        fn non_admin_cannot_write_metrics() {
+            let accounts = accounts();
+            let mut c = admin_contract();
+            set_caller(accounts.bob);
+            assert_eq!(
+                c.update_market_metrics(1, 1, 1),
+                Err(AnalyticsError::Unauthorized)
+            );
+            assert_eq!(
+                c.batch_update_metrics(vec![update(1, 1, 1)]),
+                Err(AnalyticsError::Unauthorized)
+            );
+            // The rejected writes must not have moved the stored value.
+            assert_eq!(c.get_market_metrics().average_price, 0);
+            assert!(c.verify_market_metrics_integrity());
         }
     }
 }

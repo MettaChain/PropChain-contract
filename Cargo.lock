@@ -5431,7 +5431,6 @@ name = "propchain-crowdfunding"
 version = "1.0.0"
 dependencies = [
  "ink 5.1.1",
- "ink_e2e",
  "parity-scale-codec",
  "propchain-traits",
  "scale-info",

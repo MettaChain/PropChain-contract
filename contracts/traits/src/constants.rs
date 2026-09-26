@@ -169,6 +169,24 @@ pub const MONITORING_MAX_SUBSCRIBERS: usize = 50;
 /// Maximum number of metrics snapshots stored (circular buffer size).
 pub const MONITORING_MAX_SNAPSHOTS: u64 = 100;
 
+/// Maximum number of proposal-participation records retained by the quorum
+/// guard (rolling-window size).
+///
+/// The guard keeps only the most recent records so that its participation
+/// queries cost O(`MONITORING_MAX_QUORUM_HISTORY`) rather than growing with
+/// the lifetime proposal count. Older entries are evicted; the lifetime count
+/// is tracked separately in `QuorumGuard::total_recorded`.
+pub const MONITORING_MAX_QUORUM_HISTORY: usize = 100;
+
+/// Maximum number of alerts retained in the alert log (ring buffer size).
+///
+/// Alerts are appended here in addition to being emitted as events, so an
+/// off-chain delivery worker can batch-read and retry alerts instead of
+/// tailing events. Sized well above
+/// [`MONITORING_ALERT_COOLDOWN_MS`](MONITORING_ALERT_COOLDOWN_MS) allows a
+/// worker that is offline for a while to catch up on everything it missed.
+pub const MONITORING_MAX_ALERT_LOG: u64 = 256;
+
 /// Default error-rate threshold for HighErrorRate alerts (10% = 1000 bips).
 pub const MONITORING_DEFAULT_ERROR_RATE_THRESHOLD_BIPS: u32 = 1_000;
 

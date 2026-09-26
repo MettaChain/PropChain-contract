@@ -102,6 +102,12 @@ pub mod monitoring {
         alert_active: Mapping<AlertType, bool>,
         alert_last_triggered: Mapping<AlertType, u64>,
         alert_subscribers: Vec<AccountId>,
+        // Alert log (circular buffer, size = MONITORING_MAX_ALERT_LOG).
+        // Mirrors AlertTriggered events so an off-chain delivery worker can
+        // batch-read and retry alerts rather than tailing events.
+        alert_log: Mapping<u64, AlertRecord>,
+        /// Lifetime count of alerts appended, used as the ring-buffer cursor.
+        alert_log_count: u64,
         // Metrics snapshots (circular buffer, size = MONITORING_MAX_SNAPSHOTS)
         snapshots: Mapping<u64, MetricsSnapshot>,
         snapshot_count: u64,
@@ -248,6 +254,91 @@ pub mod monitoring {
         fn get_metrics_snapshot(&self, slot: u64) -> Option<MetricsSnapshot> {
             self.snapshots.get(slot)
         }
+
+        /// Returns a self-contained delivery payload for one recorded alert.
+        #[ink(message)]
+        fn alert_payload(&self, alert_id: u64) -> Option<AlertPayload> {
+            let record = self.retained_alert(alert_id)?;
+            Some(build_alert_payload(&record))
+        }
+
+        /// Batches retained alerts, oldest first, starting after `since_alert_id`.
+        #[ink(message)]
+        fn get_recent_alerts(&self, since_alert_id: u64, limit: u32) -> Vec<AlertRecord> {
+            let cap = constants::MONITORING_MAX_ALERT_LOG;
+
+            // `limit` of 0 would silently return nothing and look like an empty
+            // log; treat it as "everything retained" so a caller that passes an
+            // unset limit still gets the batch it asked for.
+            let limit = if limit == 0 {
+                cap
+            } else {
+                core::cmp::min(limit as u64, cap)
+            };
+
+            // Oldest id still on chain. A cursor older than the window (a worker
+            // that was offline) is clamped forward to the oldest retained entry
+            // so it resumes without gaps rather than skipping alerts.
+            let oldest = self.alert_log_count.saturating_sub(cap);
+
+            // `since_alert_id` is the last id the caller already handled, so the
+            // batch starts strictly after it. Alert ids begin at 0, which leaves
+            // no value that means "delivered nothing yet"; 0 is used as that
+            // sentinel and starts the batch at the oldest retained alert.
+            let cursor = if since_alert_id == 0 {
+                oldest
+            } else {
+                core::cmp::max(since_alert_id.saturating_add(1), oldest)
+            };
+
+            let end = core::cmp::min(self.alert_log_count, cursor.saturating_add(limit));
+
+            let mut out = Vec::new();
+            let mut id = cursor;
+            while id < end {
+                if let Some(record) = self.retained_alert(id) {
+                    out.push(record);
+                }
+                id = id.saturating_add(1);
+            }
+            out
+        }
+
+        /// Marks an alert as delivered, clearing it from the retry set.
+        #[ink(message)]
+        fn acknowledge_alert(&mut self, alert_id: u64) -> Result<(), MonitoringError> {
+            self.ensure_admin()?;
+
+            let mut record = self
+                .retained_alert(alert_id)
+                .ok_or(MonitoringError::AlertNotFound)?;
+
+            // Idempotent: a redelivery that races with a previous ack succeeds.
+            if !record.acknowledged {
+                record.acknowledged = true;
+                let slot = alert_id % constants::MONITORING_MAX_ALERT_LOG;
+                self.alert_log.insert(slot, &record);
+            }
+            Ok(())
+        }
+
+        /// Counts retained alerts that a delivery worker has not confirmed.
+        #[ink(message)]
+        fn pending_alert_count(&self) -> u32 {
+            let cap = constants::MONITORING_MAX_ALERT_LOG;
+            let oldest = self.alert_log_count.saturating_sub(cap);
+            let mut pending = 0u32;
+            let mut id = oldest;
+            while id < self.alert_log_count {
+                if let Some(record) = self.retained_alert(id) {
+                    if !record.acknowledged {
+                        pending = pending.saturating_add(1);
+                    }
+                }
+                id = id.saturating_add(1);
+            }
+            pending
+        }
     }
 
     // =========================================================================
@@ -255,6 +346,51 @@ pub mod monitoring {
     // =========================================================================
 
     impl MonitoringContract {
+        /// Appends an alert to the bounded ring buffer, evicting the oldest
+        /// entry once the buffer is full.
+        ///
+        /// Called alongside the `AlertTriggered` event so the event stream stays
+        /// the authoritative record while the log gives a delivery worker
+        /// something to batch-read and retry from.
+        fn append_alert_record(
+            &mut self,
+            alert_type: AlertType,
+            current_value: u32,
+            threshold: u32,
+            triggered_at: u64,
+        ) {
+            let slot = self.alert_log_count % constants::MONITORING_MAX_ALERT_LOG;
+            self.alert_log.insert(
+                slot,
+                &AlertRecord {
+                    alert_id: self.alert_log_count,
+                    alert_type,
+                    current_value,
+                    threshold,
+                    triggered_at,
+                    acknowledged: false,
+                },
+            );
+            self.alert_log_count = self.alert_log_count.saturating_add(1);
+        }
+
+        /// Looks up a retained alert by its id, or `None` if it was never
+        /// recorded or has since been evicted from the ring buffer.
+        fn retained_alert(&self, alert_id: u64) -> Option<AlertRecord> {
+            let cap = constants::MONITORING_MAX_ALERT_LOG;
+            let oldest = self.alert_log_count.saturating_sub(cap);
+            if alert_id < oldest || alert_id >= self.alert_log_count {
+                return None;
+            }
+            let record = self.alert_log.get(alert_id % cap)?;
+            // The slot may have been recycled onto a newer alert by now; only
+            // return it if it is still the alert that was asked for.
+            if record.alert_id != alert_id {
+                return None;
+            }
+            Some(record)
+        }
+
         /// Deploys the monitoring contract. The caller becomes admin.
         #[ink(constructor)]
         #[allow(clippy::new_without_default)]
@@ -273,6 +409,8 @@ pub mod monitoring {
                 alert_active: Mapping::default(),
                 alert_last_triggered: Mapping::default(),
                 alert_subscribers: Vec::new(),
+                alert_log: Mapping::default(),
+                alert_log_count: 0,
                 snapshots: Mapping::default(),
                 snapshot_count: 0,
                 health_check_contracts: Vec::new(),
@@ -540,6 +678,12 @@ pub mod monitoring {
                     if now.saturating_sub(last) >= constants::MONITORING_ALERT_COOLDOWN_MS {
                         self.alert_last_triggered
                             .insert(AlertType::HighErrorRate, &now);
+                        self.append_alert_record(
+                            AlertType::HighErrorRate,
+                            error_rate_bips,
+                            threshold,
+                            now,
+                        );
                         self.env().emit_event(AlertTriggered {
                             alert_type: AlertType::HighErrorRate,
                             current_value: error_rate_bips,
@@ -565,6 +709,12 @@ pub mod monitoring {
                     if now.saturating_sub(last) >= constants::MONITORING_ALERT_COOLDOWN_MS {
                         self.alert_last_triggered
                             .insert(AlertType::SystemDegraded, &now);
+                        self.append_alert_record(
+                            AlertType::SystemDegraded,
+                            error_rate_bips,
+                            0,
+                            now,
+                        );
                         self.env().emit_event(AlertTriggered {
                             alert_type: AlertType::SystemDegraded,
                             current_value: error_rate_bips,
@@ -968,6 +1118,281 @@ pub mod monitoring {
             assert!(c
                 .get_metrics_snapshot(constants::MONITORING_MAX_SNAPSHOTS)
                 .is_none());
+        }
+
+        // =====================================================================
+        // Alert delivery log (issue #1197)
+        // =====================================================================
+
+        /// Moves the test chain clock forward, which the alert cooldown reads.
+        fn set_time(timestamp: u64) {
+            ink::env::test::set_block_timestamp::<ink::env::DefaultEnvironment>(timestamp);
+        }
+
+        /// Arms the HighErrorRate alert and records one failing operation, which
+        /// drives the error rate to 100% and fires the alert.
+        ///
+        /// Moves the clock past the cooldown first: the cooldown is measured
+        /// against a last-triggered default of 0, so an alert evaluated at
+        /// timestamp 0 would always be suppressed.
+        fn fire_high_error_alert(c: &mut MonitoringContract) {
+            c.set_alert_config(AlertType::HighErrorRate, 500, true)
+                .unwrap();
+            set_time(1_000_000);
+            c.record_operation(OperationType::Generic, false).unwrap();
+        }
+
+        /// Fires `count` alerts, stepping past the cooldown between each so the
+        /// cooldown does not suppress them.
+        fn fire_alerts(c: &mut MonitoringContract, count: u64) {
+            c.set_alert_config(AlertType::HighErrorRate, 500, true)
+                .unwrap();
+            let mut t = 1_000_000;
+            for _ in 0..count {
+                set_time(t);
+                c.record_operation(OperationType::Generic, false).unwrap();
+                t = t.saturating_add(constants::MONITORING_ALERT_COOLDOWN_MS + 1);
+            }
+        }
+
+        #[ink::test]
+        fn no_alerts_are_recorded_before_one_fires() {
+            let c = new_contract();
+            assert!(c.get_recent_alerts(0, 10).is_empty());
+            assert_eq!(c.pending_alert_count(), 0);
+            assert!(c.alert_payload(0).is_none());
+        }
+
+        #[ink::test]
+        fn alert_payload_is_none_for_unknown_id() {
+            let c = new_contract();
+            assert!(c.alert_payload(0).is_none());
+            assert!(c.alert_payload(999).is_none());
+        }
+
+        #[ink::test]
+        fn firing_an_alert_records_it_in_the_log() {
+            let mut c = new_contract();
+            fire_high_error_alert(&mut c);
+
+            let records = c.get_recent_alerts(0, 10);
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].alert_id, 0);
+            assert_eq!(records[0].alert_type, AlertType::HighErrorRate);
+            assert_eq!(records[0].current_value, 10_000);
+            assert_eq!(records[0].threshold, 500);
+            assert!(!records[0].acknowledged, "new alerts start unacknowledged");
+        }
+
+        #[ink::test]
+        fn alert_payload_is_self_contained() {
+            let mut c = new_contract();
+            set_time(1_000_000);
+            fire_high_error_alert(&mut c);
+
+            let payload = c.alert_payload(0).expect("alert 0 retained");
+            assert_eq!(payload.alert_id, 0);
+            assert_eq!(payload.alert_type, AlertType::HighErrorRate);
+            assert_eq!(payload.current_value, 10_000);
+            assert_eq!(payload.threshold, 500);
+            assert_eq!(payload.triggered_at, 1_000_000);
+            assert!(!payload.acknowledged);
+            // Named type and severity so a consumer needs no SCALE decoding.
+            assert_eq!(payload.alert_type_name, "HighErrorRate");
+            assert_eq!(payload.severity, 1);
+        }
+
+        #[ink::test]
+        fn alert_payload_json_carries_every_field() {
+            let mut c = new_contract();
+            set_time(1_000_000);
+            fire_high_error_alert(&mut c);
+
+            let json = c.alert_payload(0).unwrap().json;
+            assert_eq!(
+                json,
+                concat!(
+                    r#"{"alertId":0,"alertType":"HighErrorRate","severity":1,"#,
+                    r#""currentValue":10000,"threshold":500,"triggeredAt":1000000,"#,
+                    r#""acknowledged":false}"#
+                )
+            );
+        }
+
+        #[ink::test]
+        fn system_degraded_alert_is_recorded_with_its_own_severity() {
+            let mut c = new_contract();
+            c.set_alert_config(AlertType::SystemDegraded, 0, true)
+                .unwrap();
+            set_time(1_000_000);
+            c.record_operation(OperationType::Generic, false).unwrap();
+
+            let records = c.get_recent_alerts(0, 10);
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].alert_type, AlertType::SystemDegraded);
+
+            let payload = c.alert_payload(0).unwrap();
+            assert_eq!(payload.alert_type_name, "SystemDegraded");
+            // Higher severity than HighErrorRate, so a batch can be triaged.
+            assert_eq!(payload.severity, 2);
+        }
+
+        #[ink::test]
+        fn get_recent_alerts_batches_oldest_first() {
+            let mut c = new_contract();
+            fire_alerts(&mut c, 5);
+
+            let all = c.get_recent_alerts(0, 100);
+            assert_eq!(all.len(), 5);
+            for (index, record) in all.iter().enumerate() {
+                assert_eq!(record.alert_id, index as u64, "oldest first");
+            }
+        }
+
+        #[ink::test]
+        fn get_recent_alerts_resumes_from_cursor() {
+            let mut c = new_contract();
+            fire_alerts(&mut c, 5);
+
+            // Cursor is exclusive: everything strictly after alert 2.
+            let after_two = c.get_recent_alerts(2, 100);
+            assert_eq!(after_two.len(), 2);
+            assert_eq!(after_two[0].alert_id, 3);
+            assert_eq!(after_two[1].alert_id, 4);
+        }
+
+        #[ink::test]
+        fn get_recent_alerts_honours_limit() {
+            let mut c = new_contract();
+            fire_alerts(&mut c, 5);
+
+            assert_eq!(c.get_recent_alerts(0, 2).len(), 2);
+        }
+
+        #[ink::test]
+        fn get_recent_alerts_clamps_limit_to_the_window() {
+            let mut c = new_contract();
+            fire_alerts(&mut c, 3);
+
+            // A limit above the retained window cannot exceed what is retained.
+            let huge = c.get_recent_alerts(0, u32::MAX);
+            assert_eq!(huge.len(), 3);
+        }
+
+        #[ink::test]
+        fn get_recent_alerts_treats_zero_limit_as_everything() {
+            let mut c = new_contract();
+            fire_alerts(&mut c, 3);
+            // An unset limit must not look like an empty log.
+            assert_eq!(c.get_recent_alerts(0, 0).len(), 3);
+        }
+
+        #[ink::test]
+        fn cursor_older_than_the_window_resumes_without_gaps() {
+            let mut c = new_contract();
+            let cap = constants::MONITORING_MAX_ALERT_LOG;
+            fire_alerts(&mut c, cap + 10);
+
+            // A worker that was offline holds a stale cursor. It must start at
+            // the oldest retained alert, not silently return nothing.
+            let batch = c.get_recent_alerts(0, 5);
+            assert_eq!(batch.len(), 5);
+            assert_eq!(
+                batch[0].alert_id, 10,
+                "resumes at the oldest retained alert"
+            );
+        }
+
+        #[ink::test]
+        fn acknowledge_alert_marks_it_delivered() {
+            let mut c = new_contract();
+            fire_high_error_alert(&mut c);
+
+            c.acknowledge_alert(0).unwrap();
+            assert!(c.alert_payload(0).unwrap().acknowledged);
+            assert!(c.get_recent_alerts(0, 10)[0].acknowledged);
+        }
+
+        #[ink::test]
+        fn acknowledge_alert_is_idempotent() {
+            let mut c = new_contract();
+            fire_high_error_alert(&mut c);
+
+            // A redelivery that races a previous ack must not error.
+            c.acknowledge_alert(0).unwrap();
+            c.acknowledge_alert(0).unwrap();
+            assert!(c.alert_payload(0).unwrap().acknowledged);
+        }
+
+        #[ink::test]
+        fn acknowledge_alert_rejects_unknown_id() {
+            let mut c = new_contract();
+            assert_eq!(c.acknowledge_alert(42), Err(MonitoringError::AlertNotFound));
+        }
+
+        #[ink::test]
+        fn pending_alert_count_tracks_the_retry_set() {
+            let mut c = new_contract();
+            fire_alerts(&mut c, 3);
+            assert_eq!(c.pending_alert_count(), 3);
+
+            c.acknowledge_alert(0).unwrap();
+            assert_eq!(c.pending_alert_count(), 2);
+            c.acknowledge_alert(2).unwrap();
+            assert_eq!(c.pending_alert_count(), 1);
+        }
+
+        #[ink::test]
+        fn alert_log_evicts_oldest_beyond_the_cap() {
+            let mut c = new_contract();
+            let cap = constants::MONITORING_MAX_ALERT_LOG;
+            fire_alerts(&mut c, cap + 5);
+
+            // The five oldest are gone and report absence rather than stale data.
+            for id in 0..5u64 {
+                assert!(
+                    c.alert_payload(id).is_none(),
+                    "alert {id} should have been evicted"
+                );
+            }
+            // The newest are retained and still readable.
+            assert!(c.alert_payload(cap + 4).is_some());
+            assert_eq!(c.alert_payload(cap + 4).unwrap().alert_id, cap + 4);
+        }
+
+        #[ink::test]
+        fn evicted_slots_do_not_leak_older_alerts() {
+            let mut c = new_contract();
+            let cap = constants::MONITORING_MAX_ALERT_LOG;
+            fire_alerts(&mut c, cap + 1);
+
+            // Slot 0 now holds alert `cap`, not alert 0. Asking for alert 0 must
+            // not return the newer record that recycled its slot.
+            assert!(c.alert_payload(0).is_none());
+            assert_eq!(c.alert_payload(cap).unwrap().alert_id, cap);
+        }
+
+        #[ink::test]
+        fn pending_count_stays_bounded_after_eviction() {
+            let mut c = new_contract();
+            let cap = constants::MONITORING_MAX_ALERT_LOG;
+            fire_alerts(&mut c, cap + 20);
+
+            // Acknowledged alerts that are later evicted stop counting, so the
+            // retry set can never exceed the retained window.
+            assert_eq!(c.pending_alert_count(), cap as u32);
+        }
+
+        #[ink::test]
+        fn batch_read_after_eviction_returns_only_retained_alerts() {
+            let mut c = new_contract();
+            let cap = constants::MONITORING_MAX_ALERT_LOG;
+            fire_alerts(&mut c, cap + 5);
+
+            let batch = c.get_recent_alerts(0, u32::MAX);
+            assert_eq!(batch.len(), cap as usize);
+            assert_eq!(batch[0].alert_id, 5);
+            assert_eq!(batch[batch.len() - 1].alert_id, cap + 4);
         }
     }
 }

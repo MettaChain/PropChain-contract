@@ -274,8 +274,14 @@ pub mod propchain_crowdfunding {
         pub largest_investment: u128,
         pub milestone_completion_rate: u32, // in basis points
         pub days_active: u32,
-        pub funding_velocity: u128,       // tokens per day
-        pub investor_retention_rate: u32, // in basis points
+        pub funding_velocity: u128, // tokens per day
+        /// Share of investors who have not claimed a refund, in basis points.
+        ///
+        /// `None` when the campaign has no recorded investors, because a
+        /// retention rate is undefined for an empty cohort. Never a
+        /// placeholder: derived from `campaign_investors` and
+        /// `refunds_issued`.
+        pub investor_retention_rate: Option<u32>,
         pub risk_score: u32,
         pub projected_completion_days: u32,
     }
@@ -286,10 +292,21 @@ pub mod propchain_crowdfunding {
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct InvestorDemographics {
         pub total_investors: u32,
+        /// Investors whose `InvestorProfile.accredited` flag is set.
+        /// Counted from stored profiles, not assumed.
         pub accredited_investors: u32,
         pub average_investment: u128,
+        /// Largest single recorded investment for this campaign.
         pub top_investor_amount: u128,
-        pub jurisdictions: Vec<(String, u32)>, // (jurisdiction, count)
+        /// Jurisdiction split derived from stored `InvestorProfile.jurisdiction`
+        /// values, ordered by descending count then ascending name.
+        ///
+        /// `None` when not one investor in the campaign has a stored profile,
+        /// because no jurisdiction split can be evidenced at that point.
+        /// Investors without a profile are grouped under `"Unknown"`.
+        pub jurisdictions: Option<Vec<(String, u32)>>, // (jurisdiction, count)
+        /// Investment-size histogram in upper bounds, derived from the recorded
+        /// `investments` entries. Empty when the campaign has no investors.
         pub investment_distribution: Vec<(u128, u32)>, // (investment_range, count)
     }
 
@@ -1382,13 +1399,17 @@ pub mod propchain_crowdfunding {
                 total_investment / total_investors as u128
             };
 
+            // Recorded investors for this campaign. Read once and reused by the
+            // largest-investment scan and the retention calculation below.
+            let recorded_investors = self.campaign_investors.get(campaign_id).unwrap_or_default();
+
             // Find largest investment by scanning the investment mapping for
             // this campaign. Each entry is keyed by (campaign_id, investor).
             let mut largest_investment = 0u128;
-            for investor_id in self.campaign_investors.get(campaign_id).unwrap_or_default() {
+            for investor_id in recorded_investors.iter() {
                 let amount = self
                     .investments
-                    .get((campaign_id, investor_id))
+                    .get((campaign_id, *investor_id))
                     .unwrap_or(0);
                 if amount > largest_investment {
                     largest_investment = amount;
@@ -1422,7 +1443,32 @@ pub mod propchain_crowdfunding {
             };
             let funding_velocity = total_investment / days_active as u128;
 
-            let investor_retention_rate = 8_000; // 80% placeholder
+            // Investor retention: the share of recorded investors who have not
+            // claimed a refund. Derived from the two mappings that actually
+            // record the events, so it reflects reality rather than an
+            // assumed constant. `campaign.investor_count` is not used as the
+            // denominator because it can drift from the stored investor list.
+            let investor_retention_rate = if recorded_investors.is_empty() {
+                // No cohort to measure retention over.
+                None
+            } else {
+                let refunded = recorded_investors
+                    .iter()
+                    .filter(|investor| {
+                        self.refunds_issued
+                            .get((campaign_id, **investor))
+                            .unwrap_or(false)
+                    })
+                    .count();
+                let retained = recorded_investors.len() - refunded;
+                Some(
+                    (retained as u128)
+                        .saturating_mul(10_000)
+                        .checked_div(recorded_investors.len() as u128)
+                        .unwrap_or(0) as u32,
+                )
+            };
+
             let risk_score = self
                 .risk_profiles
                 .get(campaign_id)
@@ -1465,47 +1511,94 @@ pub mod propchain_crowdfunding {
             }
 
             let total_investors = campaign.investor_count;
-            let mut accredited_investors = 0u32;
-            let mut total_investment = 0u128;
-            let max_investment = 0u128;
-            let _jurisdiction_counts = Mapping::<u32, u32>::default();
-            let _investment_ranges = Mapping::<u32, u32>::default(); // 0-1k, 1k-10k, 10k-100k, 100k+
+            let total_investment = campaign.raised_amount;
 
-            // This is a simplified implementation
-            // In practice, we'd need to iterate through all investments
-            for id in self.campaign_ids.iter() {
-                if let Some(c) = self.campaigns.get(*id) {
-                    if c.campaign_id == campaign_id {
-                        // Count accredited investors
-                        // This is approximate since we don't store per-campaign investor data
-                        accredited_investors = (total_investors * 7) / 10; // Assume 70% accredited
-                        total_investment = c.raised_amount;
+            // Every figure below is derived from the stored per-campaign
+            // investor list, the recorded investment amounts and the stored
+            // `InvestorProfile` values. Nothing is assumed.
+            let recorded_investors = self.campaign_investors.get(campaign_id).unwrap_or_default();
+
+            let mut accredited_investors = 0u32;
+            let mut max_investment = 0u128;
+            // Jurisdiction -> count, built from vetted profile metadata.
+            // Insertion-ordered via Vec<(String, u32)> to avoid a non-lexical
+            // order map; sorted deterministically before returning.
+            let mut jurisdiction_counts: Vec<(String, u32)> = Vec::new();
+            let mut profiled_investors = 0u32;
+            // Upper bounds of the investment-size histogram: 1k, 10k, 100k, 1M.
+            const RANGE_BOUNDS: [u128; 4] = [1_000, 10_000, 100_000, 1_000_000];
+            let mut investment_distribution: Vec<(u128, u32)> =
+                RANGE_BOUNDS.iter().map(|bound| (*bound, 0u32)).collect();
+
+            for investor_id in recorded_investors.iter() {
+                let amount = self
+                    .investments
+                    .get((campaign_id, *investor_id))
+                    .unwrap_or(0);
+                if amount > max_investment {
+                    max_investment = amount;
+                }
+
+                // Bucket the real amount into the first bound it fits under.
+                for (index, bound) in RANGE_BOUNDS.iter().enumerate() {
+                    if amount <= *bound {
+                        investment_distribution[index].1 += 1;
                         break;
                     }
                 }
+
+                if let Some(profile) = self.investor_profiles.get(investor_id) {
+                    profiled_investors += 1;
+                    if profile.accredited {
+                        accredited_investors += 1;
+                    }
+                    let jurisdiction = if profile.jurisdiction.is_empty() {
+                        "Unknown".to_string()
+                    } else {
+                        profile.jurisdiction.clone()
+                    };
+                    match jurisdiction_counts
+                        .iter_mut()
+                        .find(|(name, _)| *name == jurisdiction)
+                    {
+                        Some(entry) => entry.1 += 1,
+                        None => jurisdiction_counts.push((jurisdiction, 1)),
+                    }
+                }
             }
+
+            // Without a single stored profile there is no evidence for any
+            // jurisdiction split, so report `None` instead of a guess.
+            let jurisdictions = if profiled_investors == 0 {
+                None
+            } else {
+                // Group the investors that have no profile at all under
+                // "Unknown" so the split still accounts for the whole cohort.
+                let unprofiled = total_investors.saturating_sub(profiled_investors);
+                let mut split = jurisdiction_counts;
+                if unprofiled > 0 {
+                    match split.iter_mut().find(|(name, _)| name == "Unknown") {
+                        Some(entry) => entry.1 += unprofiled,
+                        None => split.push(("Unknown".to_string(), unprofiled)),
+                    }
+                }
+                // Descending count, then ascending name for a stable order.
+                split.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+                Some(split)
+            };
+
+            // Drop histogram buckets with no investors so an empty cohort
+            // yields an empty distribution rather than four fabricated zeros.
+            let investment_distribution: Vec<(u128, u32)> = investment_distribution
+                .into_iter()
+                .filter(|(_, count)| *count > 0)
+                .collect();
 
             let average_investment = if total_investors == 0 {
                 0
             } else {
                 total_investment / total_investors as u128
             };
-
-            // Placeholder jurisdiction data
-            let jurisdictions = vec![
-                ("US".to_string(), total_investors * 6 / 10),
-                ("CA".to_string(), total_investors * 2 / 10),
-                ("EU".to_string(), total_investors / 10),
-                ("Other".to_string(), total_investors / 10),
-            ];
-
-            // Placeholder investment distribution
-            let investment_distribution = vec![
-                (1_000, total_investors * 3 / 10),   // 0-1k
-                (10_000, total_investors * 4 / 10),  // 1k-10k
-                (100_000, total_investors * 2 / 10), // 10k-100k
-                (1_000_000, total_investors / 10),   // 100k+
-            ];
 
             Some(InvestorDemographics {
                 total_investors,
@@ -1573,7 +1666,26 @@ pub mod propchain_crowdfunding {
             Some((percentile, better_performing, total_similar))
         }
 
-        /// Get funding timeline data points (simplified)
+        /// Funding timeline as `(day, cumulative_raised)` pairs.
+        ///
+        /// Always returns `None`. A cumulative funding curve cannot be
+        /// reconstructed from the current state: `investments` is keyed by
+        /// `(campaign_id, investor)` and holds only the running total, with no
+        /// per-investment timestamp, and `campaign_investors` is an
+        /// unordered `Vec` rather than a chronological log. Any curve produced
+        /// from that data would be a fabrication, so this reports the absence
+        /// instead.
+        ///
+        /// This method previously synthesised a straight 30-day line from
+        /// `target_amount / 30`, which described a campaign funding evenly
+        /// regardless of how it actually raised. Presenting that as measured
+        /// history is what this issue reported.
+        ///
+        /// To make this return real data, `invest` needs to append
+        /// `(day, cumulative_raised)` to a per-campaign timeline vector as it
+        /// happens; the day bucket is derivable from the ledger timestamp at
+        /// that point. That is a state-layout change and is deliberately left
+        /// out of this fix rather than guessed at.
         #[ink(message)]
         pub fn get_funding_timeline(&self, campaign_id: u64) -> Option<Vec<(u32, u128)>> {
             let campaign = self.campaigns.get(campaign_id)?;
@@ -1581,18 +1693,34 @@ pub mod propchain_crowdfunding {
                 return None;
             }
 
-            // Placeholder timeline data
-            // In a real implementation, we'd store timestamped investment data
-            let mut timeline = Vec::new();
-            let total_days = 30;
-            let daily_target = campaign.target_amount / total_days as u128;
+            let _ = campaign;
+            None
+        }
 
-            for day in 1..=total_days {
-                let cumulative = (day as u128 * daily_target).min(campaign.raised_amount);
-                timeline.push((day, cumulative));
-            }
+        // ── Test-only helpers ────────────────────────────────────────────────
+        //
+        // `invest` requires an onboarded, KYC-approved, accredited profile, so
+        // a campaign built purely through the public API always has exactly one
+        // profile per recorded investor. The demographics code still defends
+        // against a profile that is missing or no longer accredited, and these
+        // helpers let the tests reach those states. They are compiled out of
+        // non-test builds and are not part of the contract's interface.
 
-            Some(timeline)
+        /// Removes an investor's profile, leaving the investment record intact.
+        #[cfg(test)]
+        pub fn erase_investor_profile(&mut self, investor: &AccountId) {
+            self.investor_profiles.remove(investor);
+        }
+
+        /// Sets an existing profile's accreditation flag.
+        #[cfg(test)]
+        pub fn set_investor_accredited(&mut self, investor: &AccountId, accredited: bool) {
+            let mut profile = self
+                .investor_profiles
+                .get(investor)
+                .expect("profile exists");
+            profile.accredited = accredited;
+            self.investor_profiles.insert(investor, &profile);
         }
     }
 
@@ -2009,7 +2137,20 @@ mod tests {
         let demographics = contract.get_investor_demographics(campaign_id).unwrap();
         assert_eq!(demographics.total_investors, 2);
         assert_eq!(demographics.average_investment, 75_000);
-        assert!(!demographics.jurisdictions.is_empty());
+
+        // Every figure below is derived from the stored records, not assumed.
+        assert_eq!(
+            demographics.accredited_investors, 2,
+            "both onboarded accredited"
+        );
+        assert_eq!(demographics.top_investor_amount, 100_000);
+        assert_eq!(
+            demographics.jurisdictions,
+            Some(vec![("CA".to_string(), 1), ("US".to_string(), 1)]),
+            "jurisdiction split comes from the onboarded profiles"
+        );
+        // Both investments fall in the <=100_000 bucket.
+        assert_eq!(demographics.investment_distribution, vec![(100_000, 2)]);
     }
 
     // -- Value-out paths: milestone release & refund eligibility (#977) --
@@ -2210,5 +2351,244 @@ mod tests {
         assert_eq!(campaign.raised_amount, 0);
         assert_eq!(campaign.investor_count, 0);
         assert_eq!(campaign.status, CampaignStatus::Active);
+    }
+
+    // =====================================================================
+    // Success metrics must reflect recorded events, not placeholders (#1198)
+    // =====================================================================
+
+    /// Creates an active campaign with the given target, owned by alice.
+    fn active_campaign(target: u128) -> (RealEstateCrowdfunding, u64) {
+        let mut contract = setup();
+        let campaign_id = contract.create_campaign("Metrics".into(), target).unwrap();
+        contract.activate_campaign(campaign_id).unwrap();
+        (contract, campaign_id)
+    }
+
+    #[ink::test]
+    fn retention_is_absent_for_a_campaign_with_no_investors() {
+        let (contract, campaign_id) = active_campaign(300_000);
+
+        // Creator reads their own analytics.
+        let analytics = contract.get_campaign_analytics(campaign_id).unwrap();
+        assert_eq!(
+            analytics.investor_retention_rate, None,
+            "retention over an empty cohort is undefined, not 80%"
+        );
+    }
+
+    #[ink::test]
+    fn retention_is_full_when_nobody_has_refunded() {
+        let (mut contract, campaign_id) = active_campaign(300_000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        contract.onboard_investor("US".into(), true).unwrap();
+        invest_with(&mut contract, campaign_id, 100_000).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        contract.onboard_investor("CA".into(), true).unwrap();
+        invest_with(&mut contract, campaign_id, 50_000).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let analytics = contract.get_campaign_analytics(campaign_id).unwrap();
+        assert_eq!(analytics.investor_retention_rate, Some(10_000));
+    }
+
+    #[ink::test]
+    fn retention_drops_by_the_number_of_recorded_refunds() {
+        let (mut contract, campaign_id) = active_campaign(300_000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        for investor in [accounts.bob, accounts.charlie, accounts.django] {
+            test::set_caller::<DefaultEnvironment>(investor);
+            contract.onboard_investor("US".into(), true).unwrap();
+            invest_with(&mut contract, campaign_id, 10_000).unwrap();
+        }
+
+        // Fail the campaign so refunds can be claimed, then refund exactly one
+        // of the three investors.
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        contract.fail_campaign(campaign_id).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        contract.claim_refund(campaign_id).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let analytics = contract.get_campaign_analytics(campaign_id).unwrap();
+        // 2 of 3 investors retained.
+        assert_eq!(
+            analytics.investor_retention_rate,
+            Some(6_666),
+            "retention must follow the recorded refunds"
+        );
+    }
+
+    #[ink::test]
+    fn retention_never_reports_the_old_80_percent_placeholder() {
+        let (mut contract, campaign_id) = active_campaign(300_000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // Two investors, one refunds: 50%, which the old hardcoded 8_000 could
+        // never have produced.
+        for investor in [accounts.bob, accounts.charlie] {
+            test::set_caller::<DefaultEnvironment>(investor);
+            contract.onboard_investor("US".into(), true).unwrap();
+            invest_with(&mut contract, campaign_id, 10_000).unwrap();
+        }
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        contract.fail_campaign(campaign_id).unwrap();
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        contract.claim_refund(campaign_id).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let analytics = contract.get_campaign_analytics(campaign_id).unwrap();
+        assert_eq!(analytics.investor_retention_rate, Some(5_000));
+        assert_ne!(analytics.investor_retention_rate, Some(8_000));
+    }
+
+    #[ink::test]
+    fn jurisdictions_are_absent_when_no_profile_survives() {
+        let (mut contract, campaign_id) = active_campaign(300_000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        contract.onboard_investor("US".into(), true).unwrap();
+        invest_with(&mut contract, campaign_id, 100_000).unwrap();
+
+        // With no profile on file there is no evidence for any jurisdiction.
+        contract.erase_investor_profile(&accounts.bob);
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let demographics = contract.get_investor_demographics(campaign_id).unwrap();
+        assert_eq!(
+            demographics.jurisdictions, None,
+            "no profile means no evidence for any split"
+        );
+        // The rest of the figures still come from the recorded investment.
+        assert_eq!(demographics.total_investors, 1);
+        assert_eq!(demographics.top_investor_amount, 100_000);
+    }
+
+    #[ink::test]
+    fn unprofiled_investors_are_grouped_under_unknown() {
+        let (mut contract, campaign_id) = active_campaign(300_000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        contract.onboard_investor("US".into(), true).unwrap();
+        invest_with(&mut contract, campaign_id, 100_000).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        contract.onboard_investor("CA".into(), true).unwrap();
+        invest_with(&mut contract, campaign_id, 50_000).unwrap();
+
+        // charlie's profile is no longer on file, so the split cannot claim a
+        // jurisdiction for that investor.
+        contract.erase_investor_profile(&accounts.charlie);
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let demographics = contract.get_investor_demographics(campaign_id).unwrap();
+        assert_eq!(
+            demographics.jurisdictions,
+            Some(vec![("US".to_string(), 1), ("Unknown".to_string(), 1)]),
+            "the split must still account for the whole cohort"
+        );
+    }
+
+    #[ink::test]
+    fn accredited_count_comes_from_stored_profiles() {
+        let (mut contract, campaign_id) = active_campaign(300_000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        contract.onboard_investor("US".into(), true).unwrap();
+        invest_with(&mut contract, campaign_id, 100_000).unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        contract.onboard_investor("CA".into(), true).unwrap();
+        invest_with(&mut contract, campaign_id, 50_000).unwrap();
+
+        // Both had to be accredited to invest, but the count is read from the
+        // profiles as they stand now, not from that history. The old code
+        // assumed 70%, which for a 2-investor campaign is not even an integer.
+        contract.set_investor_accredited(&accounts.charlie, false);
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let demographics = contract.get_investor_demographics(campaign_id).unwrap();
+        assert_eq!(demographics.accredited_investors, 1);
+    }
+
+    #[ink::test]
+    fn investment_distribution_buckets_the_real_amounts() {
+        let (mut contract, campaign_id) = active_campaign(1_000_000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        // One investor per bucket: <=1k, <=10k, <=100k, <=1M.
+        for (investor, amount) in [
+            (accounts.bob, 500u128),
+            (accounts.charlie, 5_000),
+            (accounts.django, 50_000),
+            (accounts.eve, 500_000),
+        ] {
+            test::set_caller::<DefaultEnvironment>(investor);
+            contract.onboard_investor("US".into(), true).unwrap();
+            invest_with(&mut contract, campaign_id, amount).unwrap();
+        }
+
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        let demographics = contract.get_investor_demographics(campaign_id).unwrap();
+        assert_eq!(
+            demographics.investment_distribution,
+            vec![(1_000, 1), (10_000, 1), (100_000, 1), (1_000_000, 1)]
+        );
+    }
+
+    #[ink::test]
+    fn investment_distribution_is_empty_without_investors() {
+        let (contract, campaign_id) = active_campaign(300_000);
+        test::set_caller::<DefaultEnvironment>(
+            test::default_accounts::<DefaultEnvironment>().alice,
+        );
+        let demographics = contract.get_investor_demographics(campaign_id).unwrap();
+        assert!(
+            demographics.investment_distribution.is_empty(),
+            "no fabricated zero buckets"
+        );
+    }
+
+    #[ink::test]
+    fn funding_timeline_reports_absence_rather_than_a_fabricated_curve() {
+        let (mut contract, campaign_id) = active_campaign(300_000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        contract.onboard_investor("US".into(), true).unwrap();
+        invest_with(&mut contract, campaign_id, 120_000).unwrap();
+
+        // The old implementation synthesised 30 points on a straight
+        // target/30 ramp, implying even funding that never happened.
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        assert_eq!(contract.get_funding_timeline(campaign_id), None);
+    }
+
+    #[ink::test]
+    fn funding_timeline_is_absent_for_an_unknown_campaign() {
+        let contract = setup();
+        assert_eq!(contract.get_funding_timeline(999), None);
+    }
+
+    #[ink::test]
+    fn demographics_remain_creator_or_admin_only() {
+        let (mut contract, campaign_id) = active_campaign(300_000);
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+
+        test::set_caller::<DefaultEnvironment>(accounts.bob);
+        contract.onboard_investor("US".into(), true).unwrap();
+        invest_with(&mut contract, campaign_id, 100_000).unwrap();
+
+        // A non-creator, non-admin caller still gets nothing.
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        assert!(contract.get_investor_demographics(campaign_id).is_none());
     }
 }

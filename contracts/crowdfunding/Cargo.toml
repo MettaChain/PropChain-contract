@@ -17,8 +17,12 @@ scale = { workspace = true }
 scale-info = { workspace = true }
 propchain-traits = { path = "../traits", default-features = false }
 
-[dev-dependencies]
-ink_e2e = "5.0.0"
+# No [dev-dependencies]: this crate's tests are the inline `#[cfg(test)]` unit
+# tests, and it has no `tests/` integration directory. The `ink_e2e` dev-dependency
+# that used to be declared here was never used, but it pulls in the whole
+# substrate stack (sp-io -> sp-state-machine -> trie-db), and trie-db 0.28.0
+# does not compile on the nightly toolchain this repo pins. That made
+# `cargo test -p propchain-crowdfunding` fail before running a single test.
 
 [lib]
 name = "propchain_crowdfunding"
