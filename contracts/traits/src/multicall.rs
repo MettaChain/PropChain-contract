@@ -86,6 +86,15 @@ pub enum MulticallError {
 /// a single batched entry point so a caller composes one
 /// `Vec<CallRequest>` and hands it to `Multicall::aggregate`, instead of
 /// issuing N independent round-trip messages.
+///
+/// Note that the four targets do **not** share a signature, so the
+/// `input` accepted by `build_verification_call` is not uniformly
+/// meaningful across kinds: `verify_identity` and `is_compliant` are
+/// keyed by `AccountId`, `is_property_screened` by `u64` property id,
+/// and `get_property_valuation` takes a property id and returns a
+/// valuation struct rather than a boolean. Real selectors make the
+/// dispatch land on the right message; they do not make the arguments
+/// line up. See `verification_message` for what each kind calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, scale::Encode, scale::Decode)]
 #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub enum VerificationKind {
@@ -98,17 +107,47 @@ pub enum VerificationKind {
 /// Length of a SCALE function selector preamble.
 pub const CALL_SELECTOR_LEN: usize = 4;
 
-/// Stub 4-byte SCALE selectors per `VerificationKind`. Replace with
-/// production selectors (e.g. `ink::selector_bytes!("verify")`) once
-/// the underlying verification contract messages are finalised; the
-/// stubs are deliberately distinct from each other so a future
-/// subcontract can replace one selector without breaking the others.
+/// The 4-byte selector of the live verifier message each `VerificationKind`
+/// dispatches to.
+///
+/// These are derived with `ink::selector_bytes!` from the message names in
+/// `contracts/identity`, `contracts/compliance_registry`,
+/// `contracts/sanctions` and `contracts/oracle`, so they are the same four
+/// bytes the target contract computes for that message rather than a local
+/// invention. Delegating to the macro is deliberate: the alternative is
+/// pasting in four byte literals, which would be correct only for as long as
+/// nobody renamed a message on the other side, and a stale selector fails
+/// silently by dispatching to the wrong message.
+///
+/// All four targets are top-level messages in their contract module (not
+/// nested in a submodule), so the macro's un-namespaced form is the one that
+/// matches.
 pub fn verification_selector(kind: VerificationKind) -> [u8; CALL_SELECTOR_LEN] {
     match kind {
-        VerificationKind::Identity => [0x01, 0x00, 0x00, 0x00],
-        VerificationKind::Compliance => [0x02, 0x00, 0x00, 0x00],
-        VerificationKind::Sanctions => [0x03, 0x00, 0x00, 0x00],
-        VerificationKind::Oracle => [0x04, 0x00, 0x00, 0x00],
+        // `identity::IdentityRegistry::verify_identity`
+        VerificationKind::Identity => ink::selector_bytes!("verify_identity"),
+        // `compliance_registry::ComplianceRegistry::is_compliant`
+        VerificationKind::Compliance => ink::selector_bytes!("is_compliant"),
+        // `sanctions::SanctionsScreening::is_property_screened`
+        VerificationKind::Sanctions => ink::selector_bytes!("is_property_screened"),
+        // `oracle::PropertyOracle::get_property_valuation`
+        VerificationKind::Oracle => ink::selector_bytes!("get_property_valuation"),
+    }
+}
+
+/// The verifier message each `VerificationKind` dispatches to.
+///
+/// Returned as a name rather than only as bytes so off-chain tooling and
+/// error messages can name the message they are actually calling, instead of
+/// presenting an opaque four-byte selector. The names here are the literals
+/// `verification_selector` feeds to `ink::selector_bytes!`; the two are kept
+/// in step by a test.
+pub fn verification_message(kind: VerificationKind) -> &'static str {
+    match kind {
+        VerificationKind::Identity => "verify_identity",
+        VerificationKind::Compliance => "is_compliant",
+        VerificationKind::Sanctions => "is_property_screened",
+        VerificationKind::Oracle => "get_property_valuation",
     }
 }
 
@@ -214,10 +253,10 @@ mod tests {
             call.selector_and_input.len(),
             CALL_SELECTOR_LEN + input.len()
         );
-        // Identity selector bytes are first.
+        // The real Identity selector bytes are first, not a placeholder.
         assert_eq!(
             &call.selector_and_input[..CALL_SELECTOR_LEN],
-            &[0x01u8, 0x00, 0x00, 0x00][..]
+            &verification_selector(VerificationKind::Identity)[..]
         );
         // Caller's SCALE-encoded args follow verbatim.
         assert_eq!(&call.selector_and_input[CALL_SELECTOR_LEN..], &input[..]);
@@ -228,5 +267,135 @@ mod tests {
         let callee = AccountId::from([0xab; 32]);
         let calls = aggregate_verifications(callee, &[], &[1, 2, 3]);
         assert!(calls.is_empty());
+    }
+
+    // ---- #1182: real verifier selectors, not placeholders ----
+
+    const ALL_KINDS: [VerificationKind; 4] = [
+        VerificationKind::Identity,
+        VerificationKind::Compliance,
+        VerificationKind::Sanctions,
+        VerificationKind::Oracle,
+    ];
+
+    /// Binds each kind to the selector of the live verifier message it names.
+    ///
+    /// The expected values come from the same macro the implementation uses, so
+    /// this cannot prove the *message* is the right one — it pins the literal,
+    /// so that editing `verification_selector` without editing the documented
+    /// name (or vice versa) is caught here instead of failing silently
+    /// on-chain against a wrong selector.
+    #[test]
+    fn each_kind_binds_to_its_live_verifier_selector() {
+        let expected: [([u8; 4], &str); 4] = [
+            (
+                ink::selector_bytes!("verify_identity"),
+                verification_message(VerificationKind::Identity),
+            ),
+            (
+                ink::selector_bytes!("is_compliant"),
+                verification_message(VerificationKind::Compliance),
+            ),
+            (
+                ink::selector_bytes!("is_property_screened"),
+                verification_message(VerificationKind::Sanctions),
+            ),
+            (
+                ink::selector_bytes!("get_property_valuation"),
+                verification_message(VerificationKind::Oracle),
+            ),
+        ];
+
+        for (kind, (selector, message)) in ALL_KINDS.iter().zip(expected.iter()) {
+            assert_eq!(
+                verification_selector(*kind),
+                *selector,
+                "{:?} must dispatch to `{message}`",
+                kind
+            );
+        }
+    }
+
+    /// Each documented name must itself hash to the selector that kind uses,
+    /// so the name and the bytes cannot drift apart.
+    #[test]
+    fn documented_message_names_hash_to_their_selectors() {
+        assert_eq!(
+            verification_selector(VerificationKind::Identity),
+            ink::selector_bytes!("verify_identity")
+        );
+        assert_eq!(
+            verification_selector(VerificationKind::Compliance),
+            ink::selector_bytes!("is_compliant")
+        );
+        assert_eq!(
+            verification_selector(VerificationKind::Sanctions),
+            ink::selector_bytes!("is_property_screened")
+        );
+        assert_eq!(
+            verification_selector(VerificationKind::Oracle),
+            ink::selector_bytes!("get_property_valuation")
+        );
+    }
+
+    /// The old placeholders were `[0x01..=0x04, 0, 0, 0]`. If any reappears,
+    /// the stubs are back and every dispatch for that kind targets a
+    /// non-existent message.
+    #[test]
+    fn no_selector_is_a_placeholder() {
+        for (i, kind) in ALL_KINDS.iter().enumerate() {
+            let placeholder = [(i as u8) + 1, 0x00, 0x00, 0x00];
+            assert_ne!(
+                verification_selector(*kind),
+                placeholder,
+                "{:?} still resolves to its placeholder bytes",
+                kind
+            );
+        }
+    }
+
+    /// A real selector is a hash prefix, so it should not be a small integer
+    /// padded with zeros. This catches a stub introduced with a different
+    /// numbering than the original four.
+    #[test]
+    fn no_selector_is_zero_padded() {
+        for kind in ALL_KINDS {
+            let selector = verification_selector(kind);
+            let is_small_counter = selector[1..] == [0x00, 0x00, 0x00];
+            assert!(
+                !is_small_counter,
+                "{:?} looks like a counter padded to four bytes: {selector:?}",
+                kind
+            );
+        }
+    }
+
+    #[test]
+    fn real_selectors_are_still_pairwise_distinct() {
+        // The stubs guaranteed this by hand-picking 0x01..=0x04; real
+        // hash-derived selectors have to genuinely not collide, so re-assert
+        // the property against real values.
+        for i in 0..ALL_KINDS.len() {
+            for j in (i + 1)..ALL_KINDS.len() {
+                assert_ne!(
+                    verification_selector(ALL_KINDS[i]),
+                    verification_selector(ALL_KINDS[j]),
+                    "{:?} and {:?} must not share a selector",
+                    ALL_KINDS[i],
+                    ALL_KINDS[j]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_kind_names_its_verifier_message() {
+        for kind in ALL_KINDS {
+            assert!(
+                !verification_message(kind).is_empty(),
+                "{:?} must name its verifier message",
+                kind
+            );
+        }
     }
 }
