@@ -53,6 +53,10 @@ pub enum SyncStatus {
     Initiated,
     Confirmed,
     Failed,
+    /// The supplied checksum matched the checksum recorded at `emit_sync_event`.
+    ///
+    /// This is a self-consistency check between two on-chain values, not a
+    /// proof that the data matches the source chain. See `verify_sync`.
     Verified,
 }
 
@@ -70,6 +74,9 @@ pub struct AnalyticsSnapshot {
     pub total_valuation: u128,
     pub avg_valuation: u128,
     pub active_accounts: u64,
+    /// Publisher-supplied checksum over the snapshot's figures.
+    ///
+    /// Nothing on-chain recomputes it. See `verify_sync`.
     pub integrity_checksum: Hash,
     pub created_by: AccountId,
 }
@@ -101,4 +108,12 @@ pub struct IndexerInfo {
     pub last_synced_block: u32,
     pub is_active: bool,
     pub registered_at: u64,
+    /// Block timestamp of the indexer's most recent liveness signal.
+    ///
+    /// `last_synced_block` alone cannot establish liveness: an indexer that
+    /// stalls at block 100 forever still reports 100, and a fresh registration
+    /// reports 0, which is indistinguishable from a dead node. This is
+    /// refreshed on every heartbeat and compared against
+    /// `INDEXER_STALE_AFTER` to decide whether the indexer is still live.
+    pub last_heartbeat: u64,
 }
