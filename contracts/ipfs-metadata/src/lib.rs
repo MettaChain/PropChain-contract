@@ -79,7 +79,10 @@ pub mod ipfs_metadata {
         pub legal_docs_ipfs_cid: Option<IpfsCid>,
         /// Timestamp of metadata creation
         pub created_at: u64,
-        /// Hash of all metadata content for verification
+        /// Caller-supplied hash of the metadata content.
+        ///
+        /// Not checked against the content: the contract cannot read the
+        /// bytes. See `verify_content_hash`.
         pub content_hash: Hash,
         /// Whether sensitive data is encrypted
         pub is_encrypted: bool,
@@ -100,7 +103,10 @@ pub mod ipfs_metadata {
         pub ipfs_cid: IpfsCid,
         /// Document type (deed, title, inspection, etc.)
         pub document_type: DocumentType,
-        /// Hash of the document content for verification
+        /// Caller-supplied hash of the document content.
+        ///
+        /// Not checked against the content: the contract cannot read the
+        /// bytes behind the CID. See `verify_content_hash`.
         pub content_hash: Hash,
         /// File size in bytes
         pub file_size: u64,
@@ -114,7 +120,7 @@ pub mod ipfs_metadata {
         pub uploader: AccountId,
         /// Upload timestamp
         pub uploaded_at: u64,
-        /// Last verification timestamp
+        /// When a caller last re-presented the registered `content_hash`
         pub last_verified_at: u64,
     }
 
@@ -240,7 +246,11 @@ pub mod ipfs_metadata {
         timestamp: u64,
     }
 
-    /// Event emitted when content hash is verified
+    /// Event emitted when a caller re-presents the hash already on record.
+    ///
+    /// Emitted only when `provided_hash` equals the registered
+    /// `content_hash`. It is not evidence that the IPFS content was hashed or
+    /// checked — see `verify_content_hash`.
     #[ink(event)]
     pub struct ContentHashVerified {
         #[ink(topic)]
@@ -481,6 +491,70 @@ pub mod ipfs_metadata {
             Ok(())
         }
 
+        /// MIME types accepted for instruments that convey legal title.
+        ///
+        /// A deed, title or legal agreement is a signed instrument. Presenting a
+        /// JPEG under `DocumentType::Deed` is how the registry ends up
+        /// attesting to provenance it never checked, so the image and video
+        /// types are deliberately absent here.
+        const TITLE_DOCUMENT_MIMES: [&'static str; 3] = [
+            "application/pdf",
+            "application/x-pdf",
+            "application/octet-stream",
+        ];
+
+        /// MIME types accepted for photographic evidence.
+        const IMAGE_MIMES: [&'static str; 4] = [
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/tiff",
+        ];
+
+        /// MIME types accepted for surveys and floor plans, which are commonly
+        /// delivered as either a vector document or a raster drawing.
+        const PLAN_MIMES: [&'static str; 5] = [
+            "application/pdf",
+            "application/x-pdf",
+            "image/jpeg",
+            "image/png",
+            "image/tiff",
+        ];
+
+        /// Whether `mime_type` is an acceptable encoding for `document_type`.
+        ///
+        /// A pure function of its two arguments, enforced on every
+        /// registration. It is deliberately *not* admin-overridable: the point
+        /// of the registry's `document_type` field is that a consumer can trust
+        /// it, and an admin path that re-opens `image/png` for a deed would put
+        /// that guarantee back exactly where it started.
+        ///
+        /// `DocumentType::Other` defers to the admin-managed
+        /// `allowed_mime_types` list, because "other" carries no claim about
+        /// provenance to keep honest.
+        fn document_type_permits_mime(document_type: &DocumentType, mime_type: &str) -> bool {
+            match document_type {
+                // Legal instruments: no raster or video types.
+                DocumentType::Deed
+                | DocumentType::Title
+                | DocumentType::Legal
+                | DocumentType::TaxRecords
+                | DocumentType::Insurance => Self::TITLE_DOCUMENT_MIMES.contains(&mime_type),
+
+                // Evidence that is expected to be a photograph.
+                DocumentType::Images => Self::IMAGE_MIMES.contains(&mime_type),
+
+                // Drawings, vector documents, or photo evidence of a site.
+                DocumentType::Appraisal
+                | DocumentType::Survey
+                | DocumentType::FloorPlans
+                | DocumentType::Inspection => Self::PLAN_MIMES.contains(&mime_type),
+
+                // No type-specific claim to enforce.
+                DocumentType::Other => true,
+            }
+        }
+
         /// Validates IPFS CID format
         #[ink(message)]
         pub fn validate_ipfs_cid(&self, cid: String) -> Result<(), Error> {
@@ -549,6 +623,17 @@ pub mod ipfs_metadata {
             let doc_ids = self.property_documents.get(property_id).unwrap_or_default();
             if doc_ids.len() as u32 >= self.validation_rules.max_documents_per_property {
                 return Err(Error::SizeLimitExceeded);
+            }
+
+            // Reject an encoding that contradicts the claimed document type.
+            //
+            // This runs unconditionally, before the admin-managed MIME list
+            // below. That list is empty on a freshly deployed registry, and an
+            // empty list means "no restriction" — so relying on it alone left
+            // the type field unattested. Checking the type/encoding pairing
+            // first makes the guarantee independent of admin configuration.
+            if !Self::document_type_permits_mime(&document_type, &mime_type) {
+                return Err(Error::FileTypeNotAllowed);
             }
 
             // Validate MIME type if restrictions are set
@@ -701,7 +786,21 @@ pub mod ipfs_metadata {
             Ok(())
         }
 
-        /// Verifies content hash of a document
+        /// Checks that `provided_hash` matches the hash recorded at
+        /// registration.
+        ///
+        /// # This does not verify content
+        ///
+        /// The contract cannot reach IPFS, so it has no way to hash the bytes
+        /// behind `ipfs_cid`. Both `document.content_hash` and `provided_hash`
+        /// come from callers, so this only confirms that the supplied hash
+        /// equals the one the uploader registered. A uploader can register a
+        /// hash of their choosing and then trivially "verify" it.
+        ///
+        /// Treat a `true` result as "this hash is the one on record", not as
+        /// "these bytes are attested". Attesting to IPFS content has to happen
+        /// off-chain, against a pinned receipt, and be anchored here — pinning
+        /// is tracked separately by `pin_document`.
         #[ink(message)]
         pub fn verify_content_hash(
             &mut self,
@@ -718,10 +817,11 @@ pub mod ipfs_metadata {
             // Check access permissions
             self.check_read_access(document.property_id, caller)?;
 
-            // Verify hash
-            let is_valid = document.content_hash == provided_hash;
+            // Both sides of this comparison are caller-supplied, so a match
+            // says the supplied hash is the one on record — nothing more.
+            let echoes_registered_hash = document.content_hash == provided_hash;
 
-            if is_valid {
+            if echoes_registered_hash {
                 // Update last verified timestamp
                 document.last_verified_at = self.env().block_timestamp();
                 self.documents.insert(document_id, &document);
@@ -737,7 +837,7 @@ pub mod ipfs_metadata {
                 return Err(Error::ContentHashMismatch);
             }
 
-            Ok(is_valid)
+            Ok(echoes_registered_hash)
         }
 
         // ============================================================================
@@ -1390,6 +1490,265 @@ pub mod ipfs_metadata {
             assert_eq!(contract.document_count(), 0);
             assert!(contract.get_property_documents(7).is_empty());
             assert_eq!(contract.access_permissions.get((7, accounts.charlie)), None);
+        }
+
+        // ── document type / MIME pairing (issue #1189) ──────────────────────
+
+        /// Builds a distinct CIDv1-style identifier per seed.
+        ///
+        /// `validate_ipfs_cid` accepts a `b` prefix with at least 10
+        /// characters, and the registry rejects a repeated CID, so each test
+        /// needs its own.
+        fn cid_for(seed: u8) -> IpfsCid {
+            let mut cid = String::from("bafybeigdyrz"); // 12 chars
+            cid.push((b'a' + (seed % 26)) as char);
+            cid
+        }
+
+        /// The core of the issue: a deed is a signed instrument, so an image
+        /// must not be registrable as one.
+        #[ink::test]
+        fn deed_rejects_image_mime() {
+            let mut contract = IpfsMetadataRegistry::new(); // alice = admin
+
+            assert_eq!(
+                contract.register_ipfs_document(
+                    1,
+                    cid_for(1),
+                    DocumentType::Deed,
+                    Hash::from([0x01; 32]),
+                    2048,
+                    String::from("image/jpeg"),
+                    false,
+                ),
+                Err(Error::FileTypeNotAllowed)
+            );
+        }
+
+        /// Same guarantee for `Title`, the other field consumers trust most.
+        #[ink::test]
+        fn title_rejects_image_mime() {
+            let mut contract = IpfsMetadataRegistry::new();
+
+            assert_eq!(
+                contract.register_ipfs_document(
+                    2,
+                    cid_for(2),
+                    DocumentType::Title,
+                    Hash::from([0x02; 32]),
+                    2048,
+                    String::from("image/png"),
+                    false,
+                ),
+                Err(Error::FileTypeNotAllowed)
+            );
+        }
+
+        /// Video is not an acceptable encoding of any legal instrument.
+        #[ink::test]
+        fn legal_instruments_reject_video_mime() {
+            let mut contract = IpfsMetadataRegistry::new();
+
+            for (i, document_type) in [DocumentType::Deed, DocumentType::Legal, DocumentType::Insurance]
+                .iter()
+                .enumerate()
+            {
+                assert_eq!(
+                    contract.register_ipfs_document(
+                        3,
+                        cid_for(3 + i as u8),
+                        document_type.clone(),
+                        Hash::from([0x03; 32]),
+                        4096,
+                        String::from("video/mp4"),
+                        false,
+                    ),
+                    Err(Error::FileTypeNotAllowed)
+                );
+            }
+        }
+
+        /// The policy must not over-reject: a PDF deed still registers.
+        #[ink::test]
+        fn deed_accepts_pdf() {
+            let mut contract = IpfsMetadataRegistry::new();
+
+            let doc_id = contract
+                .register_ipfs_document(
+                    4,
+                    cid_for(6),
+                    DocumentType::Deed,
+                    Hash::from([0x04; 32]),
+                    2048,
+                    String::from("application/pdf"),
+                    false,
+                )
+                .unwrap();
+
+            let doc = contract.get_document(doc_id).expect("stored");
+            assert_eq!(doc.document_type, DocumentType::Deed);
+            assert_eq!(doc.mime_type, String::from("application/pdf"));
+        }
+
+        /// The policy is symmetric: `Images` does not accept a PDF, so a
+        /// document cannot be filed as a photograph.
+        #[ink::test]
+        fn images_type_rejects_pdf() {
+            let mut contract = IpfsMetadataRegistry::new();
+
+            assert_eq!(
+                contract.register_ipfs_document(
+                    5,
+                    cid_for(7),
+                    DocumentType::Images,
+                    Hash::from([0x05; 32]),
+                    1024,
+                    String::from("application/pdf"),
+                    false,
+                ),
+                Err(Error::FileTypeNotAllowed)
+            );
+        }
+
+        /// Photographic evidence is still accepted where it belongs.
+        #[ink::test]
+        fn images_and_inspection_accept_photos() {
+            let mut contract = IpfsMetadataRegistry::new();
+
+            for (i, document_type) in [DocumentType::Images, DocumentType::Inspection]
+                .iter()
+                .enumerate()
+            {
+                let result = contract.register_ipfs_document(
+                    6,
+                    cid_for(8 + i as u8),
+                    document_type.clone(),
+                    Hash::from([0x06; 32]),
+                    1024,
+                    String::from("image/jpeg"),
+                    false,
+                );
+                assert!(result.is_ok(), "{document_type:?} should accept a photo");
+            }
+        }
+
+        /// `Other` states no provenance claim, so the type policy defers to the
+        /// admin-managed list instead of second-guessing the uploader.
+        #[ink::test]
+        fn other_type_defers_to_admin_list() {
+            let mut contract = IpfsMetadataRegistry::new();
+
+            let result = contract.register_ipfs_document(
+                7,
+                cid_for(10),
+                DocumentType::Other,
+                Hash::from([0x07; 32]),
+                512,
+                String::from("video/mp4"),
+                false,
+            );
+            assert!(result.is_ok());
+
+            // Once the admin narrows the list, `Other` follows it.
+            assert_eq!(
+                contract.add_allowed_mime_type(String::from("application/pdf")),
+                Ok(())
+            );
+            assert_eq!(
+                contract.register_ipfs_document(
+                    8,
+                    cid_for(11),
+                    DocumentType::Other,
+                    Hash::from([0x08; 32]),
+                    512,
+                    String::from("video/mp4"),
+                    false,
+                ),
+                Err(Error::FileTypeNotAllowed)
+            );
+        }
+
+        /// The type policy is not admin-widenable. Otherwise a single
+        /// `add_allowed_mime_type` call would restore the exact hole this
+        /// change closes.
+        #[ink::test]
+        fn admin_cannot_widen_the_deed_policy() {
+            let mut contract = IpfsMetadataRegistry::new();
+
+            assert_eq!(
+                contract.add_allowed_mime_type(String::from("image/png")),
+                Ok(())
+            );
+            assert_eq!(
+                contract.register_ipfs_document(
+                    9,
+                    cid_for(12),
+                    DocumentType::Deed,
+                    Hash::from([0x09; 32]),
+                    2048,
+                    String::from("image/png"),
+                    false,
+                ),
+                Err(Error::FileTypeNotAllowed)
+            );
+        }
+
+        /// `SizeLimitExceeded` is reachable: one byte over the configured cap
+        /// reverts. The bound is read from the contract rather than hardcoded.
+        #[ink::test]
+        fn oversized_document_rejected() {
+            let mut contract = IpfsMetadataRegistry::new();
+            let max = contract.get_validation_rules().max_file_size;
+
+            assert_eq!(
+                contract.register_ipfs_document(
+                    10,
+                    cid_for(13),
+                    DocumentType::Deed,
+                    Hash::from([0x0A; 32]),
+                    max + 1,
+                    String::from("application/pdf"),
+                    false,
+                ),
+                Err(Error::SizeLimitExceeded)
+            );
+        }
+
+        /// A rejected upload must leave no trace — the validator runs before
+        /// the counter is incremented and the document is stored.
+        #[ink::test]
+        fn rejected_upload_writes_no_state() {
+            let mut contract = IpfsMetadataRegistry::new();
+
+            assert_eq!(
+                contract.register_ipfs_document(
+                    11,
+                    cid_for(14),
+                    DocumentType::Deed,
+                    Hash::from([0x0B; 32]),
+                    2048,
+                    String::from("image/gif"),
+                    false,
+                ),
+                Err(Error::FileTypeNotAllowed)
+            );
+
+            assert_eq!(contract.document_count(), 0);
+            assert!(contract.get_property_documents(11).is_empty());
+            assert!(contract.get_document(1).is_none());
+
+            // The same CID is still free, so the rejection did not consume it.
+            assert!(contract
+                .register_ipfs_document(
+                    11,
+                    cid_for(14),
+                    DocumentType::Deed,
+                    Hash::from([0x0B; 32]),
+                    2048,
+                    String::from("application/pdf"),
+                    false,
+                )
+                .is_ok());
         }
     }
 }
