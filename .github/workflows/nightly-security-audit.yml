@@ -1,5 +1,22 @@
 name: Nightly Security & Mutation Audit
 
+# Least privilege (see issue #1207).
+#
+# This job only reads the repository and publishes its report as a workflow
+# artifact. It must never be able to write to the repository: a compromised or
+# maliciously-modified step in a nightly audit is exactly the privilege
+# escalation chain the audit exists to catch.
+#
+# `contents: read` is the only scope granted. GitHub sets every scope that is
+# not listed to `none`, so `pull-requests` and `issues` are already denied.
+# There is deliberately no `security-events: write` either — nothing here uploads
+# SARIF, and granting a write scope "in case" is the problem the issue names.
+#
+# The report used to be committed back to the repository with the
+# `contents: write` token. That is gone: `AUDIT_LOG.md` is produced by the run
+# and uploaded as the `security-audit-report` artifact (final step), so the copy
+# checked into the repository is no longer rewritten by CI.
+
 on:
   schedule:
     # Triggers every single night at 02:00 UTC
@@ -7,12 +24,18 @@ on:
   workflow_dispatch: # Allows manual trigger for verification
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   audit:
     name: Run Security and Mutation Suite
     runs-on: ubuntu-latest
+
+    # Restated at job level so the scope the steps actually need is visible next
+    # to them, and so a future change to the block above cannot silently widen
+    # the token this job runs with.
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout Code Repository
@@ -125,11 +148,13 @@ jobs:
             exit 1
           fi
 
-      - name: Commit and Push Security Results to Repo
+      - name: Upload Security Audit Report
+        # Evidence is published, not pushed: run on failure too so a red night
+        # still leaves a report behind for triage.
         if: always()
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add AUDIT_LOG.md
-          git diff-index --quiet HEAD || git commit -m "chore(ci): update nightly AUDIT_LOG.md [skip ci]"
-          git push origin HEAD:${{ github.ref }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-report
+          path: AUDIT_LOG.md
+          if-no-files-found: error
+          retention-days: 30
