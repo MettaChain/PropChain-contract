@@ -382,63 +382,59 @@ export class CrowdfundingClient {
 ### 1. Problem Statement & Impact
 * **Problem**: `.pre-commit-config.yaml` is configured to run full `cargo contract build` on every `git commit`. Building full WebAssembly (WASM) binaries and optimizing metadata on each local commit adds 2–5 minutes per hook cycle.
 * **Impact**: Developer inner-loop friction slows down commits, PR submissions, and overall velocity.
-* **Goal**: Replace `cargo-contract-build` with lightweight `cargo check --workspace --all-targets` to lower pre-commit check times under 30 seconds.
+* **Goal**: Delete the `cargo-contract-build` hook so that the only build-check hook is the fast `cargo-check` one.
 
-### 2. Configuration Modification (`.pre-commit-config.yaml`)
+### 2. Resolution as applied (`.pre-commit-config.yaml`)
+
+The hook that was removed is `cargo-contract-build`:
 
 ```yaml
-# ==============================================================================
-# PropChain Pre-commit Configuration - Optimized Hook Cycle
-# ==============================================================================
-
-repos:
-  # Fast Rust formatting, linting, and type-checking
-  - repo: local
-    hooks:
-      - id: rust-fmt
-        name: rust fmt
-        entry: cargo fmt
+      - id: cargo-contract-build
+        name: cargo contract build
+        entry: cargo contract build
         language: system
-        args: [--all]
+        args: [--quiet]
         pass_filenames: false
-
-      - id: rust-clippy
-        name: rust clippy
-        entry: cargo clippy
-        language: system
-        args: [--all-targets, --all-features, --, -D, warnings]
-        pass_filenames: false
-
-      - id: cargo-check-workspace
-        name: cargo check workspace
-        entry: cargo check
-        language: system
-        args: [--workspace, --all-targets, --all-features]
-        pass_filenames: false
-        files: ^(contracts|tests|src)/.*\.rs$
-
-  # General hygiene checks
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
-    hooks:
-      - id: trailing-whitespace
-      - id: end-of-file-fixer
-      - id: check-yaml
-      - id: check-added-large-files
-        args: ['--maxkb=1000']
-      - id: check-merge-conflict
-      - id: check-case-conflict
-      - id: check-toml
-
-  # Remove high-latency contract WASM build step from local pre-commit hooks.
-  # (Full WASM builds should be deferred to CI pipeline `.github/workflows/ci.yml`)
+        files: ^contracts/.*\.rs$
 ```
 
-### 3. Pre-Commit Performance Comparison
+Nothing else in the file changed, so this section records the final hook set
+rather than proposing a different one:
 
-| Check Type | Previous Command (`cargo contract build`) | New Command (`cargo check --workspace --all-targets`) |
-| :--- | :--- | :--- |
-| **Execution Objective** | Complete WASM code gen, LLVM optimizations, metadata bundle generation | Type checking, macro expansion, symbol validation |
-| **Average Hook Latency** | 120s – 300s (2 – 5 minutes) | **8s – 22s (< 30 seconds)** |
-| **Developer Velocity Impact** | High friction, developers bypass hooks (`--no-verify`) | Seamless, instant developer inner-loop feedback |
-| **CI Delegation** | Redundant full build | Full WASM compilation enforced on PR merge |
+| Hook id | Command | Args | Scope |
+| :--- | :--- | :--- | :--- |
+| `rust-fmt` | `cargo fmt` | `--all` | all files |
+| `rust-clippy` | `cargo clippy` | `--all-targets --all-features -- -D warnings` | all files |
+| `cargo-check` | `cargo check` | `--all-features` | all files — **the one build-check hook** |
+| `cargo-contract-test` | `cargo contract test` | — | `^contracts/.*\.rs$` |
+| `no-unresolved-issue-placeholder` | `bash -c '! grep -rn "Issue #XXX" …'` | — | `contracts/**/*.rs` |
+| `cargo-doc` | `cargo doc` | `--no-deps --document-private-items` | all files |
+
+`cargo-contract-test` is deliberately **kept**. It runs the test suite rather
+than duplicating a build check, so it is not the hook this issue was about. It
+does still require `cargo-contract` to be installed, and it is now the only
+remaining `cargo contract` invocation in pre-commit — removing it as well would
+mean tests no longer run before a commit, which is a separate decision with a
+separate trade-off and is not made here.
+
+### 3. What this changes, and how to measure it
+
+The removed hook was `cargo contract build --quiet`: it resolved the workspace,
+generated a WASM binary per contract and ran the metadata/optimisation pipeline,
+on every commit touching a `contracts/**/*.rs` file. `cargo check --all-features`
+type-checks the same sources without code generation, so the hook keeps the
+feedback it existed for and drops the artifact build nobody was reading from a
+pre-commit run.
+
+Earlier revisions of this document quoted exact latencies (“120s – 300s” versus
+“8s – 22s”). Those figures were never measured against this repository and have
+been removed rather than restated. To produce real numbers, run each hook from a
+warm `target/` with a single contract file touched:
+
+```bash
+time cargo contract build --quiet   # hook that was removed
+time cargo check --all-features     # hook that remains
+```
+
+A cold `target/` measures dependency compilation, not the hook, so warm the cache
+first if the number is meant to describe the pre-commit cycle.

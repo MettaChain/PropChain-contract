@@ -75,16 +75,13 @@ repos:
         args: [--ignore, DL3008, --ignore, DL3009]
 
   # Contract-specific checks
+  #
+  # There is exactly one build-check hook and it is `cargo-check` above: a full
+  # `cargo contract build` was removed (issue #1206) because it compiled and
+  # size-optimised WASM binaries on every local commit for the same verdict
+  # `cargo check` already gives, which cost 2-5 minutes per hook cycle.
   - repo: local
     hooks:
-      - id: cargo-contract-build
-        name: cargo contract build
-        entry: cargo contract build
-        language: system
-        args: [--quiet]
-        pass_filenames: false
-        files: ^contracts/.*\.rs$
-
       - id: cargo-contract-test
         name: cargo contract test
         entry: cargo contract test
