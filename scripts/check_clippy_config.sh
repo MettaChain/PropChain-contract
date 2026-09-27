@@ -24,7 +24,7 @@ CLIPPY_TOOLCHAIN="${CLIPPY_TOOLCHAIN:-nightly}"
 CONFIG_DIR="$(cd "$(dirname "${CLIPPY_CONFIG}")" && pwd)"
 CONFIG_NAME="$(basename "${CLIPPY_CONFIG}")"
 
-if [[ ! -f "${CLIPPY_CONFIG}" ]]; then
+if [[ ! -f ${CLIPPY_CONFIG} ]]; then
     echo "clippy-config: ${CLIPPY_CONFIG} not found" >&2
     exit 1
 fi
@@ -40,7 +40,7 @@ trap cleanup EXIT
 
 cp "${CLIPPY_CONFIG}" "${STAGE_DIR}/clippy.toml"
 mkdir -p "${PROBE_DIR}/src"
-cat > "${PROBE_DIR}/Cargo.toml" <<'EOF'
+cat >"${PROBE_DIR}/Cargo.toml" <<'EOF'
 [package]
 name = "clippy-config-probe"
 version = "0.0.0"
@@ -49,7 +49,7 @@ edition = "2021"
 [workspace]
 EOF
 
-cat > "${PROBE_DIR}/src/main.rs" <<'EOF'
+cat >"${PROBE_DIR}/src/main.rs" <<'EOF'
 fn main() {}
 EOF
 
@@ -62,8 +62,8 @@ set +e
 PROBE_OUTPUT="$(
     cd "${PROBE_DIR}" &&
         CARGO_TARGET_DIR="${PROBE_DIR}/target" \
-        CLIPPY_CONF_DIR="${STAGE_DIR}" \
-        cargo "+${CLIPPY_TOOLCHAIN}" clippy --quiet 2>&1
+            CLIPPY_CONF_DIR="${STAGE_DIR}" \
+            cargo "+${CLIPPY_TOOLCHAIN}" clippy --quiet 2>&1
 )"
 PROBE_STATUS=$?
 set -e
