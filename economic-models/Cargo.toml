@@ -1,0 +1,22 @@
+[package]
+name = "propchain-economic-models"
+version = "1.0.0"
+authors = ["PropChain Team <dev@propchain.io>"]
+edition = "2021"
+description = "Models of PropChain's value-movement arithmetic (lending rate, fee rounding, staking reward points), with Kani proof harnesses"
+license = "MIT"
+homepage = "https://propchain.io"
+repository = "https://github.com/MettaChain/PropChain-contract"
+publish = false
+
+[lib]
+name = "propchain_economic_models"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+# Deliberately dependency-free: this crate is compiled by Kani in CI, and a
+# dependency tree here would be a dependency tree the proofs have to trust.
+[dependencies]
+
+[features]
+default = []
