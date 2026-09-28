@@ -5460,6 +5460,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "propchain-economic-models"
+version = "1.0.0"
+
+[[package]]
 name = "propchain-factory"
 version = "1.0.0"
 dependencies = [

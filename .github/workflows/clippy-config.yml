@@ -1,0 +1,38 @@
+name: Clippy Config
+
+# Guards `clippy.toml`. Clippy rejects an option it does not recognise with a
+# hard error, but only while it is actually running, so a mistyped key is easy
+# to land unnoticed on a PR that never lints the crate in question. This job
+# lints a dependency-free probe crate with `clippy.toml` pointed at it, which
+# always recompiles (own target dir) and therefore always parses the config.
+
+on:
+  pull_request:
+    branches: [main, master, develop]
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clippy-config-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clippy-config:
+    name: Validate clippy.toml
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+
+      - name: Validate clippy.toml against the Clippy parser
+        run: ./scripts/check_clippy_config.sh

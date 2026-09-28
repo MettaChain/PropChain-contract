@@ -52,3 +52,36 @@ jobs:
           args: >-
             --harness oracle_proofs::prove_stale_oracle_always_rejected
             --harness oracle_proofs::prove_fresh_oracle_always_accepted
+
+      # Issue #1209: the value-movement arithmetic. These run against
+      # `propchain-economic-models`, a dependency-free crate, because Kani has to
+      # compile everything the target pulls in. See `docs/formal_verification.md`
+      # for what each harness does and does not establish.
+      - name: Verify lending borrow-rate curve
+        uses: model-checking/kani-github-action@v1
+        with:
+          working-directory: economic-models
+          args: >-
+            --harness lending_rate_proofs::prove_rate_stays_within_documented_band
+            --harness lending_rate_proofs::prove_rate_is_monotonic_in_utilisation
+            --harness lending_rate_proofs::prove_rate_saturates_at_full_utilisation
+
+      - name: Verify fee rounding and its dust bound
+        uses: model-checking/kani-github-action@v1
+        with:
+          working-directory: economic-models
+          args: >-
+            --harness fee_rounding_proofs::prove_floor_never_exceeds_ceiling
+            --harness fee_rounding_proofs::prove_dust_is_at_most_one_unit
+            --harness fee_rounding_proofs::prove_ceiling_covers_the_exact_fee
+            --harness fee_rounding_proofs::prove_zero_denominator_yields_no_fee
+
+      - name: Verify staking reward-point maths
+        uses: model-checking/kani-github-action@v1
+        with:
+          working-directory: economic-models
+          args: >-
+            --harness staking_points_proofs::prove_zero_stake_scores_no_points
+            --harness staking_points_proofs::prove_points_are_monotonic_in_rewards
+            --harness staking_points_proofs::prove_pending_is_zero_once_the_snapshot_catches_up
+            --harness staking_points_proofs::prove_pending_is_monotonic_in_the_accumulator

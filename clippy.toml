@@ -1,69 +1,129 @@
-# Clippy configuration for PropChain smart contracts
-# Lint configuration
+# Clippy configuration for PropChain smart contracts.
+#
+# Every key in this file is one Clippy actually parses. That is now machine
+# checked: `scripts/check_clippy_config.sh`
+# (wired into `.github/workflows/clippy-config.yml`) runs Clippy and fails on its
+# `unknown field name` diagnostic, so a future edit cannot reintroduce an option
+# Clippy silently ignores.
+#
+# The file previously also carried a block of commented-out options that are not
+# Clippy configuration keys at all — `format-args`, `format-push-str`,
+# `format-use-stderr`, `macro-match-behaviour`, `external-doc`,
+# `extern-hard-links`, `literal-representation`, `unsafe-code`,
+# `self-named-constructors` and `enforced-archetype-rename`. Commented or not,
+# they advertised tuning knobs that do not exist; they are gone.
+#
+# A key only changes behaviour once the lint it feeds is enabled. The
+# repository's Clippy invocation is
+# `cargo clippy --all-targets --all-features -- -D warnings`
+# (`.pre-commit-config.yaml`, `scripts/build.sh`), which turns on `clippy::all`
+# plus the default warn lints. Keys bound to pedantic/restriction lints are
+# therefore dormant until those lints are explicitly enabled; each key below
+# names the lint it configures so the dependency is visible.
+
+# Minimum supported Rust version. Defaults to the `rust-version` field of
+# Cargo.toml when unset; pinned here so MSRV-gated lints cannot drift with the
+# toolchain. Affects the `incompatible_msrv` family.
 msrv = "1.70.0"
 
-# Enable additional lints
+# Maximum cognitive complexity of a function (default 25).
+# Affects: `clippy::cognitive_complexity`.
 cognitive-complexity-threshold = 30
+
+# Maximum number of arguments a function/method may take (default 7).
+# Affects: `clippy::too_many_arguments`.
 too-many-arguments-threshold = 7
+
+# Maximum type complexity (default 250).
+# Affects: `clippy::type_complexity`.
 type-complexity-threshold = 250
+
+# Maximum single-character bindings per scope (default 4).
+# Affects: `clippy::many_single_char_names`.
 single-char-binding-names-threshold = 4
+
+# Maximum size (bytes) of a `Copy` type passed by value (default: pointer width).
+# Affects: `clippy::trivially_copy_pass_by_ref`.
 trivial-copy-size-limit = 256
+
+# Minimum size (bytes) for `large_types_passed_by_value` (default 256).
+# Affects: `clippy::large_types_passed_by_value`.
 pass-by-value-size-limit = 256
+
+# Maximum number of lines in a function/method (default 100).
+# Affects: `clippy::too_many_lines`.
 too-many-lines-threshold = 100
+
+# Maximum size of arrays allowed on the stack (default 16384).
+# Affects: `clippy::large_const_arrays`, `clippy::large_stack_arrays`.
 array-size-threshold = 512000
+
+# Size (bytes) of a boxed type for which boxing inside a `Vec` is allowed.
+# Affects: `clippy::vec_box`.
 vec-box-size-threshold = 4096
+
+# Maximum number of bounds on a trait (default 3).
+# Affects: `clippy::type_repetition_in_bounds`.
 max-trait-bounds = 5
+
+# Maximum size of a file pulled in by `include_bytes!`/`include_str!`.
+# Affects: `clippy::large_include_file`.
 max-include-file-size = 1000000
 
-# Documentation configuration
+# Whether `missing_docs_in_private_items` may be satisfied by crate-visible
+# items only. Kept `false` so the boundary stays the public API.
+# Affects: `clippy::missing_docs_in_private_items`.
 missing-docs-in-crate-items = false
 
-# Metadatas configuration
-# Closes #800: kept `true` deliberately — the workspace is already at
-# `version = "1.0.0"` (see Cargo.toml [workspace.package]), so exported APIs
-# are under semver stability guarantees and Clippy should flag breaking
-# changes to them. If the workspace ever needs pre-1.0 flexibility again,
-# this should be set to `false` alongside bumping to `version = "0.x.y"`.
+# Whether lints that would break exported APIs are suppressed. Kept `true`
+# deliberately: the workspace is already at `version = "1.0.0"`
+# (see `Cargo.toml` [workspace.package]), so exported APIs are under semver
+# stability guarantees and Clippy should not suggest breaking changes to them.
+# If the workspace ever needs pre-1.0 flexibility again, flip this to `false`
+# alongside bumping to `version = "0.x.y"`.
+# Affects: `box_collection`, `enum_variant_names`, `large_types_passed_by_value`,
+# `linkedlist`, `needless_pass_by_ref_mut`, `option_option`, `owned_cow`,
+# `rc_buffer`, `rc_mutex`, `redundant_allocation`, `ref_option`,
+# `single_call_fn`, `trivially_copy_pass_by_ref`, `unnecessary_box_returns`,
+# `unnecessary_wraps`, `unused_self`, `upper_case_acronyms`, `vec_box`,
+# `wrong_self_convention`. Clippy's default is also `true`; it is stated
+# explicitly because the reasoning above is a project decision, not a default.
 avoid-breaking-exported-api = true
 
-# Disallowed methods
+# Names that `clippy::disallowed_names` reports. Replaces Clippy's default list
+# (`foo`, `baz`, `quux`) rather than extending it, so all four entries below are
+# reported.
+# Affects: `clippy::disallowed_names`.
 disallowed-names = ["foo", "bar", "baz", "qux"]
 
-# Enforced naming conventions
+# Imports that must always be renamed. Empty: the workspace has no mandatory
+# import renames yet.
+# Affects: `clippy::missing_enforced_import_renames`.
 enforced-import-renames = []
-# enforced-archetype-rename = []
 
-# Upper case acronyms
+# Report if more than one uppercase character is adjacent, rather than requiring
+# a run of them.
+# Affects: `clippy::upper_case_acronyms`.
 upper-case-acronyms-aggressive = true
+
+# Unicode scripts permitted in identifiers.
+# Affects: `clippy::disallowed_script_idents`.
 allowed-scripts = ["Latin"]
 
-# Macro configuration
-# macro-match-behaviour = "hygiene"
-
-# External configuration
-# external-doc = false
-# extern-hard-links = false
-
-# Literal configuration
+# Lower bound for linting decimal literals with a representation that hides
+# their value.
+# Affects: `clippy::decimal_literal_representation`.
 literal-representation-threshold = 20
-# literal-representation = "Hex"
 
-# Self namespace configuration
-# self-named-constructors = "deny"
-
-# Format configuration
-# format-args = "allow"
-# format-push-str = "allow"
-# format-use-stderr = "allow"
-
-# Unsafe configuration
-# unsafe-code = "deny"
-
-# Test configuration
+# The next four keys only matter for the restriction lints `expect_used`,
+# `unwrap_used`, `dbg_macro` and the pedantic `uninlined_format_args`. They are
+# kept explicit so a later switch to those lints does not immediately fail on
+# every test module.
 allow-expect-in-tests = true
 allow-unwrap-in-tests = true
 allow-dbg-in-tests = true
 allow-mixed-uninlined-format-args = true
 
-# Check-private-items configuration
+# Whether the doc lints (`missing_errors_doc`, `missing_panics_doc`,
+# `missing_safety_doc`, `unnecessary_safety_doc`) also run over private items.
 check-private-items = false
