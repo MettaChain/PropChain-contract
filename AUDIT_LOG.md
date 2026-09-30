@@ -491,3 +491,27 @@ workspace: /home/runner/work/PropChain-contract/PropChain-contract/Cargo.toml
      [1m[94m|[0m  [1m[91m^[0m
 
 [1m[91merror[0m: could not compile `propchain-bridge` (lib test) due to 1 previous error
+
+---
+
+## ✅ Advisory Triage — h2 / rustls-webpki (issue #1203, 2026-09-29)
+
+`cargo-audit` flags 8 advisories against transitive dependencies pinned by the
+substrate/ink toolchain. They are now explicitly ignored with justification in
+`audit.toml` so that remaining *new* advisories fail the audit gate:
+
+| Advisory | Crate (pinned version) | Action & justification |
+| --- | --- | --- |
+| RUSTSEC-2026-0258 | h2 0.3.27 | Ignored. Upgrade path (h2 >= 0.4.16) requires a hyper/tokio stack bump out of scope for ink! 5.1. No workspace code path exposes the vulnerable HTTP/2 empty-DATA-frame handling; contracts never terminate HTTP/2. |
+| RUSTSEC-2026-0098 | rustls-webpki 0.101.7 / 0.102.8 | Ignored. Fix line (0.103.x) requires a rustls major bump. Workspace has no rustls client parsing untrusted certificates. |
+| RUSTSEC-2026-0104 | rustls-webpki 0.101.7 / 0.102.8 | Already ignored (pre-existing entry, unchanged). |
+| RUSTSEC-2026-0002 | lru 0.12.5 | Already ignored (pre-existing entry, unchanged). |
+
+Each ignore entry in `audit.toml` carries a comment with the justification and
+a re-evaluation note for the next toolchain upgrade. `cargo-deny check` must be
+re-run in CI to confirm zero unignored advisories (deny.toml license-key
+cleanup is tracked separately and out of scope here).
+
+Secrets scanning (issue #1211): `.secrets.baseline` committed; audited
+findings and the baseline workflow are documented in
+`.secrets-audit-justifications.md`.
