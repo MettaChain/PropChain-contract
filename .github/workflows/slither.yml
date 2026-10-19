@@ -48,7 +48,7 @@ jobs:
 
       - name: Run Slither
         if: steps.sol.outputs.present == 'true'
-        uses: crytic/slither-action@v0.4.0
+        uses: crytic/slither-action@v0.4.2
         with:
           target: contracts/proxy
           fail-on: high
