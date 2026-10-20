@@ -161,6 +161,12 @@ pub enum AccessControlError {
     NoPendingRotation,
     /// The caller is not permitted to confirm/cancel this rotation.
     RotationUnauthorized,
+    /// The supplied `AccountId` is the zero/default address and is not accepted.
+    ZeroAccount,
+    /// The new account in a key-rotation request must differ from the current one.
+    SameAccount,
+    /// The `cache_ttl_blocks` supplied to `new()` must be at least 1.
+    InvalidCacheTtl,
     /// An arithmetic operation would have overflowed.
     ///
     /// Returned by `write_audit` when the audit-log counter is exhausted
@@ -168,6 +174,44 @@ pub enum AccessControlError {
     /// rotation nonce is exhausted.  Both situations indicate the counter
     /// has run for its entire lifetime and must never silently wrap.
     ArithmeticOverflow,
+}
+
+/// Emitted when a role is granted to an account.
+#[ink::event]
+pub struct RoleGranted {
+    #[ink(topic)]
+    pub actor: AccountId,
+    #[ink(topic)]
+    pub target: AccountId,
+    pub role: Role,
+}
+
+/// Emitted when a role is revoked from an account.
+#[ink::event]
+pub struct RoleRevoked {
+    #[ink(topic)]
+    pub actor: AccountId,
+    #[ink(topic)]
+    pub target: AccountId,
+    pub role: Role,
+}
+
+/// Emitted when a permission is granted to a role.
+#[ink::event]
+pub struct RolePermissionGranted {
+    #[ink(topic)]
+    pub actor: AccountId,
+    pub role: Role,
+    pub permission: Permission,
+}
+
+/// Emitted when a permission is revoked from a role.
+#[ink::event]
+pub struct RolePermissionRevoked {
+    #[ink(topic)]
+    pub actor: AccountId,
+    pub role: Role,
+    pub permission: Permission,
 }
 
 /// Emitted when a direct (account-level) permission is granted.
@@ -268,6 +312,8 @@ pub struct AccessControl {
     cache_ttl_blocks: u32,
     pending_rotations: Mapping<AccountId, crate::crypto::KeyRotationRequest>,
     rotation_nonce: Mapping<AccountId, u64>,
+    /// Designated admin role per role index (Issue #1256).
+    role_admin: Mapping<u8, u8>,
     // ── Storage gap for upgrade safety (issue #1261) ──────────────────────
     //
     // When new storage fields are added in a future version of this struct,
@@ -366,6 +412,7 @@ impl AccessControl {
             cache_ttl_blocks,
             pending_rotations: Mapping::default(),
             rotation_nonce: Mapping::default(),
+            role_admin: Mapping::default(),
             __storage_gap: [0u128; crate::constants::STORAGE_GAP_SIZE],
         })
     }
@@ -447,8 +494,8 @@ impl AccessControl {
         }
         let previous_admin = self.get_role_admin(role);
         self.role_admin.insert(role.to_index(), &new_admin.to_index());
-        self.invalidate_cache();
-        self.write_audit(
+        let _ = self.invalidate_cache();
+        let _ = self.write_audit(
             actor,
             actor,
             AuditAction::RoleAdminChanged,
@@ -499,6 +546,11 @@ impl AccessControl {
             block_number,
             timestamp,
         )?;
+        ink::env::emit_event::<ink::env::DefaultEnvironment, _>(RoleGranted {
+            actor,
+            target,
+            role,
+        });
         Ok(())
     }
 
@@ -532,6 +584,11 @@ impl AccessControl {
             block_number,
             timestamp,
         )?;
+        ink::env::emit_event::<ink::env::DefaultEnvironment, _>(RoleRevoked {
+            actor,
+            target,
+            role,
+        });
         Ok(())
     }
 
@@ -565,6 +622,121 @@ impl AccessControl {
             block_number,
             timestamp,
         )?;
+        ink::env::emit_event::<ink::env::DefaultEnvironment, _>(RolePermissionGranted {
+            actor,
+            role,
+            permission,
+        });
+        Ok(())
+    }
+
+    /// Revoke `permission` from all accounts that hold `role`.
+    ///
+    /// Requires `Role::Admin`.
+    /// Emits [`RolePermissionRevoked`] (Issue #1253).
+    ///
+    /// # Issue #1254 — Input validation
+    /// `actor` must be non-zero.
+    pub fn revoke_permission_from_role(
+        &mut self,
+        actor: AccountId,
+        role: Role,
+        permission: Permission,
+        block_number: u32,
+        timestamp: u64,
+    ) -> Result<(), AccessControlError> {
+        ensure_non_zero_account(actor)?;
+        self.ensure_has_role(actor, Role::Admin)?;
+        self.role_permissions.remove((role, permission));
+        self.invalidate_cache()?;
+        self.write_audit(
+            actor,
+            actor,
+            AuditAction::PermissionRevokedFromRole,
+            Some(role),
+            Some(permission),
+            block_number,
+            timestamp,
+        )?;
+        ink::env::emit_event::<ink::env::DefaultEnvironment, _>(RolePermissionRevoked {
+            actor,
+            role,
+            permission,
+        });
+        Ok(())
+    }
+
+    /// Grant `permission` directly to `target` (bypasses role-based lookup).
+    ///
+    /// Requires `Role::Admin`.
+    /// Emits [`AccountPermissionGranted`] (Issue #1253).
+    ///
+    /// # Issue #1254 — Input validation
+    /// Both `actor` and `target` must be non-zero.
+    pub fn grant_permission_to_account(
+        &mut self,
+        actor: AccountId,
+        target: AccountId,
+        permission: Permission,
+        block_number: u32,
+        timestamp: u64,
+    ) -> Result<(), AccessControlError> {
+        ensure_non_zero_account(actor)?;
+        ensure_non_zero_account(target)?;
+        self.ensure_has_role(actor, Role::Admin)?;
+        self.account_permissions.insert((target, permission), &true);
+        self.invalidate_cache()?;
+        self.write_audit(
+            actor,
+            target,
+            AuditAction::PermissionGrantedToAccount,
+            None,
+            Some(permission),
+            block_number,
+            timestamp,
+        )?;
+        ink::env::emit_event::<ink::env::DefaultEnvironment, _>(AccountPermissionGranted {
+            actor,
+            target,
+            permission,
+        });
+        Ok(())
+    }
+
+    /// Revoke a directly-granted `permission` from `target`.
+    ///
+    /// Requires `Role::Admin`.
+    /// Emits [`AccountPermissionRevoked`] (Issue #1253).
+    ///
+    /// # Issue #1254 — Input validation
+    /// Both `actor` and `target` must be non-zero.
+    pub fn revoke_permission_from_account(
+        &mut self,
+        actor: AccountId,
+        target: AccountId,
+        permission: Permission,
+        block_number: u32,
+        timestamp: u64,
+    ) -> Result<(), AccessControlError> {
+        ensure_non_zero_account(actor)?;
+        ensure_non_zero_account(target)?;
+        self.ensure_has_role(actor, Role::Admin)?;
+        self.account_permissions.remove((target, permission));
+        self.invalidate_cache()?;
+        self.write_audit(
+            actor,
+            target,
+            AuditAction::PermissionRevokedFromAccount,
+            None,
+            Some(permission),
+            block_number,
+            timestamp,
+        )?;
+        ink::env::emit_event::<ink::env::DefaultEnvironment, _>(AccountPermissionRevoked {
+            actor,
+            target,
+            permission,
+        });
         Ok(())
     }
 
@@ -592,6 +764,26 @@ impl AccessControl {
         } else {
             Err(AccessControlError::Unauthorized)
         }
+    }
+
+    /// Return `true` if `account` holds `permission` either directly or through
+    /// one of the roles it holds (including inherited roles).
+    pub fn has_permission(&self, account: AccountId, permission: Permission) -> bool {
+        if self
+            .account_permissions
+            .get((account, permission))
+            .unwrap_or(false)
+        {
+            return true;
+        }
+        self.all_roles()
+            .iter()
+            .filter(|role| self.has_role(account, **role))
+            .any(|role| {
+                self.role_permissions
+                    .get((*role, permission))
+                    .unwrap_or(false)
+            })
     }
 
     /// Check whether `account` holds `permission`, using a per-epoch cache.
@@ -900,9 +1092,9 @@ mod tests {
     /// Create a fresh AccessControl and bootstrap an admin.
     fn fresh_with_admin() -> (AccessControl, AccountId) {
         init_test_env();
-        let mut ac = AccessControl::new(100);
+        let mut ac = AccessControl::new(100).expect("TTL must be valid");
         let admin = account(0xA1);
-        ac.bootstrap(admin, 1, 1000);
+        ac.bootstrap(admin, 1, 1000).expect("bootstrap succeeds");
         (ac, admin)
     }
 
@@ -937,7 +1129,7 @@ mod tests {
 
     #[test]
     fn new_starts_with_zero_audit_count() {
-        let ac = AccessControl::new(100);
+        let ac = AccessControl::new(100).expect("TTL must be valid");
         assert_eq!(ac.audit_count(), 0);
         assert_eq!(ac.cache_epoch, 0);
         assert_eq!(ac.cache_ttl_blocks, 100);
@@ -1442,7 +1634,7 @@ mod tests {
     #[test]
     fn confirm_key_rotation_fails_without_pending() {
         let (mut ac, _admin) = fresh_with_admin();
-        let nobody = account(0x00);
+        let nobody = account(0xEE);
         let caller = account(0xD0);
 
         let result = ac.confirm_key_rotation(nobody, caller, 200, 6000);
@@ -1526,7 +1718,7 @@ mod tests {
     #[test]
     fn cancel_key_rotation_fails_without_pending() {
         let (mut ac, _admin) = fresh_with_admin();
-        let nobody = account(0x00);
+        let nobody = account(0xEE);
 
         let result = ac.cancel_key_rotation(nobody, nobody, 110, 5100);
         assert_eq!(result, Err(AccessControlError::NoPendingRotation));
@@ -1608,7 +1800,7 @@ mod tests {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-mod tests {
+mod access_control_error_tests {
     use super::*;
 
     fn make_account(seed: u8) -> AccountId {
@@ -1627,10 +1819,10 @@ mod tests {
 
     #[ink::test]
     fn new_with_zero_ttl_returns_error() {
-        assert_eq!(
+        assert!(matches!(
             AccessControl::new(0),
             Err(AccessControlError::InvalidCacheTtl)
-        );
+        ));
     }
 
     #[ink::test]
@@ -1799,7 +1991,7 @@ mod tests {
         let super_admin = make_account(1);
         let manager = make_account(2);
         let verifier_candidate = make_account(3);
-        let plain_admin = make_account(4);
+        let outsider = make_account(4);
 
         ac.bootstrap(super_admin, 1, 0).unwrap();
 
@@ -1811,11 +2003,9 @@ mod tests {
         ac.set_role_admin(super_admin, Role::Verifier, Role::Manager, 3, 0)
             .unwrap();
 
-        // plain_admin has Role::Admin, but not Role::Manager, so cannot grant Verifier
-        ac.grant_role(super_admin, plain_admin, Role::Admin, 4, 0)
-            .unwrap();
+        // `outsider` holds no role, so it cannot grant Verifier.
         assert_eq!(
-            ac.grant_role(plain_admin, verifier_candidate, Role::Verifier, 5, 0),
+            ac.grant_role(outsider, verifier_candidate, Role::Verifier, 5, 0),
             Err(AccessControlError::Unauthorized)
         );
 

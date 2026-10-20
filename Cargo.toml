@@ -31,6 +31,7 @@ members = [
     "contracts/gdpr",
     "contracts/mock-oracle",
     "contracts/monitoring", # Used as a path-dep by the tests crate
+    "contracts/rental-yield",
     "tests",
     "economic-models", # Kani target: value-movement models (issue #1209)
 ]

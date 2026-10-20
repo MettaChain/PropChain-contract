@@ -51,13 +51,15 @@ mod access_control_test_harness {
         #[ink(constructor)]
         pub fn new(cache_ttl_blocks: u32) -> Self {
             Self {
-                ac: AccessControl::new(cache_ttl_blocks),
+                ac: AccessControl::new(cache_ttl_blocks).expect("cache TTL must be non-zero"),
             }
         }
 
         #[ink(message)]
         pub fn bootstrap(&mut self, admin: AccountId, block_number: u32, timestamp: u64) {
-            self.ac.bootstrap(admin, block_number, timestamp);
+            self.ac
+                .bootstrap(admin, block_number, timestamp)
+                .expect("bootstrap succeeds");
         }
 
         #[ink(message)]
