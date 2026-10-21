@@ -30,6 +30,10 @@ start_local_node() {
     mkdir -p "$DATA_DIR"
     
     # Start node in development mode
+    # NOTE: --unsafe-ws-external and --unsafe-rpc-external make the node listen on
+    # all network interfaces, and --rpc-cors all lets any website call it. That is
+    # fine on a private dev machine, but on a shared network or cloud VM anyone who
+    # can reach these ports can use the node, including the pre-funded --alice account.
     substrate-node-template \
         --dev \
         --tmp \

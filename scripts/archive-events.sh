@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS events_archive (
   LIKE contract_events INCLUDING ALL
 );
 
+-- The DELETE and INSERT run as ONE atomic statement: rows are deleted from
+-- contract_events and inserted into events_archive together, so if the insert
+-- fails, the delete is rolled back and no events are lost.
 WITH moved AS (
   DELETE FROM contract_events
   WHERE block_timestamp < NOW() - INTERVAL '${RETENTION_DAYS} days'
@@ -29,4 +32,3 @@ INSERT INTO events_archive SELECT * FROM moved;
 SQL
 
 echo "Archived events older than ${RETENTION_DAYS} days."
-

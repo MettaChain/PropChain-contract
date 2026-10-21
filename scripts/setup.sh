@@ -86,6 +86,10 @@ setup_git_hooks() {
 # Build contracts
 build_contracts() {
     log_info "Building contracts..."
+    # NOTE: This runs in whatever directory the script was launched from.
+    # `cargo contract build` must run inside a contract crate (one with its own
+    # Cargo.toml), so it will fail from a workspace root. build.sh avoids this by
+    # looping over contracts/*/; consider doing the same or cd-ing to the repo root first.
     cargo contract build
     log_success "Contracts built successfully"
 }
