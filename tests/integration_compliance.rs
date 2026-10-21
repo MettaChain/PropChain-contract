@@ -1,21 +1,25 @@
+
 /// # Integration Tests: Compliance Registry (Issue #1014)
 ///
-/// These tests verify the end-to-end compliance pipeline:
-///   verifier onboarding -> KYC submission -> AML/sanctions screening -> consent
-///   -> compliance gating -> revocation
+/// Tests the end-to-end compliance workflow, covering:
+/// verifier onboarding -> KYC submission -> AML/sanctions screening
+/// -> consent verification -> compliance gating -> revocation.
 ///
-/// Because ink! unit tests run inside a single contract environment, we test
-/// the contract directly rather than through cross-contract calls. This
-/// mirrors the actual interaction semantics.
+/// Since ink! unit tests run within a single contract environment, these
+/// tests interact directly with the contract rather than through
+/// cross-contract calls, while validating the contract's intended behavior.
 ///
-/// Acceptance criteria tested:
-///   check Admin adds a dedicated verifier account
-///   check Verifier submits verification with document/biometric/risk data
-///   check AML + sanctions screening and GDPR consent unlock full compliance
-///   check require_compliance succeeds for fully compliant accounts
-///   check Revoked accounts fail require_compliance with Error::NotVerified
-///   check Non-verifiers cannot submit or revoke verifications
-///   check get_compliance_data reflects all stored fields
+/// Acceptance criteria covered:
+/// - Admin can register a dedicated verifier account
+/// - Verifiers can submit verification data, including document,
+///   biometric, and risk information
+/// - AML/sanctions screening and GDPR consent are required for
+///   full compliance
+/// - require_compliance succeeds for fully compliant accounts
+/// - Revoked accounts fail require_compliance with Error::NotVerified
+/// - Non-verifiers cannot submit or revoke verifications
+/// - get_compliance_data returns all stored compliance fields
+
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod integration_compliance {
