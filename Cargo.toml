@@ -15,6 +15,7 @@ members = [
     "contracts/common",
     "contracts/compliance_registry",
     "contracts/property-management",
+    "contracts/rental-yield",
     "contracts/fractional",
     "contracts/prediction-market",
     "contracts/identity",
@@ -31,7 +32,6 @@ members = [
     "contracts/gdpr",
     "contracts/mock-oracle",
     "contracts/monitoring", # Used as a path-dep by the tests crate
-    "contracts/rental-yield",
     "tests",
     "economic-models", # Kani target: value-movement models (issue #1209)
 ]
