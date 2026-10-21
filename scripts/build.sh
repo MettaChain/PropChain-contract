@@ -156,6 +156,9 @@ verify_build() {
     # Check if contract files exist
     local missing_files=()
     
+    # NOTE: This check can never fail. `find` only lists files that already
+    # exist, so `[ ! -f "$file" ]` is never true and missing_files stays empty.
+    # To catch a failed build, check that each contract has a .contract file instead.
     while IFS= read -r -d '' file; do
         if [ ! -f "$file" ]; then
             missing_files+=("$file")
