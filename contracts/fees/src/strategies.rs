@@ -1,7 +1,31 @@
-// Strategy implementations for fee calculation (Issue #186)
+
+/// Strategy implementations for fee calculation (Issue #186).
+
+const DEFAULT_MULTIPLIER_BP: u128 = 10_000;
+const MAX_DEMAND_FACTOR_BP: u128 = 5_000;
+const MAX_CONGESTION_INDEX: u128 = 100;
 
 pub trait FeeStrategy {
     fn calculate(&self, config: &FeeConfig, context: &FeeContext) -> u128;
+}
+
+/// Applies the configured fee bounds.
+///
+/// Invariant: config.min_fee must not exceed config.max_fee.
+fn clamp_fee(fee: u128, config: &FeeConfig) -> u128 {
+    fee.clamp(config.min_fee, config.max_fee)
+}
+
+/// Calculates a fee using a multiplier expressed in basis points.
+fn calculate_multiplied_fee(
+    base_fee: u128,
+    multiplier_bp: u128,
+    config: &FeeConfig,
+) -> u128 {
+    clamp_fee(
+        round_fee_up(base_fee, multiplier_bp, BASIS_POINTS),
+        config,
+    )
 }
 
 pub struct FixedStrategy;
@@ -11,57 +35,83 @@ pub struct ExponentialStrategy;
 
 impl FeeStrategy for FixedStrategy {
     fn calculate(&self, config: &FeeConfig, _context: &FeeContext) -> u128 {
-        config.base_fee.clamp(config.min_fee, config.max_fee)
+        clamp_fee(config.base_fee, config)
     }
 }
 
 impl FeeStrategy for DynamicStrategy {
     fn calculate(&self, config: &FeeConfig, context: &FeeContext) -> u128 {
-        // Congestion multiplier: 0-100 -> 0% to (MAX_CONGESTION_MULTIPLIER-100)%
-        let congestion_bp = (context.congestion_index as u128)
-            .saturating_mul(config.congestion_sensitivity as u128)
-            .saturating_mul((MAX_CONGESTION_MULTIPLIER - 100) as u128)
-            / 10_000;
-        let demand_bp = context.demand_factor_bp.get().min(5000); // Cap demand at 50%
-        let total_multiplier_bp = 10_000u128
+        let congestion = (context.congestion_index as u128)
+            .min(MAX_CONGESTION_INDEX);
+
+        let sensitivity = config.congestion_sensitivity as u128;
+        let maximum_congestion_increase =
+            (MAX_CONGESTION_MULTIPLIER.saturating_sub(100)) as u128;
+
+        let congestion_bp = congestion
+            .saturating_mul(sensitivity)
+            .saturating_mul(maximum_congestion_increase)
+            / DEFAULT_MULTIPLIER_BP;
+
+        let demand_bp = (context.demand_factor_bp.get() as u128)
+            .min(MAX_DEMAND_FACTOR_BP);
+
+        let multiplier_bp = DEFAULT_MULTIPLIER_BP
             .saturating_add(congestion_bp)
-            .saturating_add(demand_bp as u128);
-        // Round the fee UP so the contract never under-collects from the
-        // fraction lost by basis-point division (Issue #1119).
-        let fee = round_fee_up(config.base_fee, total_multiplier_bp, BASIS_POINTS);
-        fee.clamp(config.min_fee, config.max_fee)
+            .saturating_add(demand_bp);
+
+        calculate_multiplied_fee(
+            config.base_fee,
+            multiplier_bp,
+            config,
+        )
+    }
+}
+
+impl TieredStrategy {
+    fn multiplier_for(operation: FeeOperation) -> u128 {
+        match operation {
+            FeeOperation::RegisterProperty => 20_000,   // 2.0x
+            FeeOperation::TransferProperty => 15_000,   // 1.5x
+            FeeOperation::CreateEscrow => 12_000,       // 1.2x
+            FeeOperation::PremiumListingBid => 25_000,  // 2.5x
+            _ => DEFAULT_MULTIPLIER_BP,                 // 1.0x
+        }
     }
 }
 
 impl FeeStrategy for TieredStrategy {
     fn calculate(&self, config: &FeeConfig, context: &FeeContext) -> u128 {
-        // Simplified tiered approach based on operation complexity/impact
-        let multiplier_bp = match context.operation {
-            FeeOperation::RegisterProperty => 20000, // 2x
-            FeeOperation::TransferProperty => 15000, // 1.5x
-            FeeOperation::CreateEscrow => 12000,     // 1.2x
-            FeeOperation::PremiumListingBid => 25000, // 2.5x
-            _ => 10000,                             // 1x
-        };
-        // Round the fee UP for collection (Issue #1119).
-        let fee = round_fee_up(config.base_fee, multiplier_bp, BASIS_POINTS);
-        fee.clamp(config.min_fee, config.max_fee)
+        let multiplier_bp = Self::multiplier_for(context.operation);
+
+        calculate_multiplied_fee(
+            config.base_fee,
+            multiplier_bp,
+            config,
+        )
     }
 }
 
 impl FeeStrategy for ExponentialStrategy {
     fn calculate(&self, config: &FeeConfig, context: &FeeContext) -> u128 {
-        // Non-linear scaling: (congestion/100)^2
-        let c = context.congestion_index as u128;
-        let congestion_sq = c.saturating_mul(c); // 0 to 10000
-        let exp_factor_bp = congestion_sq
-            .saturating_mul(config.congestion_sensitivity as u128)
-            .saturating_div(100);
+        let congestion = (context.congestion_index as u128)
+            .min(MAX_CONGESTION_INDEX);
 
-        let total_multiplier_bp = 10_000u128.saturating_add(exp_factor_bp);
-        // Round the fee UP for collection (Issue #1119).
-        let fee = round_fee_up(config.base_fee, total_multiplier_bp, BASIS_POINTS);
-        fee.clamp(config.min_fee, config.max_fee)
+        // Quadratic congestion scaling: congestion² / 100.
+        let congestion_squared = congestion.saturating_mul(congestion);
+
+        let exponential_factor_bp = congestion_squared
+            .saturating_mul(config.congestion_sensitivity as u128)
+            / MAX_CONGESTION_INDEX;
+
+        let multiplier_bp = DEFAULT_MULTIPLIER_BP
+            .saturating_add(exponential_factor_bp);
+
+        calculate_multiplied_fee(
+            config.base_fee,
+            multiplier_bp,
+            config,
+        )
     }
 }
 
@@ -70,10 +120,18 @@ pub struct FeeCalculator;
 impl FeeCalculator {
     pub fn calculate(config: &FeeConfig, context: &FeeContext) -> u128 {
         match config.calculation_method {
-            FeeCalculationMethod::Fixed => FixedStrategy.calculate(config, context),
-            FeeCalculationMethod::Dynamic => DynamicStrategy.calculate(config, context),
-            FeeCalculationMethod::Tiered => TieredStrategy.calculate(config, context),
-            FeeCalculationMethod::Exponential => ExponentialStrategy.calculate(config, context),
+            FeeCalculationMethod::Fixed => {
+                FixedStrategy.calculate(config, context)
+            }
+            FeeCalculationMethod::Dynamic => {
+                DynamicStrategy.calculate(config, context)
+            }
+            FeeCalculationMethod::Tiered => {
+                TieredStrategy.calculate(config, context)
+            }
+            FeeCalculationMethod::Exponential => {
+                ExponentialStrategy.calculate(config, context)
+            }
         }
     }
 }

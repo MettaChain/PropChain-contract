@@ -1,17 +1,18 @@
-// Error types for the fees contract (Issue #101 - extracted from lib.rs)
+// Error definitions for the fees contract (Issue #101), extracted from lib.rs.
 //
-// Enhancements over v1:
-//  - `ErrorSeverity` enum — distinguishes user mistakes from internal faults
-//  - `is_recoverable()` — callers can decide whether to retry or abort
-//  - `recovery_hint()` — actionable guidance embedded in the error itself
-//  - `FeeErrorKind` — machine-readable category for off-chain indexers /
-//    analytics (finer-grained than the shared `ErrorCategory::Fees`)
-//  - `From<FeeError>` for `u32` — lossless conversion to the numeric code
-//    without going through the `ContractError` trait
-//  - `FeeResult<T>` alias — reduces boilerplate for in-crate use (and tests)
-//  - All match arms are exhaustive and kept in a single canonical order so
-//    adding a new variant produces a compiler error in every match
-//  - Full unit-test suite covering every variant and every method
+// Features:
+//  - `ErrorSeverity` classifies errors as user-related issues or internal faults.
+//  - `is_recoverable()` indicates whether an error can be safely retried.
+//  - `recovery_hint()` provides actionable guidance for resolving errors.
+//  - `FeeErrorKind` defines machine-readable error categories for off-chain
+//    indexers and analytics, offering more detail than `ErrorCategory::Fees`.
+//  - `From<FeeError> for u32` converts errors directly to their numeric codes
+//    without requiring the `ContractError` trait.
+//  - `FeeResult<T>` simplifies result type declarations throughout the crate
+//    and its tests.
+//  - Match statements follow a consistent ordering and use exhaustive
+//    matching to ensure new variants are handled explicitly.
+//  - Unit tests cover every error variant and its associated methods.
 
 use propchain_traits::errors::{fee_codes, ContractError, ErrorCategory};
 
