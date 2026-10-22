@@ -1,17 +1,17 @@
 /// # Integration Tests: Analytics Dashboard (Issue #923)
 ///
-/// The analytics dashboard aggregates market metrics, historical trends,
-/// sentiment, portfolio positions and benchmark indices, and supports a
-/// two-step admin key rotation with a cooldown window.
+/// Tests the analytics dashboard's data aggregation, reporting, and
+/// administration workflows, including market metrics, historical trends,
+/// sentiment, portfolio positions, benchmark indices, and admin key rotation.
 ///
-/// Acceptance criteria tested:
-///   check Market metrics update and read back through the public getter
-///   check Batch metric updates enforce the batch-size limit
-///   check Historical trends keep insertion order and feed market reports
-///   check Sentiment updates flow into generated reports
-///   check Portfolio positions round-trip per owner
-///   check Benchmark indices track property types
-///   check Admin rotation requires the nominee to confirm after cooldown
+/// Acceptance criteria covered:
+/// - Market metrics can be updated and retrieved through the public getter
+/// - Batch metric updates enforce the maximum batch size
+/// - Historical trends preserve insertion order and feed into market reports
+/// - Sentiment updates are reflected in generated reports
+/// - Portfolio positions can be stored and retrieved per owner
+/// - Benchmark indices are tracked by property type
+/// - Admin key rotation requires nominee confirmation after the cooldown period
 #[cfg(test)]
 mod integration_analytics {
     use ink::env::{test, DefaultEnvironment};

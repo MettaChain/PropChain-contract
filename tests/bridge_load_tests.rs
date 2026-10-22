@@ -1,13 +1,14 @@
 //! Bridge Extreme Load Tests
 //!
-//! Tests the cross-chain bridge contract under extreme load conditions:
+//! Tests the bridge contract's performance, reliability, and state consistency
+//! under extreme load conditions, including:
 //! - High-volume concurrent bridge request creation
-//! - Simultaneous multi-signature collection from many operators
-//! - Throughput benchmarks for the bridge execution pipeline
-//! - Rate limiting enforcement under burst traffic
-//! - Bridge state consistency under concurrent access
-//! - Recovery operations under load
-//! - Sustained load throughput stability
+//! - Concurrent multi-signature collection across multiple operators
+//! - Throughput benchmarking of the bridge execution pipeline
+//! - Rate-limiting enforcement under burst traffic
+//! - State consistency during concurrent operations
+//! - Recovery operation reliability under heavy load
+//! - Throughput stability during sustained load
 
 #[cfg(test)]
 mod bridge_extreme_load_tests {
