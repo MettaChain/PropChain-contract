@@ -15,7 +15,6 @@ members = [
     "contracts/common",
     "contracts/compliance_registry",
     "contracts/property-management",
-    "contracts/rental-yield",
     "contracts/fractional",
     "contracts/prediction-market",
     "contracts/identity",
