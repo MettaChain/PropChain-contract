@@ -11,7 +11,7 @@ mod reward_snapshots;
 mod unbonding_tiers;
 
 #[ink::contract]
-mod staking {
+pub mod staking {
     use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
     use propchain_traits::constants;
