@@ -1,15 +1,26 @@
-## Description
+## Pull Request
 
-<!-- Summarize the change and its motivation. -->
+Closes #
 
-## Checklist
+### Summary
 
-- [ ] Tests added or updated
-- [ ] `cargo test` passes locally
-- [ ] Mutation gate passes: ![mutants-pass](https://img.shields.io/badge/mutants-pass-brightgreen) *(nightly CI enforces this for `lending`, `bridge`, `oracle`)*
-- [ ] `cargo deny check` passes
-- [ ] No new `cargo audit` advisories introduced
+<!-- Brief description of what this PR does -->
 
-## Related Issues
+### Changes
 
-<!-- Closes # -->
+<!-- List the files/folders you modified. All changes should be under the extension folder. -->
+
+### Checklist
+
+- [ ] All changes are within `contract-extensions/` (or as explicitly required by the issue)
+- [ ] No modifications to `contracts/`, `tests/`, `scripts/`, or root configuration files
+- [ ] Rust code follows existing ink! patterns
+- [ ] Tests are included and passing
+- [ ] `cargo clippy` passes with no warnings
+- [ ] `cargo test` passes
+- [ ] `cargo build` succeeds
+- [ ] PR references the issue number above
+
+### Testing
+
+<!-- How did you test this? What commands did you run? -->
