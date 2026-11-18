@@ -432,18 +432,20 @@ pub mod multi_source_oracle {
 
         #[ink::test]
         fn tightly_agreeing_sources_have_high_confidence_and_wide_spread_lowers_it() {
-            let (mut tight, a) = setup();
-            sources(&mut tight, &[a.bob, a.charlie, a.django]);
+            // One instance, two assets: ink! off-chain tests share `Mapping` storage between
+            // instances, so separate oracles would overwrite each other's prices.
+            let (mut o, a) = setup();
+            sources(&mut o, &[a.bob, a.charlie, a.django]);
             for (who, p) in [(a.bob, 10_000), (a.charlie, 10_001), (a.django, 9_999)] {
-                submit(&mut tight, who, p);
+                test::set_caller::<ink::env::DefaultEnvironment>(who);
+                o.submit_price(1, p, 0).unwrap();
             }
-            let (mut wide, _) = setup();
-            sources(&mut wide, &[a.bob, a.charlie, a.django]);
             for (who, p) in [(a.bob, 8_000), (a.charlie, 10_000), (a.django, 12_000)] {
-                submit(&mut wide, who, p);
+                test::set_caller::<ink::env::DefaultEnvironment>(who);
+                o.submit_price(2, p, 0).unwrap();
             }
-            let t = tight.get_aggregated_price(ASSET).unwrap().confidence_bps;
-            let w = wide.get_aggregated_price(ASSET).unwrap().confidence_bps;
+            let t = o.get_aggregated_price(1).unwrap().confidence_bps;
+            let w = o.get_aggregated_price(2).unwrap().confidence_bps;
             assert!(t > 9_990, "{t}");
             assert!(w < t, "{w} vs {t}");
         }
