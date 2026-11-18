@@ -1,0 +1,23 @@
+[package]
+name = "upgradeable-proxy"
+version = "0.1.0"
+edition = "2021"
+description = "Delegate-call proxy whose implementation can be switched by its factory"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ink = { version = "5.0.0", default-features = false }
+scale = { package = "parity-scale-codec", version = "3.6.9", default-features = false, features = ["derive"] }
+scale-info = { version = "2.10.0", default-features = false, features = ["derive"] }
+
+[features]
+default = ["std"]
+std = ["ink/std", "scale/std", "scale-info/std"]
+ink-as-dependency = []
+
+# Standalone: not a member of the main workspace.
+[workspace]
