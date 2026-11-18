@@ -214,13 +214,14 @@ mod tests {
     }
 
     #[ink::test]
-    fn larger_swaps_get_a_worse_average_price() {
-        let (mut small, _) = with_pool();
-        let (mut large, _) = with_pool();
-        let out_small = small.swap_shares_for_value(TOKEN, 10, 0).unwrap();
-        let out_large = large.swap_shares_for_value(TOKEN, 400, 0).unwrap();
-        // Compare value per share, cross-multiplied to avoid division.
-        assert!(out_small * 400 > out_large * 10);
+    fn each_further_swap_of_the_same_size_pays_less_because_the_price_moves() {
+        // One contract instance: ink! off-chain tests share `Mapping` storage between
+        // instances, so the price impact is shown by repeating a swap on one pool.
+        let (mut f, _) = with_pool();
+        let first = f.swap_shares_for_value(TOKEN, 100, 0).unwrap();
+        let second = f.swap_shares_for_value(TOKEN, 100, 0).unwrap();
+        let third = f.swap_shares_for_value(TOKEN, 100, 0).unwrap();
+        assert!(first > second && second > third, "{first} > {second} > {third}");
     }
 
     #[ink::test]
