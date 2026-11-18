@@ -82,12 +82,20 @@ mod tests {
         assert_eq!(reserves(&dex, pair), (BASE - expected, QUOTE + 4_000));
     }
 
+    /// A second pool in the same DEX (tokens 3/4) with the same reserves.
+    ///
+    /// ink! off-chain tests share `Mapping` storage between contract instances, so
+    /// comparisons between pools must use one instance with several pools.
+    fn add_pool(dex: &mut PropertyDex, fee: u32) -> u64 {
+        dex.create_pool(3, 4, fee, BASE, QUOTE).expect("second pool created")
+    }
+
     #[ink::test]
     fn a_higher_fee_pays_out_less_for_the_same_input() {
-        let (mut low, low_pair) = setup_with_fee(30);
-        let (mut high, high_pair) = setup_with_fee(300);
-        let out_low = low.swap_exact_base_for_quote(low_pair, 10_000, 0).unwrap();
-        let out_high = high.swap_exact_base_for_quote(high_pair, 10_000, 0).unwrap();
+        let (mut dex, low_pair) = setup_with_fee(30);
+        let high_pair = add_pool(&mut dex, 300);
+        let out_low = dex.swap_exact_base_for_quote(low_pair, 10_000, 0).unwrap();
+        let out_high = dex.swap_exact_base_for_quote(high_pair, 10_000, 0).unwrap();
         assert!(out_low > out_high);
         assert_eq!(out_low, quote_out(10_000, BASE, QUOTE, 30));
         assert_eq!(out_high, quote_out(10_000, BASE, QUOTE, 300));
@@ -137,10 +145,10 @@ mod tests {
 
     #[ink::test]
     fn larger_trades_get_a_worse_average_price() {
-        let (mut small, p1) = setup();
-        let (mut large, p2) = setup();
-        let out_small = small.swap_exact_base_for_quote(p1, 1_000, 0).unwrap();
-        let out_large = large.swap_exact_base_for_quote(p2, 50_000, 0).unwrap();
+        let (mut dex, small_pair) = setup();
+        let large_pair = add_pool(&mut dex, FEE_BIPS);
+        let out_small = dex.swap_exact_base_for_quote(small_pair, 1_000, 0).unwrap();
+        let out_large = dex.swap_exact_base_for_quote(large_pair, 50_000, 0).unwrap();
         // Compare quote-per-base by cross-multiplying.
         assert!(out_small * 50_000 > out_large * 1_000);
     }
