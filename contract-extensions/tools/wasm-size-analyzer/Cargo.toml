@@ -1,0 +1,11 @@
+[package]
+name = "wasm-size-analyzer"
+version = "0.1.0"
+edition = "2021"
+description = "Analyzes ink! contract WASM size and suggests optimizations"
+publish = false
+
+# No external dependencies: the WASM binary format is parsed directly.
+
+# Standalone: not a member of the main workspace.
+[workspace]
