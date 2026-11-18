@@ -428,15 +428,22 @@ pub mod upgradeable_factory {
             assert_eq!(f.get_implementation(proxy), Some(hash(1)));
         }
 
+        // Note: ink! off-chain tests share `Mapping` storage between contract instances,
+        // so each scenario below uses a single factory.
+
         #[ink::test]
-        fn a_lower_layout_revision_is_rejected_and_an_equal_one_is_allowed() {
+        fn a_lower_layout_revision_is_rejected() {
             let (mut f, _, proxy) = with_proxy();
             f.authorize_upgrade(proxy, hash(3)).unwrap(); // revision 3
             assert_eq!(f.authorize_upgrade(proxy, hash(2)), Err(Error::IncompatibleLayout)); // revision 2
-            // A same-revision sibling in the same family is compatible.
-            let (mut g, _, p2) = with_proxy();
-            g.register_implementation(hash(4), hash(FAMILY_A), 1).unwrap();
-            assert!(g.authorize_upgrade(p2, hash(4)).is_ok());
+            assert_eq!(f.get_implementation(proxy), Some(hash(3)));
+        }
+
+        #[ink::test]
+        fn an_equal_layout_revision_in_the_same_family_is_allowed() {
+            let (mut f, _, proxy) = with_proxy();
+            f.register_implementation(hash(4), hash(FAMILY_A), 1).unwrap();
+            assert!(f.authorize_upgrade(proxy, hash(4)).is_ok());
         }
 
         #[ink::test]
