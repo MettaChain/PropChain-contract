@@ -1,0 +1,33 @@
+{
+  "network": "testnet",
+  "faucet": {
+    "note": "Testnet funds come from the network faucet; this script only checks balances and prints the faucet hint.",
+    "min_balance": "1000000000000"
+  },
+  "accounts": ["//Alice", "//Bob"],
+  "contracts": [
+    {
+      "name": "mock-oracle",
+      "manifest_path": "contracts/mock-oracle/Cargo.toml",
+      "constructor": "new",
+      "args": [],
+      "init_calls": [
+        { "message": "set_price", "args": ["1", "100000000"] }
+      ]
+    },
+    {
+      "name": "identity",
+      "manifest_path": "contracts/identity/Cargo.toml",
+      "constructor": "new",
+      "args": [],
+      "init_calls": []
+    },
+    {
+      "name": "staking",
+      "manifest_path": "contracts/staking/Cargo.toml",
+      "constructor": "new",
+      "args": ["500", "1000"],
+      "init_calls": []
+    }
+  ]
+}

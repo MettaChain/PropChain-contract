@@ -1,0 +1,15 @@
+[package]
+name = "call-graph-analyzer"
+version = "0.1.0"
+edition = "2021"
+description = "Builds the call graph of an ink! contract: internal and cross-contract calls, cycles and call depth"
+publish = false
+
+[dependencies]
+syn = { version = "2", features = ["full", "visit", "extra-traits"] }
+quote = "1"
+proc-macro2 = { version = "1", features = ["span-locations"] }
+petgraph = "0.6"
+
+# Standalone: not a member of the main workspace.
+[workspace]
