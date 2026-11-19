@@ -1,0 +1,13 @@
+[package]
+name = "dependency-audit"
+version = "0.1.0"
+edition = "2021"
+description = "Audits Cargo.toml dependencies under a folder for vulnerabilities, licenses and version pinning"
+publish = false
+
+[dependencies]
+toml = "0.8"
+serde_json = "1"
+
+# Standalone: not a member of the main workspace.
+[workspace]

@@ -1,0 +1,14 @@
+[package]
+name = "gas-estimator"
+version = "0.1.0"
+edition = "2021"
+description = "Estimates gas for each #[ink(message)] by static analysis of its body"
+publish = false
+
+[dependencies]
+syn = { version = "2", features = ["full", "visit", "extra-traits"] }
+quote = "1"
+proc-macro2 = { version = "1", features = ["span-locations"] }
+
+# Standalone: not a member of the main workspace.
+[workspace]
