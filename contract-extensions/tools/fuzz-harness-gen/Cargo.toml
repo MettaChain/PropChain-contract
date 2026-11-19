@@ -1,0 +1,14 @@
+[package]
+name = "fuzz-harness-gen"
+version = "0.1.0"
+edition = "2021"
+description = "Generates proptest fuzzing harnesses for the #[ink(message)]s of an ink! contract"
+publish = false
+
+[dependencies]
+syn = { version = "2", features = ["full", "visit", "extra-traits"] }
+quote = "1"
+proc-macro2 = { version = "1", features = ["span-locations"] }
+
+# Standalone: not a member of the main workspace.
+[workspace]
