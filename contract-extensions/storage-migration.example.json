@@ -1,0 +1,30 @@
+{
+  "old_layout": {
+    "balance": "u128",
+    "owner": "AccountId"
+  },
+  "new_layout": {
+    "balance": "u128",
+    "owner": "AccountId",
+    "migrated_at": "u64"
+  },
+  "transformation": {
+    "expression": "entry",
+    "function": "transform"
+  },
+  "storage": {
+    "rpc_method": "state_getKeysPaged",
+    "key_prefix": "",
+    "page_size": 1000,
+    "mode": "iterate"
+  },
+  "migration": {
+    "message": "migrate_storage"
+  },
+  "verification": {
+    "message": "get_storage"
+  },
+  "rollback": {
+    "message": "rollback_migration"
+  }
+}
