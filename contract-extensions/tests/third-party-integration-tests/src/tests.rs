@@ -88,3 +88,63 @@ fn compatibility_check_rejects_incompatible_contracts() {
     assert!(adapter.registrations().is_empty());
     assert_eq!(test::recorded_events().count(), 0);
 }
+
+#[ink::test]
+fn view_functions_are_forwarded_to_the_external_contract() {
+    let (mut adapter, accounts) = setup();
+    let service_id = register(&mut adapter, &accounts, "v1");
+    let mut external = MockExternalContract::new(accounts.bob, "v1");
+
+    external.write_value(7, 42, accounts.bob).unwrap();
+    assert_eq!(adapter.view(service_id, &external, 7), Ok(42));
+    assert_eq!(adapter.view(service_id, &external, 8), Ok(0));
+}
+
+#[ink::test]
+fn view_errors_are_mapped_to_adapter_errors() {
+    let (mut adapter, accounts) = setup();
+    let service_id = register(&mut adapter, &accounts, "v1");
+    let mut external = MockExternalContract::new(accounts.bob, "v1");
+    external.fail_next_view();
+
+    assert_eq!(
+        adapter.view(service_id, &external, 7),
+        Err(AdapterError::ExternalCallFailed)
+    );
+}
+
+#[ink::test]
+fn write_functions_are_forwarded_to_the_external_contract() {
+    let (mut adapter, accounts) = setup();
+    let service_id = register(&mut adapter, &accounts, "v1");
+    let mut external = MockExternalContract::new(accounts.bob, "v1");
+
+    assert_eq!(adapter.write(service_id, &mut external, accounts.bob, 7, 99), Ok(()));
+    assert_eq!(adapter.view(service_id, &external, 7), Ok(99));
+}
+
+#[ink::test]
+fn write_errors_are_mapped_to_adapter_errors() {
+    let (mut adapter, accounts) = setup();
+    let service_id = register(&mut adapter, &accounts, "v1");
+    let mut external = MockExternalContract::new(accounts.bob, "v1");
+    external.fail_next_write();
+
+    assert_eq!(
+        adapter.write(service_id, &mut external, accounts.bob, 7, 99),
+        Err(AdapterError::ExternalWriteRejected)
+    );
+}
+
+#[ink::test]
+fn unauthorized_write_caller_is_rejected_by_the_external_contract() {
+    let (mut adapter, accounts) = setup();
+    let service_id = register(&mut adapter, &accounts, "v1");
+    let mut external = MockExternalContract::new(accounts.bob, "v1");
+
+    assert_eq!(
+        adapter.write(service_id, &mut external, accounts.charlie, 7, 99),
+        Err(AdapterError::ExternalWriteRejected)
+    );
+    assert_eq!(adapter.view(service_id, &external, 7), Ok(0));
+}
