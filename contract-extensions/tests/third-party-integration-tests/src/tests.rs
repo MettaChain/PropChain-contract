@@ -148,3 +148,63 @@ fn unauthorized_write_caller_is_rejected_by_the_external_contract() {
     );
     assert_eq!(adapter.view(service_id, &external, 7), Ok(0));
 }
+
+#[ink::test]
+fn registering_an_external_contract_emits_an_indexable_event() {
+    let (mut adapter, accounts) = setup();
+    let before = test::recorded_events().count();
+    register(&mut adapter, &accounts, "v1");
+
+    assert_eq!(test::recorded_events().count() - before, 1);
+}
+
+#[ink::test]
+fn only_the_configured_integrator_can_add_external_contracts() {
+    let (mut adapter, accounts) = setup();
+    test::set_caller::<DefaultEnvironment>(accounts.bob);
+    let external = MockExternalContract::new(accounts.bob, "v1");
+
+    let result = adapter.add_external_contract(
+        accounts.bob,
+        ServiceType::DataOracle,
+        String::from("Rogue Oracle"),
+        &external,
+        100,
+    );
+
+    assert_eq!(result, Err(AdapterError::UnauthorizedIntegrator));
+    assert!(adapter.registrations().is_empty());
+}
+
+#[ink::test]
+fn calls_against_unregistered_contracts_are_rejected() {
+    let (adapter, accounts) = setup();
+    let external = MockExternalContract::new(accounts.bob, "v1");
+
+    assert_eq!(adapter.view(999, &external, 7), Err(AdapterError::NotRegistered));
+}
+
+#[ink::test]
+fn multiple_contracts_are_tracked_independently() {
+    let (mut adapter, accounts) = setup();
+    let first = register(&mut adapter, &accounts, "v1");
+    test::set_caller::<DefaultEnvironment>(accounts.alice);
+    let second_external = MockExternalContract::new(accounts.charlie, "v1.4");
+    let second = adapter
+        .add_external_contract(
+            accounts.alice,
+            ServiceType::PaymentGateway,
+            String::from("Second Gateway"),
+            &second_external,
+            250,
+        )
+        .unwrap();
+
+    assert_eq!((first, second), (1, 2));
+    assert_eq!(adapter.registrations().len(), 2);
+    assert_eq!(
+        adapter.service_config(second).unwrap().provider_account,
+        accounts.charlie
+    );
+    assert_eq!(adapter.service_config(first).unwrap().provider_account, accounts.bob);
+}
