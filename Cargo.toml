@@ -1,64 +1,22 @@
-[workspace]
-members = [
-    "contracts/lib",
-    "contracts/traits",
-    "contracts/proxy",
-    "contracts/factory",
-    "contracts/ipfs-metadata",
-    "security-audit",
-    "contracts/oracle",
-    "contracts/bridge",
-    "contracts/insurance",
-    "contracts/analytics",
-    "contracts/fees",
-    "contracts/dex",
-    "contracts/common",
-    "contracts/compliance_registry",
-    "contracts/property-management",
-    "contracts/fractional",
-    "contracts/prediction-market",
-    "contracts/identity",
-    "contracts/governance",
-    "contracts/crowdfunding",
-    "contracts/lending",
-    "contracts/metadata",
-    "contracts/multicall",
-    "contracts/database",
-    "contracts/third-party",
-    "contracts/staking",
-    "contracts/version-registry",
-    "contracts/sanctions",
-    "contracts/gdpr",
-    "contracts/mock-oracle",
-    "contracts/monitoring", # Used as a path-dep by the tests crate
-    "contracts/rental-yield",
-    "tests",
-    "economic-models", # Kani target: value-movement models (issue #1209)
-]
-resolver = "2"
+﻿[package]
+name = "security-audit"   # crate name, also the name of the compiled binary
+version = "0.1.0"         # current version of this tool
+edition = "2021"          # Rust language edition (sets which language features are available)
 
-[workspace.package]
-authors = ["PropChain Team <dev@propchain.io>"]
-edition = "2021"
-homepage = "https://propchain.io"
-license = "MIT"
-repository = "https://github.com/MettaChain/PropChain-contract"
-version = "1.0.0"
-
-[workspace.dependencies]
-ink = { version = "5.0.0", default-features = false }
-scale = { package = "parity-scale-codec", version = "3.6.9", default-features = false, features = ["derive"] }
-scale-info = { version = "2.10.0", default-features = false, features = ["derive"] }
-
-[profile.release]
-overflow-checks = true # Changed to true for better math safety in lending
-lto = "fat"
-codegen-units = 1
-opt-level = "z"
-strip = true
-panic = "abort"
-
-[profile.dev]
-overflow-checks = true
-lto = "thin"
-opt-level = 1
+[dependencies]
+# Serialization: turns Rust structs into JSON and back. "derive" lets you add #[derive(Serialize, Deserialize)] to structs.
+serde = { version = "1.0", features = ["derive"] }
+# JSON support for serde (reading and writing JSON, e.g. audit reports).
+serde_json = "1.0"
+# Simple error handling: one catch-all error type with helpful messages.
+anyhow = "1.0"
+# Command-line argument parsing. "derive" lets you define flags by annotating a struct.
+clap = { version = "4.0", features = ["derive"] }
+# Dates and times (e.g. timestamping audit results).
+chrono = "0.4"
+# Colored terminal output (e.g. red for findings, green for passes).
+colored = "2.0"
+# Regular expressions, used to match patterns in files (e.g. secrets or risky code).
+regex = "1.10"
+# Walks through folders and subfolders recursively to find files to scan.
+walkdir = "2.4"
