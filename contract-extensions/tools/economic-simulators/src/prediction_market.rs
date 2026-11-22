@@ -221,7 +221,7 @@ mod tests {
             liquidity: 100.0,
             participants: 100,
             outcome_probability: 0.8,
-            informed_trader_share_bps: 10_000,
+            informed_trader_share_bps: 3_000,
             trade_size: 5.0,
             seed: 12,
         };

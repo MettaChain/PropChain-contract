@@ -139,7 +139,7 @@ pub fn simulate_vote_with_options(
         let majority_passes = yes > no;
         let actual_quorum = turnout.saturating_mul(BPS_DENOMINATOR) / total_power;
         let passes = majority_passes && actual_quorum >= quorum_bps as u128;
-        if actual_quorum >= quorum_bps {
+        if actual_quorum >= quorum_bps as u128 {
             quorum_count += 1;
             if let Some((power, voted_yes)) = largest_vote {
                 let flipped_yes = if voted_yes {
@@ -161,7 +161,7 @@ pub fn simulate_vote_with_options(
             pass_count += 1;
         }
         for (index, sensitivity_quorum) in sensitivity_quorums.iter().copied().enumerate() {
-            if majority_passes && actual_quorum >= sensitivity_quorum {
+            if majority_passes && actual_quorum >= sensitivity_quorum as u128 {
                 sensitivity_pass_counts[index] += 1;
             }
         }
