@@ -20,7 +20,7 @@
 mod tests {
     use ink::env::{test, DefaultEnvironment};
     use ink::primitives::AccountId;
-    use propchain_monitoring::monitoring::MonitoringContract;
+    use propchain_monitoring::monitoring::{AlertTriggered, MonitoringContract};
     use propchain_traits::monitoring::{
         AlertType, HealthStatus, MonitoringError, MonitoringSystem, OperationType,
     };
@@ -70,13 +70,29 @@ mod tests {
 
     /// Decode the `AlertTriggered` events recorded so far.
     ///
-    /// `AlertTriggered` derives only `#[ink(event)]`, so it is decoded through
-    /// its field tuple: `(alert_type, current_value, threshold, triggered_at)`.
-    /// The other monitoring events have a different SCALE length and are
-    /// filtered out by the decode attempt.
+    /// `alert_type` is an `#[ink(topic)]` field, so it is read from the event
+    /// topics (after the signature topic). ink! also includes the topic field
+    /// at the start of the SCALE payload, so it is consumed there before
+    /// decoding the remaining fields. Events are matched by their signature
+    /// topic so other monitoring events with a two-topic layout are ignored.
     fn recorded_alerts() -> Vec<(AlertType, u32, u32, u64)> {
+        let signature = <AlertTriggered as ink::env::Event>::SIGNATURE_TOPIC;
         test::recorded_events()
-            .filter_map(|event| <(AlertType, u32, u32, u64)>::decode(&mut &event.data[..]).ok())
+            .filter_map(
+                |event| match (event.topics.first(), event.topics.get(1), signature) {
+                    (Some(topic), Some(encoded_alert_type), Some(expected))
+                        if topic.as_slice() == &expected[..] =>
+                    {
+                        let alert_type = AlertType::decode(&mut &encoded_alert_type[..]).ok()?;
+                        let mut data = &event.data[..];
+                        let _encoded_alert_type = AlertType::decode(&mut data).ok()?;
+                        let (current_value, threshold, triggered_at) =
+                            <(u32, u32, u64)>::decode(&mut data).ok()?;
+                        Some((alert_type, current_value, threshold, triggered_at))
+                    }
+                    _ => None,
+                },
+            )
             .collect()
     }
 
@@ -192,6 +208,43 @@ mod tests {
         );
         // 1 failure in 4 operations = 2_500 bips, the critical boundary.
         assert_eq!(m.get_system_status(), HealthStatus::Critical);
+    }
+
+    #[ink::test]
+    fn alert_type_is_decoded_from_topics_and_unrelated_events_are_ignored() {
+        let (mut m, accounts) = setup();
+        m.set_alert_config(AlertType::HighErrorRate, 500, true)
+            .unwrap();
+        authorize_sources(&mut m, &accounts);
+
+        // `SnapshotTaken` carries 24 bytes of data, which would also decode as
+        // (u32, u32, u64); it must not be mistaken for an alert.
+        m.take_metrics_snapshot().unwrap();
+        report_as(accounts.bob, &mut m, OperationType::Stake, false);
+
+        let signature = <AlertTriggered as ink::env::Event>::SIGNATURE_TOPIC.unwrap();
+        let alert_event = test::recorded_events()
+            .find(|event| {
+                event
+                    .topics
+                    .first()
+                    .map(|topic| topic.as_slice() == &signature[..])
+                    .unwrap_or(false)
+            })
+            .expect("AlertTriggered event");
+        assert_eq!(alert_event.topics.len(), 2);
+        assert_eq!(
+            AlertType::decode(&mut &alert_event.topics[1][..]).unwrap(),
+            AlertType::HighErrorRate
+        );
+        assert_eq!(
+            <(AlertType, u32, u32, u64)>::decode(&mut &alert_event.data[..]).unwrap(),
+            (AlertType::HighErrorRate, 10_000, 500, START)
+        );
+        assert_eq!(
+            recorded_alerts(),
+            vec![(AlertType::HighErrorRate, 10_000, 500, START)]
+        );
     }
 
     #[ink::test]
