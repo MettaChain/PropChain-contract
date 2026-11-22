@@ -1,0 +1,13 @@
+[package]
+name = "protocol-revenue-model"
+version = "0.1.0"
+edition = "2021"
+description = "Projects protocol fee revenue, fee distribution and treasury growth under volume scenarios"
+publish = false
+
+[lib]
+name = "protocol_revenue_model"
+path = "src/lib.rs"
+
+# Standalone: not a member of the main workspace.
+[workspace]
