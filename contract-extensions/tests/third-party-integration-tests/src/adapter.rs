@@ -18,7 +18,7 @@ use crate::mock_external::{ExternalContractError, ExternalContractInterface};
 pub const SUPPORTED_API_PREFIX: &str = "v1";
 
 /// Reasons an integration can be refused by the adapter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AdapterError {
     /// `caller` is not the integrator that configured this adapter.
     UnauthorizedIntegrator,
