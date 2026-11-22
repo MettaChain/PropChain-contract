@@ -1,0 +1,15 @@
+[package]
+name = "propchain-economic-simulators"
+version = "0.1.0"
+edition = "2021"
+description = "Deterministic, seeded economic simulators for PropChain extensions"
+license = "MIT"
+publish = false
+
+[lib]
+name = "propchain_economic_simulators"
+path = "src/lib.rs"
+
+[dependencies]
+
+[workspace]
