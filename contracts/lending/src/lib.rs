@@ -1963,6 +1963,7 @@ pub mod propchain_lending {
                 let mut total_current_value: u128 = 0;
                 let mut total_assessed_value: u128 = 0;
                 let mut weighted_liquidation_threshold: u128 = 0;
+                let now = self.env().block_timestamp();
 
                 for &pid in &current_collaterals {
                     let record = self
@@ -1976,47 +1977,22 @@ pub mod propchain_lending {
                             .assessed_value
                             .saturating_mul(record.liquidation_threshold as u128),
                     );
-                    let current_val = current_collateral_values
-                        .iter()
-                        .find(|(id, _)| *id == pid)
-                        .map(|(_, v)| *v)
-                        .unwrap_or(record.assessed_value);
-                    total_current_value = total_current_value.saturating_add(current_val);
+                    // Liquidation valuations come from the oracle feed only; the
+                    // caller-supplied `current_collateral_values` argument is
+                    // explicitly ignored (Issue #1088).
+                    let price = self
+                        .oracle_prices
+                        .get(pid)
+                        .ok_or(LendingError::PriceFeedMissing)?;
+                    if now.saturating_sub(price.reported_at) > self.price_max_age {
+                        return Err(LendingError::PriceFeedStale);
+                    }
+                    total_current_value = total_current_value.saturating_add(price.value);
                 }
 
                 let effective_threshold = weighted_liquidation_threshold
                     .checked_div(total_assessed_value)
                     .ok_or(LendingError::InsufficientCollateral)?;
-            let total_debt = app.requested_amount.saturating_add(app.accrued_interest);
-            let mut total_current_value: u128 = 0;
-            let mut total_assessed_value: u128 = 0;
-            let mut weighted_liquidation_threshold: u128 = 0;
-            let now = self.env().block_timestamp();
-
-            for &pid in &current_collaterals {
-                let record = self
-                    .collateral_records
-                    .get(pid)
-                    .ok_or(LendingError::PropertyNotFound)?;
-                total_assessed_value = total_assessed_value.saturating_add(record.assessed_value);
-                weighted_liquidation_threshold = weighted_liquidation_threshold.saturating_add(
-                    record
-                        .assessed_value
-                        .saturating_mul(record.liquidation_threshold as u128),
-                );
-                // Liquidation valuations come from the oracle feed only; the
-                // caller-supplied `current_collateral_values` argument is
-                // explicitly ignored (Issue #1088).
-                let price = self
-                    .oracle_prices
-                    .get(pid)
-                    .ok_or(LendingError::PriceFeedMissing)?;
-                if now.saturating_sub(price.reported_at) > self.price_max_age {
-                    return Err(LendingError::PriceFeedStale);
-                }
-                total_current_value = total_current_value.saturating_add(price.value);
-            }
-
                 let current_ltv = (total_debt * 10000) / total_current_value.max(1);
                 let health_factor_drops = current_ltv > effective_threshold;
 
