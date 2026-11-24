@@ -1,8 +1,9 @@
+
 //! Test double for an external contract interface.
 //!
 //! The adapter under test only depends on this small trait, mirroring how a
-//! real cross-contract call is wrapped by an ink! wrapper contract. The mock is
-//! deliberately deterministic: no randomness, no clock and no global state.
+//! real cross-contract call is wrapped by an ink! wrapper contract. The mock
+//! remains deterministic: no randomness, clock, or global state is involved.
 
 use ink::prelude::string::String;
 use ink::prelude::vec::Vec;
@@ -15,19 +16,22 @@ pub enum ExternalContractError {
     ContractReturnedError,
     /// The caller is not the owner of the external contract.
     Unauthorized,
-    /// The requested API version is not served by this contract.
+    /// The requested API version is not supported.
     UnsupportedVersion,
 }
 
 /// Minimal ABI shared by every external contract the adapter can wrap.
 pub trait ExternalContractInterface {
-    /// Semantic version advertised by the external contract (for example `v1.2`).
+    /// Returns the semantic API version advertised by the contract.
     fn api_version(&self) -> String;
-    /// Account allowed to perform mutating calls.
+
+    /// Returns the account authorized to perform mutating calls.
     fn owner(&self) -> AccountId;
-    /// Read-only call against the external contract.
+
+    /// Reads a value associated with the supplied key.
     fn view_value(&self, key: u64) -> Result<u128, ExternalContractError>;
-    /// Mutating call against the external contract.
+
+    /// Writes a value associated with the supplied key.
     fn write_value(
         &mut self,
         key: u64,
@@ -47,6 +51,7 @@ pub struct MockExternalContract {
 }
 
 impl MockExternalContract {
+    /// Creates a new mock external contract.
     pub fn new(owner: AccountId, api_version: &str) -> Self {
         Self {
             api_version: String::from(api_version),
@@ -57,14 +62,21 @@ impl MockExternalContract {
         }
     }
 
-    /// Make every view call fail with [`ExternalContractError::ContractReturnedError`].
+    /// Configures all subsequent view calls to return a contract error.
     pub fn fail_next_view(&mut self) {
         self.fail_view = true;
     }
 
-    /// Make every write call fail with [`ExternalContractError::ContractReturnedError`].
+    /// Configures all subsequent write calls to return a contract error.
     pub fn fail_next_write(&mut self) {
         self.fail_write = true;
+    }
+
+    /// Finds an entry by key and returns its position.
+    fn find_entry(&self, key: u64) -> Option<usize> {
+        self.entries
+            .iter()
+            .position(|(stored_key, _)| *stored_key == key)
     }
 }
 
@@ -81,12 +93,11 @@ impl ExternalContractInterface for MockExternalContract {
         if self.fail_view {
             return Err(ExternalContractError::ContractReturnedError);
         }
+
         Ok(self
-            .entries
-            .iter()
-            .find(|(stored_key, _)| *stored_key == key)
-            .map(|(_, value)| *value)
-            .unwrap_or(0))
+            .find_entry(key)
+            .map(|index| self.entries[index].1)
+            .unwrap_or_default())
     }
 
     fn write_value(
@@ -98,14 +109,16 @@ impl ExternalContractInterface for MockExternalContract {
         if self.fail_write {
             return Err(ExternalContractError::ContractReturnedError);
         }
+
         if caller != self.owner {
             return Err(ExternalContractError::Unauthorized);
         }
-        if let Some(entry) = self.entries.iter_mut().find(|(stored_key, _)| *stored_key == key) {
-            entry.1 = value;
-        } else {
-            self.entries.push((key, value));
+
+        match self.find_entry(key) {
+            Some(index) => self.entries[index].1 = value,
+            None => self.entries.push((key, value)),
         }
+
         Ok(())
     }
 }
